@@ -1,14 +1,20 @@
-# [Keyviz](https://keyviz.org)
+# Keyviz 鍵盤按鍵顯示器（支援多螢幕）
 
 <div>
-   <img src="https://img.shields.io/github/v/release/mulaRahul/keyviz?style=flat-square" alt="Releases">
-   <img src="https://img.shields.io/github/downloads/mulaRahul/keyviz/total?style=flat-square" alt="Downloads">
-   <img src="https://img.shields.io/github/stars/mulaRahul/keyviz?style=flat-square" alt="Stars">
-   <img src="https://img.shields.io/github/license/mulaRahul/keyviz?style=flat-square" alt="License">
+   <img src="https://img.shields.io/github/v/release/harmonica80/keyviz-multi-monitor?style=flat-square" alt="Releases">
+   <img src="https://img.shields.io/github/downloads/harmonica80/keyviz-multi-monitor/total?style=flat-square" alt="Downloads">
+   <img src="https://img.shields.io/github/stars/harmonica80/keyviz-multi-monitor?style=flat-square" alt="Stars">
+   <img src="https://img.shields.io/github/license/harmonica80/keyviz-multi-monitor?style=flat-square" alt="License">
    <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey?style=flat-square" alt="Platform Support">
 </div>
 
 Keyviz is a **free and open-source** tool that visualizes your keypresses and mouse actions in real-time. Let your audience know what handy shortcuts you're pressing during tutorials, presentations, collaborations, or whenever you need.
+
+This portable build also includes an English / Traditional Chinese language
+switch for the settings interface.
+
+On Windows, the visualization uses a compact, click-through overlay that grows
+only to the size of the displayed keycaps instead of covering an entire monitor.
 
 ## ⌨️ Keypress & 🖱️ Mouse Actions
 Along with normal keys, you can also visualize mouse actions like <kbd>Cmd</kbd> + <kbd>Click</kbd>, <kbd>Alt</kbd> + <kbd>Drag</kbd>, etc.
@@ -38,7 +44,7 @@ Don't settle for defaults. Every aspect of the visualization is under your contr
 ## 📥 Installation
 
 ### Windows & macOS
-You can download the latest version of Keyviz from the **[GitHub Releases](https://github.com/mulaRahul/keyviz/releases)** page.
+You can download the latest version of Keyviz from the **[GitHub Releases](https://github.com/harmonica80/keyviz-multi-monitor/releases)** page.
 
 *   **Windows:** Download the `.msi` installer, run it, and follow the steps.
 *   **macOS:** Download the `.dmg`. 
@@ -56,8 +62,8 @@ If you want to contribute or build the latest features from the source, ensure y
 
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/mulaRahul/keyviz.git
-    cd keyviz
+    git clone https://github.com/harmonica80/keyviz-multi-monitor.git
+    cd keyviz-multi-monitor
     ```
 
 2.  **Install dependencies:**
@@ -69,6 +75,14 @@ If you want to contribute or build the latest features from the source, ensure y
     ```bash
     npx tauri build
     ```
+
+4.  **Build a portable Windows executable without an installer:**
+    ```bash
+    npm run build:portable
+    ```
+    The single executable is written to
+    `src-tauri/target/release/keyviz.exe`. See [PORTABLE.md](PORTABLE.md) for
+    details.
 
 <br/>
 

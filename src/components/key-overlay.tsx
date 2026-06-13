@@ -1,10 +1,11 @@
 import { easeInQuint, easeOutQuint } from "@/lib/utils";
 import { useKeyEvent } from "@/stores/key_event";
 import { useKeyStyle } from "@/stores/key_style";
-import { alignmentForColumn, alignmentForRow } from "@/types/style";
 import { AnimatePresence, motion, Variants } from "motion/react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { Keycap } from "./keycaps";
+import { invoke } from "@tauri-apps/api/core";
+import { modernKeycapThemes } from "./keycaps/modern";
 
 
 const fadeVariants: Variants = {
@@ -13,6 +14,7 @@ const fadeVariants: Variants = {
 }
 
 export const KeyOverlay = () => {
+    const containerRef = useRef<HTMLDivElement>(null);
     const pressedKeys = useKeyEvent(state => state.pressedKeys);
     const groups = useKeyEvent(state => state.groups);
     const showHistory = useKeyEvent(state => state.showEventHistory);
@@ -21,26 +23,23 @@ export const KeyOverlay = () => {
     const text = useKeyStyle(state => state.text);
     const border = useKeyStyle(state => state.border);
     const background = useKeyStyle(state => state.background);
-
-    const alignment = appearance.flexDirection === "row"
-        ? alignmentForRow[appearance.alignment]
-        : alignmentForColumn[appearance.alignment];
+    const safePadding = Math.max(10, Math.ceil(text.size * 0.35));
+    const separatorColor = modernKeycapThemes[appearance.style].key.color;
 
     const containerStyle = {
         flexDirection: appearance.flexDirection,
-        paddingBlock: appearance.marginY,
-        paddingInline: appearance.marginX,
-        alignItems: alignment.alignItems,
-        justifyContent: alignment.justifyContent,
         gap: text.size * 0.5,
+        padding: safePadding,
+        boxSizing: "content-box" as const,
     };
 
     const groupStyle = {
         display: "flex",
-        columnGap: appearance.style === "minimal" ? text.size * 0.15 : text.size * 0.3,
+        alignItems: "center",
+        columnGap: text.size * 0.35,
         ...(background.enabled && {
             paddingInline: text.size * 0.4,
-            paddingBlock: appearance.style === "minimal" ? text.size * 0.25 : text.size * 0.4,
+            paddingBlock: text.size * 0.4,
             background: background.color,
             borderRadius: border.radius * (text.size * 1.75),
         }),
@@ -73,22 +72,70 @@ export const KeyOverlay = () => {
         }
     }, [appearance.animation, text.size]);
 
+    useEffect(() => {
+        const container = containerRef.current;
+        if (!container) return;
+
+        let animationFrame = 0;
+        const updateWindow = () => {
+            cancelAnimationFrame(animationFrame);
+            animationFrame = requestAnimationFrame(() => {
+                const rect = container.getBoundingClientRect();
+                invoke("update_overlay_window", {
+                    width: Math.ceil(rect.width),
+                    height: Math.ceil(rect.height),
+                    alignment: appearance.alignment,
+                    marginX: appearance.marginX,
+                    marginY: appearance.marginY,
+                }).catch((error) => {
+                    console.error("Failed to update overlay window:", error);
+                });
+            });
+        };
+
+        const observer = new ResizeObserver(updateWindow);
+        observer.observe(container);
+        window.addEventListener("keyviz-monitor-changed", updateWindow);
+        updateWindow();
+
+        return () => {
+            cancelAnimationFrame(animationFrame);
+            observer.disconnect();
+            window.removeEventListener("keyviz-monitor-changed", updateWindow);
+        };
+    }, [
+        appearance.alignment,
+        appearance.flexDirection,
+        appearance.marginX,
+        appearance.marginY,
+        appearance.monitor,
+        appearance.style,
+        groups,
+        text.size,
+    ]);
+
     if (appearance.animation === "none") {
         return (
-            <div className="w-full h-full flex" style={containerStyle}>
+            <div
+                ref={containerRef}
+                className="inline-flex"
+                style={containerStyle}
+            >
                 {groups.map((group, groupIndex) => (
                     <div
                         key={group.createdAt}
                         style={groupStyle}
-                        className={background.enabled ? "overflow-hidden" : ""}
+                        className=""
                     >
                         {group.keys.map((event, keyIndex) => (
-                            <Keycap
-                                key={event.name}
-                                event={event}
-                                lastest={group.keys.length - 1 === keyIndex}
-                                isPressed={groups.length - 1 === groupIndex && event.in(pressedKeys)}
-                            />
+                            <div key={event.name} className="inline-flex items-center" style={{ gap: text.size * 0.35 }}>
+                                {keyIndex > 0 && <span style={{ fontSize: text.size * 0.7, color: separatorColor }}>+</span>}
+                                <Keycap
+                                    event={event}
+                                    lastest={group.keys.length - 1 === keyIndex}
+                                    isPressed={groups.length - 1 === groupIndex && event.in(pressedKeys)}
+                                />
+                            </div>
                         ))}
                     </div>
                 ))}
@@ -97,7 +144,11 @@ export const KeyOverlay = () => {
     }
 
     return (
-        <div className="w-full h-full flex" style={containerStyle}>
+        <div
+            ref={containerRef}
+            className="inline-flex"
+            style={containerStyle}
+        >
             <AnimatePresence>
                 {groups.map((group, groupIndex) => (
                     <motion.div
@@ -108,7 +159,7 @@ export const KeyOverlay = () => {
                         animate="visible"
                         exit="hidden"
                         style={groupStyle}
-                        className={background.enabled ? "overflow-hidden" : ""}
+                        className=""
                         transition={{
                             ease: [easeOutQuint, easeInQuint],
                             duration: showHistory ? appearance.animationDuration : 0
@@ -129,11 +180,14 @@ export const KeyOverlay = () => {
                                         layout: { duration: appearance.animationDuration / 3, ease: easeOutQuint },
                                     }}
                                 >
-                                    <Keycap
-                                        event={event}
-                                        lastest={group.keys.length - 1 === keyIndex}
-                                        isPressed={groups.length - 1 === groupIndex && event.in(pressedKeys)}
-                                    />
+                                    <div className="inline-flex items-center" style={{ gap: text.size * 0.35 }}>
+                                        {keyIndex > 0 && <span style={{ fontSize: text.size * 0.7, color: separatorColor }}>+</span>}
+                                        <Keycap
+                                            event={event}
+                                            lastest={group.keys.length - 1 === keyIndex}
+                                            isPressed={groups.length - 1 === groupIndex && event.in(pressedKeys)}
+                                        />
+                                    </div>
                                 </motion.div>
                             ))}
                         </AnimatePresence>

@@ -20,6 +20,8 @@ export interface KeyEventState {
     mouse: {
         x: number;
         y: number;
+        screenX: number;
+        screenY: number;
         wheel: number;
         lastScrollAt?: number;
         dragStart?: { x: number; y: number; };
@@ -67,7 +69,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
     (set, get) => ({
         pressedKeys: <string[]>[],
         pressedMouseButton: null,
-        mouse: { x: 0, y: 0, wheel: 0, dragging: false },
+        mouse: { x: 0, y: 0, screenX: 0, screenY: 0, wheel: 0, dragging: false },
         groups: <KeyGroup[]>[],
         listening: true,
         settingsOpen: false,
@@ -229,7 +231,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
             const last = groups.length - 1;
 
             const kIndex = last >= 0 ? groups[last].keys.findIndex(key => key.name === event.name) : undefined;
-            if (kIndex && kIndex >= 0) {
+            if (kIndex !== undefined && kIndex >= 0) {
                 groups[last].keys[kIndex].lastPressedAt = Date.now();
                 set({ pressedKeys, groups });
             } else {
@@ -242,6 +244,8 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
             // update position
             mouse.x = event.x;
             mouse.y = event.y;
+            mouse.screenX = event.screen_x;
+            mouse.screenY = event.screen_y;
             // check dragging
             if (mouse.dragStart && !mouse.dragging) {
                 const dx = mouse.x - mouse.dragStart.x;
@@ -367,18 +371,17 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
                 set({ mouse: { ...state.mouse, wheel: 0, lastScrollAt: undefined } });
             }
 
-            // don't remove keys while styling
-            if (state.settingsOpen) return;
-
             // remove keys that have exceeded linger duration
             for (const group of state.groups) {
                 const updatedKeys = group.keys.filter((key) => {
+                    const elapsed = now - key.lastPressedAt;
+                    const pressedEventTimeout = Math.max(state.lingerDurationMs * 2, 10_000);
                     // keep key if
                     return (
-                        // is pressed
-                        state.pressedKeys.includes(key.name) ||
+                        // is pressed and has not exceeded the missed-release safeguard
+                        (state.pressedKeys.includes(key.name) && elapsed < pressedEventTimeout) ||
                         // within linger duration 
-                        now - key.lastPressedAt < state.lingerDurationMs
+                        elapsed < state.lingerDurationMs
                     );
                 })
                 if (updatedKeys.length !== group.keys.length) {

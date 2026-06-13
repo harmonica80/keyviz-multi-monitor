@@ -5,6 +5,7 @@ import { HashRouter, Route, Routes } from "react-router-dom";
 import { ThemeProvider } from "./components/theme-provider";
 import { Toaster } from "./components/ui/sonner";
 import { Visualization } from "./pages/visualization";
+import { CursorOverlay } from "./pages/cursor";
 
 const Settings = lazy(() => import("./pages/settings"));
 
@@ -14,6 +15,7 @@ function App() {
       <Suspense fallback={<div>Loading...</div>}>
         <Routes>
           <Route path="/" element={<Visualization />} />
+          <Route path="/cursor" element={<CursorOverlay />} />
           <Route path="/settings" element={
             <ThemeProvider>
               <Settings />

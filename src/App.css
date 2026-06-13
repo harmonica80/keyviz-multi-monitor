@@ -139,6 +139,36 @@
   }
 }
 
+html.visualization-page,
+html.visualization-page body,
+html.visualization-page #root,
+body.visualization-page,
+#root.visualization-page {
+  background: transparent !important;
+  background-color: transparent !important;
+}
+
+html.cursor-page,
+html.cursor-page body,
+html.cursor-page #root,
+body.cursor-page,
+#root.cursor-page {
+  width: 100%;
+  height: 100%;
+  min-width: 100%;
+  min-height: 100%;
+}
+
 body {
-  background-color: transparent;
+  margin: 0;
+  overflow: hidden;
+}
+
+html,
+body,
+#root {
+  width: max-content;
+  min-width: 0;
+  height: max-content;
+  min-height: 0;
 }

@@ -20,6 +20,8 @@ export interface MouseMoveEvent {
   type: "MouseMoveEvent";
   x: number;
   y: number;
+  screen_x: number;
+  screen_y: number;
 }
 
 export interface MouseWheelEvent {

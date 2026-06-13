@@ -6,8 +6,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { toast } from "sonner";
+import { translate, useLocale } from "@/lib/i18n";
 
 export const KEY_STYLE_STORE = "key_style_store";
+export type KeycapStyle = "clean" | "outline" | "raised" | "dark" | "retro" | "mint" | "rose";
 
 export interface AppearanceSettings {
     monitor: string | null;
@@ -17,7 +19,7 @@ export interface AppearanceSettings {
     marginY: number;
     animation: "none" | "fade" | "zoom" | "float" | "slide";
     animationDuration: number;
-    style: "minimal" | "laptop" | "lowprofile" | "pbt";
+    style: KeycapStyle;
 }
 
 export interface LayoutSettings {
@@ -110,7 +112,7 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
             marginY: 100,
             animation: "fade",
             animationDuration: 0.25,
-            style: "lowprofile",
+            style: "clean",
         },
         layout: {
             showIcon: true,
@@ -144,7 +146,7 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
             radius: 0.5,
         },
         background: {
-            enabled: true,
+            enabled: false,
             color: "#ffffff99",
         },
         mouse: {
@@ -169,11 +171,12 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
         setMouse: (mouse) => set((state) => ({ mouse: { ...state.mouse, ...mouse } })),
 
         import: async () => {
+            const t = (key: string) => translate(useLocale.getState().locale, key);
             try {
                 const filePath = await open({
                     multiple: false,
                     filters: [{
-                        name: 'JSON Files',
+                        name: t('JSON Files'),
                         extensions: ['json']
                     }]
                 });
@@ -187,7 +190,7 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
                     !parsedData.modifier || !parsedData.text || !parsedData.border ||
                     !parsedData.background || !parsedData.mouse
                 ) {
-                    toast.warning("Invalid file format", { description: filePath });
+                    toast.warning(t("Invalid file format"), { description: filePath });
                     return;
                 }
                 set(() => ({
@@ -200,14 +203,15 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
                     background: parsedData.background,
                     mouse: parsedData.mouse,
                 }));
-                toast.success("Imported successfully", { description: filePath });
+                toast.success(t("Imported successfully"), { description: filePath });
             } catch (err) {
-                toast.error("Error importing file", {
+                toast.error(t("Error importing file"), {
                     description: err instanceof Error ? err.message : String(err),
                 })
             }
         },
         export: async () => {
+            const t = (key: string) => translate(useLocale.getState().locale, key);
             const state = get();
             const exportData: KeyStyleState = {
                 appearance: state.appearance,
@@ -222,13 +226,13 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
             try {
                 const filePath = await save({
                     defaultPath: "key_style.json",
-                    filters: [{ name: "JSON Files", extensions: ["json"] }],
+                    filters: [{ name: t("JSON Files"), extensions: ["json"] }],
                 });
                 if (!filePath) return;
                 await writeTextFile(filePath, JSON.stringify(exportData, null, 2));
-                toast.success("Exported successfully", { description: filePath });
+                toast.success(t("Exported successfully"), { description: filePath });
             } catch (err) {
-                toast.error("Error exporting file", {
+                toast.error(t("Error exporting file"), {
                     description: err instanceof Error ? err.message : String(err),
                 })
             }
@@ -237,6 +241,21 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
     (config) => persist(config, {
         name: KEY_STYLE_STORE,
         storage: createJSONStorage(() => tauriStorage),
+        version: 2,
+        migrate: (persistedState, version) => {
+            const state = persistedState as KeyStyleState;
+            return {
+                ...state,
+                appearance: {
+                    ...state.appearance,
+                    style: version < 2 ? "clean" : state.appearance.style,
+                },
+                background: {
+                    ...state.background,
+                    enabled: version < 1 ? false : state.background.enabled,
+                },
+            };
+        },
     }),
 );
 

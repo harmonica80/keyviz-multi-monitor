@@ -13,13 +13,30 @@
     "windows": [
       {
         "label": "main",
-        "title": "Keyviz",
+        "title": "Keyviz 鍵盤按鍵顯示器（支援多螢幕）",
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "decorations": false,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true,
         "transparent": true,
+        "backgroundColor": "#00000000",
+        "focus": false,
+        "focusable": false,
+        "visible": false
+      },
+      {
+        "label": "cursor",
+        "title": "Keyviz Cursor",
+        "url": "index.html#/cursor",
+        "width": 1,
+        "height": 1,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": "#00000000",
+        "shadow": false,
         "focus": false,
         "focusable": false,
         "visible": false

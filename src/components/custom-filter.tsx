@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { useKeyEvent } from "@/stores/key_event";
 import { RawKey } from "@/types/event";
 import { createContext, useContext, useEffect, useRef, useState } from "react";
+import { useTranslation } from "@/lib/i18n";
 
 // Context for shared state
 interface KeyboardContextType {
@@ -103,6 +104,7 @@ const ButtonKey: React.FC<{
 };
 
 export const CustomFilter = () => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<'Keyboard' | 'Mouse' | 'Numpad'>('Keyboard');
   const [isCtrlHeld, setIsCtrlHeld] = useState(false);
   const [hoveredKey, setHoveredKey] = useState<string | undefined>(undefined);
@@ -310,9 +312,9 @@ export const CustomFilter = () => {
           value={activeTab}
           onValueChange={(value) => setActiveTab(value as 'Keyboard' | 'Mouse' | 'Numpad')}
         >
-          <ToggleGroupItem value="Keyboard">Keyboard</ToggleGroupItem>
-          <ToggleGroupItem value="Mouse">Mouse</ToggleGroupItem>
-          <ToggleGroupItem value="Numpad">Numpad</ToggleGroupItem>
+          <ToggleGroupItem value="Keyboard">{t("Keyboard")}</ToggleGroupItem>
+          <ToggleGroupItem value="Mouse">{t("Mouse")}</ToggleGroupItem>
+          <ToggleGroupItem value="Numpad">{t("Numpad")}</ToggleGroupItem>
         </ToggleGroup>
       </div>
     </KeyboardContext.Provider>

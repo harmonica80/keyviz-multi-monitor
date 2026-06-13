@@ -4,7 +4,20 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Keyviz</title>
+    <title>Keyviz 鍵盤按鍵顯示器（支援多螢幕）</title>
+    <style>
+      html,
+      body,
+      #root {
+        background: transparent;
+        background-color: transparent;
+      }
+    </style>
+    <script>
+      if (window.location.hash !== "#/settings") {
+        document.documentElement.classList.add("visualization-page");
+      }
+    </script>
   </head>
 
   <body>

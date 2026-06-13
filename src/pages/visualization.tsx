@@ -1,5 +1,4 @@
 import { KeyOverlay } from "@/components/key-overlay";
-import { MouseOverlay } from "@/components/mouse-overlay";
 import { KEY_EVENT_STORE, KeyEventStore, useKeyEvent } from "@/stores/key_event";
 import { KEY_STYLE_STORE, KeyStyleStore, useKeyStyle } from '@/stores/key_style';
 import { listenForUpdates } from '@/stores/sync';
@@ -15,6 +14,18 @@ export function Visualization() {
 
   // listening for input events
   const [isListening, setIsListening] = useState(true);
+
+  useEffect(() => {
+    document.documentElement.classList.add("visualization-page");
+    document.documentElement.style.backgroundColor = "transparent";
+    document.body.style.backgroundColor = "transparent";
+
+    return () => {
+      document.documentElement.classList.remove("visualization-page");
+      document.documentElement.style.removeProperty("background-color");
+      document.body.style.removeProperty("background-color");
+    };
+  }, []);
 
   useEffect(() => {
     const unlistenPromises = [
@@ -42,7 +53,8 @@ export function Visualization() {
     const set_monitor = async () => {
       if (!monitor) return;
       try {
-        await invoke("set_main_window_monitor", { monitorName: monitor });
+        await invoke("set_main_window_monitor", { monitorSelector: monitor });
+        window.dispatchEvent(new Event("keyviz-monitor-changed"));
       } catch (error) {
         console.error("Failed to set monitor:", error);
       }
@@ -52,8 +64,7 @@ export function Visualization() {
 
   if (!isListening) return null;
 
-  return <div className="w-screen h-screen relative overflow-hidden">
-    <MouseOverlay />
+  return <div className="inline-flex overflow-visible">
     <KeyOverlay />
   </div>;
 }
