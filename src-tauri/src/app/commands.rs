@@ -1,13 +1,12 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::{Emitter, Manager};
+use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
 use crate::app::state::{AppState, TrayMenuItems};
 use crate::app::window::{
-    monitor_identifier, position_cursor_window, position_overlay_window, set_window_monitor,
-    OverlayAlignment,
+    monitor_identifier, position_overlay_window, set_window_monitor, OverlayAlignment,
 };
 
 #[tauri::command]
@@ -25,10 +24,11 @@ pub fn set_toggle_shortcut(app: tauri::AppHandle, shortcut: Vec<String>) {
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CursorSettingsPayload {
-    show_clicks: bool,
     keep_highlight: bool,
     size: f64,
     color: String,
+    opacity: f64,
+    thickness: f64,
 }
 
 #[tauri::command]
@@ -36,10 +36,11 @@ pub fn get_cursor_settings(app: tauri::AppHandle) -> Result<CursorSettingsPayloa
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|error| error.to_string())?;
     Ok(CursorSettingsPayload {
-        show_clicks: app_state.cursor_show_clicks,
         keep_highlight: app_state.cursor_keep_highlight,
         size: app_state.cursor_size,
         color: app_state.cursor_color.clone(),
+        opacity: app_state.cursor_opacity,
+        thickness: app_state.cursor_thickness,
     })
 }
 
@@ -69,6 +70,13 @@ pub fn set_tray_locale(app: tauri::AppHandle, locale: String) -> Result<(), Stri
             "\u{8a2d}\u{5b9a}"
         } else {
             "Settings"
+        })
+        .map_err(|error| error.to_string())?;
+    tray.drawing
+        .set_text(if is_chinese {
+            "\u{87a2}\u{5e55}\u{7e6a}\u{5716}"
+        } else {
+            "Screen Drawing"
         })
         .map_err(|error| error.to_string())?;
     tray.quit
@@ -105,58 +113,35 @@ pub fn update_overlay_window(
 }
 
 #[tauri::command]
-pub fn update_cursor_window(
-    app: tauri::AppHandle,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
-    visible: bool,
-) -> Result<(), String> {
-    let window = app
-        .get_webview_window("cursor")
-        .ok_or_else(|| "Cursor window is unavailable".to_string())?;
-
-    position_cursor_window(&window, x, y, width.min(height) - 24.0, visible)
-}
-
-#[tauri::command]
 pub fn set_cursor_settings(
     app: tauri::AppHandle,
-    show_clicks: bool,
     keep_highlight: bool,
     size: f64,
     color: String,
+    opacity: f64,
+    thickness: f64,
 ) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
-    let (x, y, visible) = {
+    let (cursor_overlay, x, y, visible) = {
         let mut app_state = state.lock().map_err(|error| error.to_string())?;
-        app_state.cursor_show_clicks = show_clicks;
         app_state.cursor_keep_highlight = keep_highlight;
         app_state.cursor_size = size;
         app_state.cursor_color = color.clone();
+        app_state.cursor_opacity = opacity;
+        app_state.cursor_thickness = thickness;
         app_state.cursor_update_pending = true;
-        (app_state.cursor_x, app_state.cursor_y, keep_highlight)
+        (
+            app_state.cursor_overlay.clone(),
+            app_state.cursor_x,
+            app_state.cursor_y,
+            keep_highlight,
+        )
     };
 
-    if let Some(window) = app.get_webview_window("cursor") {
-        position_cursor_window(&window, x, y, size, visible)?;
-        let mut app_state = state.lock().map_err(|error| error.to_string())?;
-        app_state.cursor_window_visible = visible;
-        app_state.cursor_update_pending = false;
-    }
-
-    app.emit_to(
-        "cursor",
-        "cursor-settings",
-        CursorSettingsPayload {
-            show_clicks,
-            keep_highlight,
-            size,
-            color,
-        },
-    )
-    .map_err(|error| error.to_string())?;
+    cursor_overlay.update(x, y, size, &color, opacity, thickness, visible);
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.cursor_window_visible = visible;
+    app_state.cursor_update_pending = false;
 
     Ok(())
 }

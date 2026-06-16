@@ -1,11 +1,14 @@
-use std::{sync::Mutex, thread, time::Duration};
+use std::{
+    sync::Mutex,
+    thread,
+    time::{Duration, Instant},
+};
 
 use rdev::{listen, Button, EventType};
 use serde::Serialize;
 use tauri::{menu::MenuItem, AppHandle, Emitter, Manager, Wry};
 
 use crate::app::state::AppState;
-use crate::app::window::position_cursor_window;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -100,6 +103,12 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 app_state.pressed_keys.retain(|k| k != &key_name);
             }
 
+            if let EventType::MouseMove { x, y } = event.event_type {
+                app_state.cursor_x = x;
+                app_state.cursor_y = y;
+                app_state.cursor_update_pending = true;
+            }
+
             // emit event if listening
             if !app_state.listening {
                 return;
@@ -121,30 +130,11 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     button: map_mouse_button(button),
                     pressed: false,
                 }),
-                EventType::MouseMove { x, y } => {
-                    app_state.cursor_x = x;
-                    app_state.cursor_y = y;
-                    app_state.cursor_update_pending = true;
-                    return;
-                }
+                EventType::MouseMove { .. } => return,
                 EventType::Wheel { delta_x, delta_y } => {
                     Some(InputEvent::MouseWheelEvent { delta_x, delta_y })
                 }
             };
-
-            match event.event_type {
-                EventType::ButtonPress(_) => {
-                    app_state.cursor_pressed = true;
-                    app_state.cursor_click_until =
-                        Some(std::time::Instant::now() + Duration::from_millis(220));
-                    app_state.cursor_update_pending = true;
-                }
-                EventType::ButtonRelease(_) => {
-                    app_state.cursor_pressed = false;
-                    app_state.cursor_update_pending = true;
-                }
-                _ => {}
-            }
 
             app_handle.emit("input-event", input_event).unwrap();
         }) {
@@ -154,6 +144,8 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
 }
 
 fn start_cursor_updater(app_handle: AppHandle) {
+    let mut last_refresh = Instant::now() - Duration::from_secs(1);
+
     thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(33));
 
@@ -162,32 +154,27 @@ fn start_cursor_updater(app_handle: AppHandle) {
             let Ok(mut app_state) = state.lock() else {
                 continue;
             };
-            let now = std::time::Instant::now();
-            let click_active = app_state.cursor_show_clicks
-                && app_state
-                    .cursor_click_until
-                    .is_some_and(|deadline| now < deadline);
-            let click_expired = app_state
-                .cursor_click_until
-                .is_some_and(|deadline| now >= deadline);
+            let now = Instant::now();
+            let refresh_due = app_state.cursor_keep_highlight
+                && now.duration_since(last_refresh) >= Duration::from_millis(250);
 
-            if click_expired {
-                app_state.cursor_click_until = None;
-            }
-
-            if !app_state.cursor_update_pending && !click_active && !click_expired {
+            if !app_state.cursor_update_pending && !refresh_due {
                 continue;
             }
 
             app_state.cursor_update_pending = false;
-            let visible = app_state.cursor_keep_highlight || click_active;
+            let visible = app_state.cursor_keep_highlight;
             let visibility_changed = visible != app_state.cursor_window_visible;
             app_state.cursor_window_visible = visible;
             let (offset_x, offset_y) = app_state.monitor_position;
             Some((
+                app_state.cursor_overlay.clone(),
                 app_state.cursor_x,
                 app_state.cursor_y,
                 app_state.cursor_size,
+                app_state.cursor_color.clone(),
+                app_state.cursor_opacity,
+                app_state.cursor_thickness,
                 visible,
                 visibility_changed,
                 offset_x,
@@ -195,14 +182,26 @@ fn start_cursor_updater(app_handle: AppHandle) {
             ))
         };
 
-        let Some((x, y, size, visible, visibility_changed, offset_x, offset_y)) = update else {
+        let Some((
+            cursor_overlay,
+            x,
+            y,
+            size,
+            color,
+            opacity,
+            thickness,
+            visible,
+            visibility_changed,
+            offset_x,
+            offset_y,
+        )) = update
+        else {
             continue;
         };
 
         if visible || visibility_changed {
-            if let Some(window) = app_handle.get_webview_window("cursor") {
-                let _ = position_cursor_window(&window, x, y, size, visible);
-            }
+            cursor_overlay.update(x, y, size, &color, opacity, thickness, visible);
+            last_refresh = Instant::now();
         }
 
         let _ = app_handle.emit(

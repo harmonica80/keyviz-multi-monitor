@@ -35,7 +35,7 @@ const Settings = () => {
                 <div className="flex items-center m-2 mb-2 gap-x-2">
                     <img src="./logo.svg" alt="logo" className="w-8 h-8" />
                     <div className="flex flex-col gap-y-0.5">
-                        <h1 className="text-sm font-semibold">Keyviz 鍵盤按鍵顯示器（支援多螢幕）</h1>
+                        <h1 className="text-sm font-semibold">Keyviz</h1>
                         <p className="text-xs text-gray-400">v{VERSION}</p>
                     </div>
                 </div>

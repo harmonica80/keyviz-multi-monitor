@@ -12,7 +12,7 @@ export const AboutPage = () => {
             <div className="flex flex-col items-center bg-linear-to-b from-secondary to-background py-8">
                 <img className="h-24 w-24" src="./logo.svg" alt="Keyviz" />
                 <h1 className="mb-1 mt-4 text-xl font-semibold">
-                    Keyviz 鍵盤按鍵顯示器（支援多螢幕）
+                    Keyviz 鍵盤按鍵顯示器與螢幕繪圖
                 </h1>
                 <p className="text-center text-sm text-muted-foreground">
                     v{VERSION}

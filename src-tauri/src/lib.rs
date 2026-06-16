@@ -5,13 +5,14 @@ use tauri::{
     include_image,
     menu::{Menu, MenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Emitter, Manager, WebviewWindowBuilder,
+    webview::PageLoadEvent,
+    AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder,
 };
 
 mod app;
 use app::commands::{
     get_cursor_settings, log, set_cursor_settings, set_main_window_monitor, set_toggle_shortcut,
-    set_tray_locale, update_cursor_window, update_overlay_window,
+    set_tray_locale, update_overlay_window,
 };
 use app::event::start_listener;
 use app::state::{AppState, TrayMenuItems};
@@ -26,7 +27,7 @@ fn show_settings_window(app: &AppHandle) {
 
     let webview_url = tauri::WebviewUrl::App("index.html#/settings".into());
     if WebviewWindowBuilder::new(app, "settings", webview_url)
-        .title("Keyviz 鍵盤按鍵顯示器（支援多螢幕）")
+        .title("Keyviz 鍵盤按鍵顯示器與螢幕繪圖")
         .inner_size(800.0, 640.0)
         .min_inner_size(640.0, 480.0)
         .max_inner_size(1000.0, 800.0)
@@ -36,6 +37,408 @@ fn show_settings_window(app: &AppHandle) {
     {
         let _ = app.emit_to("main", "settings-window", true);
     }
+}
+
+fn set_drawing_window_bounds(
+    window: &WebviewWindow,
+    left: i32,
+    top: i32,
+    width: i32,
+    height: i32,
+) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_SHOWWINDOW,
+        };
+
+        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let root_hwnd = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        let target_hwnd = if root_hwnd.0 == 0 { hwnd } else { root_hwnd };
+        let result = unsafe {
+            SetWindowPos(
+                target_hwnd,
+                HWND_TOPMOST,
+                left,
+                top,
+                width,
+                height,
+                SWP_SHOWWINDOW,
+            )
+        };
+        if !result.as_bool() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_position(tauri::PhysicalPosition { x: left, y: top })
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(tauri::PhysicalSize {
+                width: width as u32,
+                height: height as u32,
+            })
+            .map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
+}
+
+fn create_drawing_toolbar(
+    app: &AppHandle,
+    toolbar_x: i32,
+    toolbar_y: i32,
+    toolbar_height: u32,
+) -> Result<(), String> {
+    const TOOLBAR_WIDTH: f64 = 48.0;
+    let toolbar = if let Some(toolbar) = app.get_webview_window("drawing-toolbar") {
+        toolbar
+    } else {
+        let toolbar_url = tauri::WebviewUrl::App("index.html?mode=drawing-toolbar".into());
+        WebviewWindowBuilder::new(app, "drawing-toolbar", toolbar_url)
+            .title("Keyviz Drawing Toolbar")
+            .position(toolbar_x as f64, toolbar_y as f64)
+            .inner_size(TOOLBAR_WIDTH, toolbar_height as f64)
+            .resizable(false)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(false)
+            .build()
+            .map_err(|error| error.to_string())?
+    };
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_SHOWWINDOW,
+        };
+
+        let toolbar_hwnd = HWND(toolbar.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let toolbar_root = unsafe { GetAncestor(toolbar_hwnd, GA_ROOT) };
+        let toolbar_target = if toolbar_root.0 == 0 {
+            toolbar_hwnd
+        } else {
+            toolbar_root
+        };
+        let toolbar_width = (TOOLBAR_WIDTH * toolbar.scale_factor().unwrap_or(1.0)).round() as i32;
+        let result = unsafe {
+            SetWindowPos(
+                toolbar_target,
+                HWND_TOPMOST,
+                toolbar_x,
+                toolbar_y,
+                toolbar_width,
+                toolbar_height as i32,
+                SWP_SHOWWINDOW,
+            )
+        };
+        if !result.as_bool() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+
+        let toolbar_handle = toolbar_target.0;
+        std::thread::spawn(move || {
+            for delay in [100, 400] {
+                std::thread::sleep(std::time::Duration::from_millis(delay));
+                unsafe {
+                    let _ = SetWindowPos(
+                        HWND(toolbar_handle),
+                        HWND_TOPMOST,
+                        toolbar_x,
+                        toolbar_y,
+                        toolbar_width,
+                        toolbar_height as i32,
+                        SWP_SHOWWINDOW,
+                    );
+                }
+            }
+        });
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    toolbar.show().map_err(|error| error.to_string())?;
+
+    toolbar.set_focus().map_err(|error| error.to_string())
+}
+
+fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
+    let toolbar = app
+        .get_webview_window("drawing-toolbar")
+        .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+    if app.get_webview_window("drawing").is_none() {
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
+            SWP_NOSIZE, SWP_SHOWWINDOW,
+        };
+
+        let toolbar_hwnd = HWND(toolbar.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let toolbar_root = unsafe { GetAncestor(toolbar_hwnd, GA_ROOT) };
+        let toolbar_target = if toolbar_root.0 == 0 {
+            toolbar_hwnd
+        } else {
+            toolbar_root
+        };
+
+        let result = unsafe {
+            SetWindowPos(
+                toolbar_target,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+            )
+        };
+        if !result.as_bool() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    toolbar.show().map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
+fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
+    let monitors = app
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
+    if monitors.is_empty() {
+        return Err("No monitor is available".to_string());
+    }
+
+    let left = monitors
+        .iter()
+        .map(|monitor| monitor.position().x)
+        .min()
+        .unwrap_or(0);
+    let top = monitors
+        .iter()
+        .map(|monitor| monitor.position().y)
+        .min()
+        .unwrap_or(0);
+    let right = monitors
+        .iter()
+        .map(|monitor| monitor.position().x + monitor.size().width as i32)
+        .max()
+        .unwrap_or(1);
+    let bottom = monitors
+        .iter()
+        .map(|monitor| monitor.position().y + monitor.size().height as i32)
+        .max()
+        .unwrap_or(1);
+    let primary = app
+        .primary_monitor()
+        .map_err(|error| error.to_string())?
+        .or_else(|| monitors.first().cloned())
+        .ok_or_else(|| "No primary monitor is available".to_string())?;
+    let webview_url = tauri::WebviewUrl::App("index.html?mode=drawing-canvas".into());
+    let drawing_width = right - left;
+    let drawing_height = bottom - top;
+    let toolbar_x = primary.position().x + 8;
+    let toolbar_y = primary.position().y + 8;
+    let toolbar_height = (primary.size().height.saturating_sub(16)).min(820);
+
+    create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height)?;
+
+    let window = if let Some(window) = app.get_webview_window("drawing") {
+        window.show().map_err(|error| error.to_string())?;
+        window
+    } else {
+        WebviewWindowBuilder::new(app, "drawing", webview_url)
+            .title("Keyviz Screen Drawing")
+            .position(left as f64, top as f64)
+            .inner_size(drawing_width as f64, drawing_height as f64)
+            .decorations(false)
+            .transparent(true)
+            .background_color(tauri::window::Color(0, 0, 0, 0))
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .focused(false)
+            .focusable(true)
+            .shadow(false)
+            .on_page_load(move |window, payload| {
+                if payload.event() == PageLoadEvent::Finished {
+                    if let Err(error) =
+                        set_drawing_window_bounds(&window, left, top, drawing_width, drawing_height)
+                    {
+                        eprintln!("Failed to size drawing window after page load: {error}");
+                    }
+                }
+            })
+            .build()
+            .map_err(|error| error.to_string())?
+    };
+
+    if let Err(error) = set_drawing_window_bounds(&window, left, top, drawing_width, drawing_height)
+    {
+        eprintln!("Failed to resize drawing canvas: {error}");
+    }
+    if let Err(error) = window.set_ignore_cursor_events(false) {
+        eprintln!("Failed to enable drawing canvas input: {error}");
+    }
+    keep_drawing_toolbar_above_canvas(app)?;
+
+    Ok(())
+}
+
+#[tauri::command]
+fn open_screen_drawing(app: AppHandle) -> Result<(), String> {
+    show_drawing_window(&app)
+}
+
+#[tauri::command]
+fn close_screen_drawing(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    if let Some(toolbar) = app.get_webview_window("drawing-toolbar") {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, SetWindowLongPtrW, ShowWindow, GA_ROOT, GWLP_HWNDPARENT, SW_HIDE,
+        };
+
+        let toolbar_hwnd = HWND(toolbar.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let toolbar_root = unsafe { GetAncestor(toolbar_hwnd, GA_ROOT) };
+        let toolbar_target = if toolbar_root.0 == 0 {
+            toolbar_hwnd
+        } else {
+            toolbar_root
+        };
+        unsafe {
+            SetWindowLongPtrW(toolbar_target, GWLP_HWNDPARENT, 0);
+            let _ = ShowWindow(toolbar_target, SW_HIDE);
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    if let Some(window) = app.get_webview_window("drawing-toolbar") {
+        let _ = window.hide();
+    }
+
+    if let Some(window) = app.get_webview_window("drawing") {
+        window.close().map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn set_drawing_click_through(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let window = app
+        .get_webview_window("drawing")
+        .ok_or_else(|| "Drawing canvas is unavailable".to_string())?;
+    window
+        .set_ignore_cursor_events(enabled)
+        .map_err(|error| error.to_string())?;
+    keep_drawing_toolbar_above_canvas(&app)
+}
+
+#[tauri::command]
+fn activate_drawing_toolbar(app: AppHandle) -> Result<(), String> {
+    keep_drawing_toolbar_above_canvas(&app)?;
+    let toolbar = app
+        .get_webview_window("drawing-toolbar")
+        .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+    toolbar.set_focus().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn activate_drawing_canvas(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("drawing")
+        .ok_or_else(|| "Drawing canvas is unavailable".to_string())?;
+    window.set_focus().map_err(|error| error.to_string())?;
+    keep_drawing_toolbar_above_canvas(&app)
+}
+
+#[tauri::command]
+fn start_drawing_toolbar_drag(app: AppHandle) -> Result<(), String> {
+    let window = app
+        .get_webview_window("drawing-toolbar")
+        .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+        use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, SendMessageW, GA_ROOT, HTCAPTION, WM_NCLBUTTONDOWN,
+        };
+
+        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        let target = if root.0 == 0 { hwnd } else { root };
+        unsafe {
+            let _ = ReleaseCapture();
+            SendMessageW(
+                target,
+                WM_NCLBUTTONDOWN,
+                WPARAM(HTCAPTION as usize),
+                LPARAM(0),
+            );
+        }
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    window.start_dragging().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
+    let window = app
+        .get_webview_window("drawing-toolbar")
+        .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+    window
+        .set_size(tauri::LogicalSize {
+            width: 48.0,
+            height: height.clamp(120.0, 820.0),
+        })
+        .map_err(|error| error.to_string())?;
+    keep_drawing_toolbar_above_canvas(&app)
+}
+
+#[tauri::command]
+fn resize_drawing_window(app: AppHandle) -> Result<(), String> {
+    let monitors = app
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
+    let window = app
+        .get_webview_window("drawing")
+        .ok_or_else(|| "Drawing window is unavailable".to_string())?;
+    let left = monitors
+        .iter()
+        .map(|monitor| monitor.position().x)
+        .min()
+        .unwrap_or(0);
+    let top = monitors
+        .iter()
+        .map(|monitor| monitor.position().y)
+        .min()
+        .unwrap_or(0);
+    let right = monitors
+        .iter()
+        .map(|monitor| monitor.position().x + monitor.size().width as i32)
+        .max()
+        .unwrap_or(1);
+    let bottom = monitors
+        .iter()
+        .map(|monitor| monitor.position().y + monitor.size().height as i32)
+        .max()
+        .unwrap_or(1);
+    set_drawing_window_bounds(&window, left, top, right - left, bottom - top)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -58,11 +461,6 @@ pub fn run() {
             if let Some(window) = app.get_webview_window("main") {
                 config_window(&window, &mut app_state);
             }
-            if let Some(window) = app.get_webview_window("cursor") {
-                window.set_ignore_cursor_events(true)?;
-                window.eval("window.location.hash = '/cursor';")?;
-            }
-
             // manage app state
             app.manage(Mutex::new(app_state));
 
@@ -94,6 +492,17 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let drawing_item = MenuItem::with_id(
+                app,
+                "drawing",
+                if is_chinese {
+                    "\u{87a2}\u{5e55}\u{7e6a}\u{5716}"
+                } else {
+                    "Screen Drawing"
+                },
+                true,
+                None::<&str>,
+            )?;
             let quit_item = MenuItem::with_id(
                 app,
                 "quit",
@@ -107,6 +516,7 @@ pub fn run() {
             )?;
             app.manage(TrayMenuItems {
                 toggle: toggle_item.clone(),
+                drawing: drawing_item.clone(),
                 settings: settings_item.clone(),
                 quit: quit_item.clone(),
             });
@@ -115,7 +525,10 @@ pub fn run() {
             start_listener(app_handle.clone(), toggle_item.clone());
 
             // setup tray menu
-            let menu = Menu::with_items(app, &[&toggle_item, &settings_item, &quit_item])?;
+            let menu = Menu::with_items(
+                app,
+                &[&toggle_item, &drawing_item, &settings_item, &quit_item],
+            )?;
             let _ = TrayIconBuilder::with_id("keyviz-tray")
                 .icon(Image::from(include_image!("icons/tray.png")))
                 .menu(&menu)
@@ -128,6 +541,11 @@ pub fn run() {
                     }
                     "settings" => {
                         show_settings_window(app);
+                    }
+                    "drawing" => {
+                        if let Err(error) = show_drawing_window(app) {
+                            eprintln!("Failed to open screen drawing: {error}");
+                        }
                     }
                     "quit" => std::process::exit(0),
                     _ => println!("um... what?"),
@@ -156,9 +574,16 @@ pub fn run() {
             set_main_window_monitor,
             set_tray_locale,
             update_overlay_window,
-            update_cursor_window,
             set_cursor_settings,
-            get_cursor_settings
+            get_cursor_settings,
+            open_screen_drawing,
+            close_screen_drawing,
+            set_drawing_click_through,
+            activate_drawing_toolbar,
+            activate_drawing_canvas,
+            start_drawing_toolbar_drag,
+            resize_drawing_toolbar,
+            resize_drawing_window
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

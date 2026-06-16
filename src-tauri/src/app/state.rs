@@ -1,8 +1,8 @@
-use std::time::Instant;
-
 use serde::Deserialize;
-use tauri::{image::Image, include_image, menu::MenuItem, Emitter, Wry};
+use tauri::{image::Image, include_image, menu::MenuItem, Emitter, Manager, Wry};
 use tauri_plugin_store::StoreExt;
+
+use crate::app::native_cursor::NativeCursorOverlay;
 
 #[derive(Default)]
 pub struct AppState {
@@ -15,20 +15,21 @@ pub struct AppState {
     pub monitor_position: (i32, i32),
     pub monitor_size: (u32, u32),
     pub locale: String,
-    pub cursor_show_clicks: bool,
     pub cursor_keep_highlight: bool,
     pub cursor_size: f64,
     pub cursor_color: String,
+    pub cursor_opacity: f64,
+    pub cursor_thickness: f64,
     pub cursor_x: f64,
     pub cursor_y: f64,
-    pub cursor_pressed: bool,
-    pub cursor_click_until: Option<Instant>,
     pub cursor_update_pending: bool,
     pub cursor_window_visible: bool,
+    pub cursor_overlay: NativeCursorOverlay,
 }
 
 pub struct TrayMenuItems {
     pub toggle: MenuItem<Wry>,
+    pub drawing: MenuItem<Wry>,
     pub settings: MenuItem<Wry>,
     pub quit: MenuItem<Wry>,
 }
@@ -37,10 +38,11 @@ impl AppState {
     pub fn new(app: &tauri::AppHandle) -> Self {
         let mut toggle_shortcut = vec!["Shift".to_string(), "F10".to_string()];
         let mut locale = "en".to_string();
-        let mut cursor_show_clicks = false;
         let mut cursor_keep_highlight = false;
         let mut cursor_size = 150.0;
         let mut cursor_color = "#009dff".to_string();
+        let mut cursor_opacity = 100.0;
+        let mut cursor_thickness = 10.0;
 
         // load saved config from store
         if let Ok(store) = app.store("store.json") {
@@ -62,10 +64,11 @@ impl AppState {
             if let Some(value) = store.get("key_style_store") {
                 if let Some(json_str) = value.as_str() {
                     if let Ok(parsed) = serde_json::from_str::<KeyStyleStore>(json_str) {
-                        cursor_show_clicks = parsed.state.mouse.show_clicks;
                         cursor_keep_highlight = parsed.state.mouse.keep_highlight;
                         cursor_size = parsed.state.mouse.size;
                         cursor_color = parsed.state.mouse.color;
+                        cursor_opacity = parsed.state.mouse.opacity;
+                        cursor_thickness = parsed.state.mouse.thickness;
                     }
                 }
             }
@@ -88,16 +91,16 @@ impl AppState {
             monitor_position: (0, 0),
             monitor_size: (1, 1),
             locale,
-            cursor_show_clicks,
             cursor_keep_highlight,
             cursor_size,
             cursor_color,
+            cursor_opacity,
+            cursor_thickness,
             cursor_x: 0.0,
             cursor_y: 0.0,
-            cursor_pressed: false,
-            cursor_click_until: None,
             cursor_update_pending: false,
             cursor_window_visible: false,
+            cursor_overlay: NativeCursorOverlay::new(),
         }
     }
     pub fn toggle_listener(&mut self, app: &tauri::AppHandle, toggle: &MenuItem<Wry>) {
@@ -105,34 +108,33 @@ impl AppState {
 
         if self.listening {
             println!("Listening enabled");
-            toggle
-                .set_text(if self.locale == "zh-TW" {
-                    "\u{505c}\u{6b62}\u{986f}\u{793a}"
-                } else {
-                    "Stop"
-                })
-                .unwrap();
-            app.tray_by_id("keyviz-tray")
-                .unwrap()
-                .set_icon(Some(Image::from(include_image!("icons/tray.png"))))
-                .unwrap();
+            let _ = toggle.set_text(if self.locale == "zh-TW" {
+                "\u{505c}\u{6b62}\u{986f}\u{793a}"
+            } else {
+                "Stop"
+            });
+            if let Some(tray) = app.tray_by_id("keyviz-tray") {
+                let _ = tray.set_icon(Some(Image::from(include_image!("icons/tray.png"))));
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+            }
         } else {
             println!("Listening disabled");
-            toggle
-                .set_text(if self.locale == "zh-TW" {
-                    "\u{958b}\u{59cb}\u{986f}\u{793a}"
-                } else {
-                    "Start"
-                })
-                .unwrap();
-            app.tray_by_id("keyviz-tray")
-                .unwrap()
-                .set_icon(Some(Image::from(include_image!("icons/tray-disabled.png"))))
-                .unwrap();
+            let _ = toggle.set_text(if self.locale == "zh-TW" {
+                "\u{958b}\u{59cb}\u{986f}\u{793a}"
+            } else {
+                "Start"
+            });
+            if let Some(tray) = app.tray_by_id("keyviz-tray") {
+                let _ = tray.set_icon(Some(Image::from(include_image!("icons/tray-disabled.png"))));
+            }
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.hide();
+            }
         }
 
-        app.emit_to("main", "listening-toggle", self.listening)
-            .unwrap();
+        let _ = app.emit_to("main", "listening-toggle", self.listening);
     }
 }
 
@@ -168,8 +170,19 @@ struct KeyStyleState {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CursorStyleState {
-    show_clicks: bool,
     keep_highlight: bool,
     size: f64,
     color: String,
+    #[serde(default = "default_cursor_opacity")]
+    opacity: f64,
+    #[serde(default = "default_cursor_thickness")]
+    thickness: f64,
+}
+
+fn default_cursor_opacity() -> f64 {
+    100.0
+}
+
+fn default_cursor_thickness() -> f64 {
+    10.0
 }

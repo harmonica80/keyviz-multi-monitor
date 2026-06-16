@@ -1,102 +1,99 @@
-# Keyviz 鍵盤按鍵顯示器（支援多螢幕）
+# Keyviz 鍵盤按鍵顯示器與螢幕繪圖
 
-<div>
-   <img src="https://img.shields.io/github/v/release/harmonica80/keyviz-multi-monitor?style=flat-square" alt="Releases">
-   <img src="https://img.shields.io/github/downloads/harmonica80/keyviz-multi-monitor/total?style=flat-square" alt="Downloads">
-   <img src="https://img.shields.io/github/stars/harmonica80/keyviz-multi-monitor?style=flat-square" alt="Stars">
-   <img src="https://img.shields.io/github/license/harmonica80/keyviz-multi-monitor?style=flat-square" alt="License">
-   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey?style=flat-square" alt="Platform Support">
-</div>
+Keyviz 鍵盤按鍵顯示器與螢幕繪圖是一個以
+[mulaRahul/keyviz](https://github.com/mulaRahul/keyviz) 為基礎改造的教學、
+簡報與螢幕錄製輔助工具。這個版本著重於 Windows 免安裝使用、多螢幕按鍵顯示、
+滑鼠游標醒目效果，以及可直接在螢幕上標註的繪圖工具。
 
-Keyviz is a **free and open-source** tool that visualizes your keypresses and mouse actions in real-time. Let your audience know what handy shortcuts you're pressing during tutorials, presentations, collaborations, or whenever you need.
+This project is a customized build based on
+[mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for
+tutorials, presentations, screen recording, and live teaching workflows, with
+portable Windows usage, multi-monitor key visualization, cursor highlighting,
+and on-screen annotation tools.
 
-This portable build also includes an English / Traditional Chinese language
-switch for the settings interface.
+## 功能介紹
 
-On Windows, the visualization uses a compact, click-through overlay that grows
-only to the size of the displayed keycaps instead of covering an entire monitor.
+- 鍵盤按鍵即時顯示，適合教學影片、直播、簡報與操作示範。
+- 支援多螢幕環境，按鍵顯示可在目前螢幕配置下正確呈現。
+- Windows 免安裝單一執行檔，下載後即可執行。
+- 設定介面支援繁體中文與英文切換。
+- 提供多種按鍵外觀樣式，可在設定中預覽並選擇。
+- 滑鼠游標醒目效果，可調整大小、顏色、透明度與線條粗細。
+- 內建螢幕繪圖工具，可使用畫筆、橡皮擦、直線、箭頭、矩形、圓形與文字標註。
+- 工具列可移動，方便在錄影或簡報時避開重要畫面。
 
-## ⌨️ Keypress & 🖱️ Mouse Actions
-Along with normal keys, you can also visualize mouse actions like <kbd>Cmd</kbd> + <kbd>Click</kbd>, <kbd>Alt</kbd> + <kbd>Drag</kbd>, etc.
+## Features
 
-<img src="previews/visualization.png" alt="Keystroke Visualization" width="450">
+- Real-time keyboard visualization for tutorials, live demos, presentations, and
+  screen recording.
+- Multi-monitor support so key overlays display correctly across current screen
+  layouts.
+- Portable Windows single executable; no installer required.
+- Settings UI with Traditional Chinese and English language switching.
+- Multiple keycap styles with visual previews in the settings window.
+- Cursor highlight with adjustable size, color, opacity, and line thickness.
+- Built-in screen drawing tools, including pen, eraser, line, arrow, rectangle,
+  ellipse, and text annotation.
+- Movable drawing toolbar for easier use during recording or presentation.
 
-Display mouse clicks and scroll wheel movements alongside your cursor.
+## 下載與使用
 
-<img src="previews/mouse-indicator.gif" alt="Mouse Indicator" width="450">
+Windows 使用者可直接執行免安裝版：
 
-</br>
+```text
+release/keyviz-portable.exe
+```
 
-## ⚙️ Full Customization
-Don't settle for defaults. Every aspect of the visualization is under your control:
-- **Styling:** Change colors (modifier vs. regular keys), size, layout, border, and background.
-- **Filtering:** Control which keys are shown using hotkey or custom filters.
-- **History:** Keep a visual trail of your recent inputs.
-- **Position:** Move the visualization to any part of your screen.
-- **Animations:** Customize how inputs appear and disappear with preset entry and exit animations.
+程式本身不需要安裝；設定資料會保存在目前 Windows 使用者的應用程式資料目錄中。
 
-</br>
+## Download And Use
 
-<img src="previews/settings.png" alt="Settings Panel" width="600">
+For Windows, run the portable executable directly:
 
-</br>
+```text
+release/keyviz-portable.exe
+```
 
-## 📥 Installation
+No installer is required. User settings are stored in the current Windows user
+profile.
 
-### Windows & macOS
-You can download the latest version of Keyviz from the **[GitHub Releases](https://github.com/harmonica80/keyviz-multi-monitor/releases)** page.
+## 建置方式
 
-*   **Windows:** Download the `.msi` installer, run it, and follow the steps.
-*   **macOS:** Download the `.dmg`. 
-    **Note:** Keyviz requires **Input Monitoring** and **Accessibility** permissions. Enable them here:
-    `Settings > Privacy & Security > Input Monitoring & Accessibility`
+```powershell
+npm install
+npm run build
+npx tauri build --no-bundle
+```
 
-### Linux (x11)
-Keyviz is compatible with Linux using the X11 protocol. Currently, you can try it out by following the build instructions below.
+產生的執行檔位於：
 
-</br>
+```text
+src-tauri\target\release\keyviz.exe
+```
 
-## 🛠️ Build Instructions
+更多免安裝版資訊請參考 [PORTABLE.md](PORTABLE.md)。
 
-If you want to contribute or build the latest features from the source, ensure you have [Node.js](https://nodejs.org/) and [Tauri](https://v2.tauri.app/start) set up on your system.
+## Build
 
-1.  **Clone the repository:**
-    ```bash
-    git clone https://github.com/harmonica80/keyviz-multi-monitor.git
-    cd keyviz-multi-monitor
-    ```
+```powershell
+npm install
+npm run build
+npx tauri build --no-bundle
+```
 
-2.  **Install dependencies:**
-    ```bash
-    npm install
-    ```
+The executable is generated at:
 
-3.  **Build the executable:**
-    ```bash
-    npx tauri build
-    ```
+```text
+src-tauri\target\release\keyviz.exe
+```
 
-4.  **Build a portable Windows executable without an installer:**
-    ```bash
-    npm run build:portable
-    ```
-    The single executable is written to
-    `src-tauri/target/release/keyviz.exe`. See [PORTABLE.md](PORTABLE.md) for
-    details.
+See [PORTABLE.md](PORTABLE.md) for more portable build notes.
 
-<br/>
+## 致謝 / Credits
 
+本專案修改自開源工具 [Keyviz](https://github.com/mulaRahul/keyviz)，感謝原作者
+Rahul Mula 與所有貢獻者。
 
-## 💖 Support the Project
-
-*   **Star the Repo:** It helps others discover the project!
-*   **GitHub Sponsors:** [Sponsor @mularahul](https://github.com/sponsors/mulaRahul)
-*   **Keyviz Pro:** Get access to exclusive features while supporting the development of this open-source project.
-
-👉 **[Upgrade to Pro at keyviz.org/pro](https://keyviz.org/pro)**
-
-</br>
-
----
-
-  Built with 🦀 and ❤️ using <a href="https://v2.tauri.app/">Tauri</a>.
+This project is based on the open-source
+[Keyviz](https://github.com/mulaRahul/keyviz). Thanks to Rahul Mula and all
+contributors.

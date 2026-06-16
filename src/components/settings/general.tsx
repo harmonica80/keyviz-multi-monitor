@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 import { KeyEventState, useKeyEvent } from "@/stores/key_event";
 import { KeyStyleState, useKeyStyle } from "@/stores/key_style";
-import { ArrowHorizontalIcon, ArrowVerticalIcon, FilterHorizontalIcon, FilterIcon, LayerIcon, ToggleOnIcon } from "@hugeicons/core-free-icons";
+import { ArrowHorizontalIcon, ArrowVerticalIcon, FilterHorizontalIcon, FilterIcon, LayerIcon, PaintBoardIcon, ToggleOnIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CustomFilter } from '../custom-filter';
 
@@ -81,6 +81,22 @@ export const GeneralSettings = () => {
                     <ToggleGroupItem value="modifiers" aria-label="Modifiers Only">{t("Hotkeys")}</ToggleGroupItem>
                     <ToggleGroupItem value="custom" aria-label="Custom Filter">{t("Custom")}</ToggleGroupItem>
                 </ToggleGroup>
+            </ItemActions>
+        </Item>
+
+        <Item variant="muted">
+            <ItemContent>
+                <ItemTitle>
+                    <HugeiconsIcon icon={PaintBoardIcon} size="1em" /> {t("Screen Drawing")}
+                </ItemTitle>
+                <ItemDescription>
+                    {t("Draw and annotate directly across all displays.")}
+                </ItemDescription>
+            </ItemContent>
+            <ItemActions>
+                <Button variant="outline" size="sm" onClick={() => invoke("open_screen_drawing")}>
+                    {t("Start Drawing")}
+                </Button>
             </ItemActions>
         </Item>
 

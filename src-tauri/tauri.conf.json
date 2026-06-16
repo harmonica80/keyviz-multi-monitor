@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "keyviz",
+  "productName": "Keyviz 鍵盤按鍵顯示器與螢幕繪圖",
   "version": "2.1.1",
   "identifier": "org.keyviz",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Keyviz 鍵盤按鍵顯示器（支援多螢幕）",
+        "title": "Keyviz 鍵盤按鍵顯示器與螢幕繪圖",
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "decorations": false,
@@ -26,19 +26,16 @@
         "visible": false
       },
       {
-        "label": "cursor",
-        "title": "Keyviz Cursor",
-        "url": "index.html#/cursor",
-        "width": 1,
-        "height": 1,
+        "label": "drawing-toolbar",
+        "title": "Keyviz Drawing Toolbar",
+        "url": "index.html?mode=drawing-toolbar",
+        "width": 48,
+        "height": 820,
+        "resizable": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "decorations": false,
-        "transparent": true,
-        "backgroundColor": "#00000000",
         "shadow": false,
-        "focus": false,
-        "focusable": false,
         "visible": false
       }
     ],

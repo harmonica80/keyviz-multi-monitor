@@ -64,9 +64,10 @@ export interface BackgroundSettings {
 }
 
 export interface MouseSettings {
-    showClicks: boolean;
     size: number;
     color: string;
+    opacity: number;
+    thickness: number;
     keepHighlight: boolean;
     showIndicator: boolean;
     keepIndicator: boolean;
@@ -150,9 +151,10 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
             color: "#ffffff99",
         },
         mouse: {
-            showClicks: false,
             size: 150,
             color: "#009dff",
+            opacity: 100,
+            thickness: 10,
             keepHighlight: false,
             showIndicator: true,
             keepIndicator: true,
@@ -193,6 +195,12 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
                     toast.warning(t("Invalid file format"), { description: filePath });
                     return;
                 }
+                const importedMouse = {
+                    ...parsedData.mouse,
+                    opacity: parsedData.mouse.opacity ?? 100,
+                    thickness: parsedData.mouse.thickness ?? 10,
+                } as MouseSettings & { showClicks?: boolean };
+                delete importedMouse.showClicks;
                 set(() => ({
                     appearance: parsedData.appearance,
                     layout: parsedData.layout,
@@ -201,7 +209,7 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
                     text: parsedData.text,
                     border: parsedData.border,
                     background: parsedData.background,
-                    mouse: parsedData.mouse,
+                    mouse: importedMouse,
                 }));
                 toast.success(t("Imported successfully"), { description: filePath });
             } catch (err) {
@@ -241,9 +249,11 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
     (config) => persist(config, {
         name: KEY_STYLE_STORE,
         storage: createJSONStorage(() => tauriStorage),
-        version: 2,
+        version: 3,
         migrate: (persistedState, version) => {
             const state = persistedState as KeyStyleState;
+            const mouse = { ...state.mouse } as MouseSettings & { showClicks?: boolean };
+            delete mouse.showClicks;
             return {
                 ...state,
                 appearance: {
@@ -253,6 +263,11 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
                 background: {
                     ...state.background,
                     enabled: version < 1 ? false : state.background.enabled,
+                },
+                mouse: {
+                    ...mouse,
+                    opacity: version < 3 ? 100 : mouse.opacity,
+                    thickness: version < 3 ? 10 : mouse.thickness,
                 },
             };
         },
