@@ -286,6 +286,9 @@ body.drawing-page #root {
 }
 
 .drawing-toolbar .drawing-color {
+  position: relative;
+  display: grid;
+  place-items: center;
   width: 100%;
   min-height: 30px;
   border: 1px solid #777;
@@ -294,6 +297,21 @@ body.drawing-page #root {
 
 .drawing-toolbar .drawing-color.active {
   outline: 0;
+  background: var(--drawing-color);
+}
+
+.drawing-toolbar .drawing-color-check {
+  position: relative;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  color: #e15c2d;
+  stroke-width: 5;
+  filter:
+    drop-shadow(1px 0 0 #fff)
+    drop-shadow(-1px 0 0 #fff)
+    drop-shadow(0 1px 0 #fff)
+    drop-shadow(0 -1px 0 #fff);
 }
 
 .drawing-toolbar .drawing-width span {

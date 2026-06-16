@@ -38,11 +38,11 @@ impl AppState {
     pub fn new(app: &tauri::AppHandle) -> Self {
         let mut toggle_shortcut = vec!["Shift".to_string(), "F10".to_string()];
         let mut locale = "en".to_string();
-        let mut cursor_keep_highlight = false;
-        let mut cursor_size = 150.0;
-        let mut cursor_color = "#009dff".to_string();
-        let mut cursor_opacity = 100.0;
-        let mut cursor_thickness = 10.0;
+        let mut cursor_keep_highlight = true;
+        let mut cursor_size = 80.0;
+        let mut cursor_color = "#ff0000".to_string();
+        let mut cursor_opacity = 50.0;
+        let mut cursor_thickness = 6.0;
 
         // load saved config from store
         if let Ok(store) = app.store("store.json") {
@@ -180,9 +180,9 @@ struct CursorStyleState {
 }
 
 fn default_cursor_opacity() -> f64 {
-    100.0
+    50.0
 }
 
 fn default_cursor_thickness() -> f64 {
-    10.0
+    6.0
 }

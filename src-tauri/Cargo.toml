@@ -5,6 +5,11 @@ description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
 
+[package.metadata.tauri-winres]
+OriginalFilename = "keyviz.exe"
+FileDescription = "Keyviz"
+ProductName = "Keyviz"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [lib]

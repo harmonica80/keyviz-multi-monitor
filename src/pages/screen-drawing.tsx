@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { emitTo, listen } from "@tauri-apps/api/event";
 import {
   ArrowUpRight,
+  Check,
   Circle,
   Eraser,
   GripHorizontal,
@@ -424,7 +425,9 @@ export default function ScreenDrawing() {
             title={value}
             style={{ "--drawing-color": value } as CSSProperties}
             onPointerDown={() => void sendCommand({ type: "color", value })}
-          />
+          >
+            {color === value && <Check className="drawing-color-check" />}
+          </button>
         ))}
       </div>
       <div className="drawing-divider" />

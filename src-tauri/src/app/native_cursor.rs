@@ -140,7 +140,7 @@ mod platform {
             PAINT_STATE.get_or_init(|| {
                 Mutex::new(PaintState {
                     color: COLORREF(0x00ff0000),
-                    thickness: 10,
+                    thickness: 6,
                 })
             });
 

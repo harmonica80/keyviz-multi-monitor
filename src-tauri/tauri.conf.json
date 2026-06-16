@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Keyviz 鍵盤按鍵顯示器與螢幕繪圖",
+  "productName": "Keyviz",
   "version": "2.1.1",
   "identifier": "org.keyviz",
   "build": {

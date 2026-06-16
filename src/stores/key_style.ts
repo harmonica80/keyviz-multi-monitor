@@ -111,8 +111,8 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
             alignment: "bottom-center",
             marginX: 100,
             marginY: 100,
-            animation: "fade",
-            animationDuration: 0.25,
+            animation: "none",
+            animationDuration: 0.05,
             style: "clean",
         },
         layout: {
@@ -151,11 +151,11 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
             color: "#ffffff99",
         },
         mouse: {
-            size: 150,
-            color: "#009dff",
-            opacity: 100,
-            thickness: 10,
-            keepHighlight: false,
+            size: 80,
+            color: "#ff0000",
+            opacity: 50,
+            thickness: 6,
+            keepHighlight: true,
             showIndicator: true,
             keepIndicator: true,
             indicatorSize: 50,
@@ -249,16 +249,30 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
     (config) => persist(config, {
         name: KEY_STYLE_STORE,
         storage: createJSONStorage(() => tauriStorage),
-        version: 3,
+        version: 4,
         migrate: (persistedState, version) => {
             const state = persistedState as KeyStyleState;
             const mouse = { ...state.mouse } as MouseSettings & { showClicks?: boolean };
             delete mouse.showClicks;
+            const appearance = { ...state.appearance };
+            const useDefaultAppearanceUpgrade =
+                appearance.animation === "fade" && appearance.animationDuration === 0.25;
+            const useDefaultMouseUpgrade =
+                mouse.size === 150 &&
+                mouse.color === "#009dff" &&
+                mouse.opacity === 100 &&
+                mouse.thickness === 10 &&
+                mouse.keepHighlight === false;
+
             return {
                 ...state,
                 appearance: {
-                    ...state.appearance,
+                    ...appearance,
                     style: version < 2 ? "clean" : state.appearance.style,
+                    animation:
+                        version < 4 && useDefaultAppearanceUpgrade ? "none" : appearance.animation,
+                    animationDuration:
+                        version < 4 && useDefaultAppearanceUpgrade ? 0.05 : appearance.animationDuration,
                 },
                 background: {
                     ...state.background,
@@ -266,8 +280,22 @@ const createKeyStyleStore = createSyncedStore<KeyStyleStore>(
                 },
                 mouse: {
                     ...mouse,
-                    opacity: version < 3 ? 100 : mouse.opacity,
-                    thickness: version < 3 ? 10 : mouse.thickness,
+                    size: version < 4 && useDefaultMouseUpgrade ? 80 : mouse.size,
+                    color: version < 4 && useDefaultMouseUpgrade ? "#ff0000" : mouse.color,
+                    opacity:
+                        version < 4 && useDefaultMouseUpgrade
+                            ? 50
+                            : version < 3
+                              ? 100
+                              : mouse.opacity,
+                    thickness:
+                        version < 4 && useDefaultMouseUpgrade
+                            ? 6
+                            : version < 3
+                              ? 10
+                              : mouse.thickness,
+                    keepHighlight:
+                        version < 4 && useDefaultMouseUpgrade ? true : mouse.keepHighlight,
                 },
             };
         },

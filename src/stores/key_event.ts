@@ -82,7 +82,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         ],
         showEventHistory: false,
         maxHistory: 5,
-        lingerDurationMs: 5_000,
+        lingerDurationMs: 1_000,
         toggleShortcut: [RawKey.ShiftLeft, RawKey.F10],
 
         setDragThreshold(value: number) {
@@ -400,6 +400,17 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
     (config) => persist(config, {
         name: KEY_EVENT_STORE,
         storage: createJSONStorage(() => tauriStorage),
+        version: 1,
+        migrate: (persistedState, version) => {
+            const state = persistedState as Partial<KeyEventState>;
+            return {
+                ...state,
+                lingerDurationMs:
+                    version < 1 && state.lingerDurationMs === 5_000
+                        ? 1_000
+                        : state.lingerDurationMs,
+            };
+        },
         partialize: (state) => {
             const { pressedKeys, pressedMouseButton, mouse, groups, settingsOpen, ...persistedState } = state;
             return persistedState;
