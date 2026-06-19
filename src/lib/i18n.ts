@@ -42,6 +42,8 @@ const zhTW: Record<string, string> = {
   "Max Count": "最大顯示數量",
   "Toggle Shortcut": "顯示切換快速鍵",
   "Global shortcut to show/hide the key visualizer, click box to set": "用來顯示或隱藏按鍵畫面的全域快速鍵，點選方框即可設定",
+  "Screen Drawing Shortcut": "切換螢幕繪圖快速鍵",
+  "Global shortcut to toggle screen drawing": "用來開啟或關閉螢幕繪圖的全域快速鍵",
   "Click to set shortcut": "點選以設定快速鍵",
   "Press your combination. Esc to cancel.": "請按下快速鍵組合，按 Esc 取消。",
   "Keyboard": "鍵盤",
@@ -158,7 +160,7 @@ interface LocaleState {
 export const useLocale = create<LocaleState>()(
   persist(
     (set) => ({
-      locale: "en",
+      locale: "zh-TW",
       setLocale: (locale) => set({ locale }),
     }),
     {

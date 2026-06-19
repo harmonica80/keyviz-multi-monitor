@@ -1,16 +1,14 @@
 use std::sync::Mutex;
-
 use tauri::{
     image::Image,
     include_image,
     menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
-    webview::PageLoadEvent,
-    AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder,
+    tray::TrayIconBuilder, AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder,
 };
 
 mod app;
 use app::commands::{
+    drawing_clear, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_undo,
     get_cursor_settings, log, set_cursor_settings, set_main_window_monitor, set_toggle_shortcut,
     set_tray_locale, update_overlay_window,
 };
@@ -171,9 +169,6 @@ fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
     let toolbar = app
         .get_webview_window("drawing-toolbar")
         .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
-    if app.get_webview_window("drawing").is_none() {
-        return Ok(());
-    }
 
     #[cfg(target_os = "windows")]
     {
@@ -213,7 +208,70 @@ fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
+fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
+    let toolbar = app
+        .get_webview_window("drawing-toolbar")
+        .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::{HWND, RECT};
+        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GetWindowRect, GA_ROOT};
+
+        let toolbar_hwnd = HWND(toolbar.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let toolbar_root = unsafe { GetAncestor(toolbar_hwnd, GA_ROOT) };
+        let toolbar_target = if toolbar_root.0 == 0 {
+            toolbar_hwnd
+        } else {
+            toolbar_root
+        };
+        let mut rect = RECT::default();
+        let result = unsafe { GetWindowRect(toolbar_target, &mut rect) };
+        if !result.as_bool() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+
+        let padding = 12;
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|error| error.to_string())?;
+        app_state.drawing_overlay.set_toolbar_passthrough(Some((
+            rect.left - padding,
+            rect.top - padding,
+            rect.right + padding,
+            rect.bottom + padding,
+        )));
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let position = toolbar.outer_position().map_err(|error| error.to_string())?;
+        let size = toolbar.outer_size().map_err(|error| error.to_string())?;
+        let padding = 12;
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|error| error.to_string())?;
+        app_state.drawing_overlay.set_toolbar_passthrough(Some((
+            position.x - padding,
+            position.y - padding,
+            position.x + size.width as i32 + padding,
+            position.y + size.height as i32 + padding,
+        )));
+    }
+
+    Ok(())
+}
+
+fn schedule_drawing_toolbar_passthrough_sync(app: &AppHandle) {
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        for delay in [80, 200, 500, 1000] {
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+            let _ = sync_drawing_toolbar_passthrough(&app_handle);
+            let _ = keep_drawing_toolbar_above_canvas(&app_handle);
+        }
+    });
+}
+
+pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     let monitors = app
         .available_monitors()
         .map_err(|error| error.to_string())?;
@@ -246,52 +304,41 @@ fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())?
         .or_else(|| monitors.first().cloned())
         .ok_or_else(|| "No primary monitor is available".to_string())?;
-    let webview_url = tauri::WebviewUrl::App("index.html?mode=drawing-canvas".into());
     let drawing_width = right - left;
     let drawing_height = bottom - top;
-    let toolbar_x = primary.position().x + 8;
-    let toolbar_y = primary.position().y + 8;
     let toolbar_height = (primary.size().height.saturating_sub(16)).min(820);
+    let toolbar_width = 64;
+    let toolbar_x =
+        primary.position().x + primary.size().width as i32 - toolbar_width - 8;
+    let toolbar_y = primary.position().y + 8;
 
     create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height)?;
-
-    let window = if let Some(window) = app.get_webview_window("drawing") {
-        window.show().map_err(|error| error.to_string())?;
-        window
-    } else {
-        WebviewWindowBuilder::new(app, "drawing", webview_url)
-            .title("Keyviz Screen Drawing")
-            .position(left as f64, top as f64)
-            .inner_size(drawing_width as f64, drawing_height as f64)
-            .decorations(false)
-            .transparent(true)
-            .background_color(tauri::window::Color(0, 0, 0, 0))
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .focused(false)
-            .focusable(true)
-            .shadow(false)
-            .on_page_load(move |window, payload| {
-                if payload.event() == PageLoadEvent::Finished {
-                    if let Err(error) =
-                        set_drawing_window_bounds(&window, left, top, drawing_width, drawing_height)
-                    {
-                        eprintln!("Failed to size drawing window after page load: {error}");
-                    }
-                }
-            })
-            .build()
-            .map_err(|error| error.to_string())?
-    };
-
-    if let Err(error) = set_drawing_window_bounds(&window, left, top, drawing_width, drawing_height)
-    {
-        eprintln!("Failed to resize drawing canvas: {error}");
-    }
-    if let Err(error) = window.set_ignore_cursor_events(false) {
-        eprintln!("Failed to enable drawing canvas input: {error}");
-    }
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_input_passthrough = false;
+    app_state.drawing_pointer_down = false;
+    app_state.drawing_last_move = None;
+    app_state
+        .drawing_overlay
+        .show(
+            left,
+            top,
+            drawing_width,
+            drawing_height,
+            None,
+        );
+    app_state.drawing_overlay.set_click_through(false);
+    drop(app_state);
     keep_drawing_toolbar_above_canvas(app)?;
+    sync_drawing_toolbar_passthrough(app)?;
+    let app_handle = app.clone();
+    std::thread::spawn(move || {
+        for delay in [150, 500, 1000] {
+            std::thread::sleep(std::time::Duration::from_millis(delay));
+            let _ = sync_drawing_toolbar_passthrough(&app_handle);
+            let _ = keep_drawing_toolbar_above_canvas(&app_handle);
+        }
+    });
 
     Ok(())
 }
@@ -303,6 +350,10 @@ fn open_screen_drawing(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn close_screen_drawing(app: AppHandle) -> Result<(), String> {
+    close_screen_drawing_impl(app)
+}
+
+pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "windows")]
     if let Some(toolbar) = app.get_webview_window("drawing-toolbar") {
         use windows::Win32::Foundation::HWND;
@@ -328,20 +379,25 @@ fn close_screen_drawing(app: AppHandle) -> Result<(), String> {
         let _ = window.hide();
     }
 
-    if let Some(window) = app.get_webview_window("drawing") {
-        window.close().map_err(|error| error.to_string())?;
-    }
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_input_passthrough = false;
+    app_state.drawing_pointer_down = false;
+    app_state.drawing_last_move = None;
+    app_state.drawing_overlay.hide();
     Ok(())
 }
 
 #[tauri::command]
 fn set_drawing_click_through(app: AppHandle, enabled: bool) -> Result<(), String> {
-    let window = app
-        .get_webview_window("drawing")
-        .ok_or_else(|| "Drawing canvas is unavailable".to_string())?;
-    window
-        .set_ignore_cursor_events(enabled)
-        .map_err(|error| error.to_string())?;
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_input_passthrough = enabled;
+    if !enabled {
+        app_state.drawing_pointer_down = false;
+        app_state.drawing_last_move = None;
+    }
+    app_state.drawing_overlay.set_click_through(enabled);
     keep_drawing_toolbar_above_canvas(&app)
 }
 
@@ -356,10 +412,9 @@ fn activate_drawing_toolbar(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn activate_drawing_canvas(app: AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("drawing")
-        .ok_or_else(|| "Drawing canvas is unavailable".to_string())?;
-    window.set_focus().map_err(|error| error.to_string())?;
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.focus();
     keep_drawing_toolbar_above_canvas(&app)
 }
 
@@ -389,6 +444,7 @@ fn start_drawing_toolbar_drag(app: AppHandle) -> Result<(), String> {
                 LPARAM(0),
             );
         }
+        schedule_drawing_toolbar_passthrough_sync(&app);
         return Ok(());
     }
 
@@ -407,7 +463,8 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
             height: height.clamp(120.0, 820.0),
         })
         .map_err(|error| error.to_string())?;
-    keep_drawing_toolbar_above_canvas(&app)
+    keep_drawing_toolbar_above_canvas(&app)?;
+    sync_drawing_toolbar_passthrough(&app)
 }
 
 #[tauri::command]
@@ -415,9 +472,6 @@ fn resize_drawing_window(app: AppHandle) -> Result<(), String> {
     let monitors = app
         .available_monitors()
         .map_err(|error| error.to_string())?;
-    let window = app
-        .get_webview_window("drawing")
-        .ok_or_else(|| "Drawing window is unavailable".to_string())?;
     let left = monitors
         .iter()
         .map(|monitor| monitor.position().x)
@@ -438,7 +492,12 @@ fn resize_drawing_window(app: AppHandle) -> Result<(), String> {
         .map(|monitor| monitor.position().y + monitor.size().height as i32)
         .max()
         .unwrap_or(1);
-    set_drawing_window_bounds(&window, left, top, right - left, bottom - top)
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state
+        .drawing_overlay
+        .resize(left, top, right - left, bottom - top);
+    Ok(())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -583,7 +642,12 @@ pub fn run() {
             activate_drawing_canvas,
             start_drawing_toolbar_drag,
             resize_drawing_toolbar,
-            resize_drawing_window
+            resize_drawing_window,
+            drawing_set_tool,
+            drawing_set_color,
+            drawing_set_width,
+            drawing_clear,
+            drawing_undo
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

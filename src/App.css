@@ -176,6 +176,8 @@ body.drawing-page #root {
 
 .drawing-root {
   background: transparent;
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
   user-select: none;
 }
 

@@ -1,6 +1,6 @@
 import { useTranslation } from "@/lib/i18n";
 import { invoke } from "@tauri-apps/api/core";
-import { emitTo, listen } from "@tauri-apps/api/event";
+import { listen } from "@tauri-apps/api/event";
 import {
   ArrowUpRight,
   Check,
@@ -139,11 +139,7 @@ export default function ScreenDrawing() {
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const isTextEditorOpen = textEditor !== null;
 
-  const notifyHistory = useCallback(() => {
-    void emitTo("drawing-toolbar", "drawing-history", {
-      canUndo: drawingsRef.current.length > 0,
-    });
-  }, []);
+  const notifyHistory = useCallback(() => {}, []);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
@@ -228,9 +224,13 @@ export default function ScreenDrawing() {
       const historyListener = listen<{ canUndo: boolean }>("drawing-history", (event) => {
         setCanUndo(event.payload.canUndo);
       });
+      const nativeCloseListener = listen("native-drawing-close", () => {
+        void invoke("close_screen_drawing");
+      });
       return () => {
         observer.disconnect();
         void historyListener.then((unlisten) => unlisten());
+        void nativeCloseListener.then((unlisten) => unlisten());
       };
     }
 
@@ -269,7 +269,7 @@ export default function ScreenDrawing() {
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    void invoke("set_drawing_click_through", { enabled: false });
+    void invoke("set_drawing_click_through", { enabled: true });
     return () => {
       window.removeEventListener("resize", resizeCanvas);
       window.removeEventListener("keydown", onKeyDown);
@@ -281,19 +281,26 @@ export default function ScreenDrawing() {
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {
       setTool(command.value);
-      await emitTo("drawing", "drawing-command", command);
-      try {
-        await invoke("set_drawing_click_through", {
-          enabled: command.value === "pointer",
-        });
-      } catch (error) {
-        console.error("Failed to update drawing input mode:", error);
-      }
+      await invoke("drawing_set_tool", { tool: command.value });
       return;
     }
-    if (command.type === "color") setColor(command.value);
-    if (command.type === "width") setWidth(command.value);
-    await emitTo("drawing", "drawing-command", command);
+    if (command.type === "color") {
+      setColor(command.value);
+      await invoke("drawing_set_color", { color: command.value });
+      return;
+    }
+    if (command.type === "width") {
+      setWidth(command.value);
+      await invoke("drawing_set_width", { width: command.value });
+      return;
+    }
+    if (command.type === "clear") {
+      await invoke("drawing_clear");
+      return;
+    }
+    if (command.type === "undo") {
+      await invoke("drawing_undo");
+    }
   };
 
   const onPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
@@ -399,11 +406,11 @@ export default function ScreenDrawing() {
       <button
         className="drawing-close"
         title={`${t("Exit Drawing")} (Esc)`}
-        onClick={() => void emitTo("drawing", "drawing-close-request", { requested: true })}
+        onClick={() => void invoke("close_screen_drawing")}
       >
         <X />
       </button>
-      <button title={t("Clear All")} onPointerDown={() => void sendCommand({ type: "clear" })}>
+      <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
         <Trash2 />
       </button>
       {toolButtons.map(({ value, label, icon: Icon }) => (
@@ -411,7 +418,7 @@ export default function ScreenDrawing() {
           key={value}
           className={tool === value ? "active" : ""}
           title={label}
-          onPointerDown={() => void sendCommand({ type: "tool", value })}
+          onClick={() => void sendCommand({ type: "tool", value })}
         >
           <Icon />
         </button>
@@ -424,7 +431,7 @@ export default function ScreenDrawing() {
             className={`drawing-color ${color === value ? "active" : ""}`}
             title={value}
             style={{ "--drawing-color": value } as CSSProperties}
-            onPointerDown={() => void sendCommand({ type: "color", value })}
+            onClick={() => void sendCommand({ type: "color", value })}
           >
             {color === value && <Check className="drawing-color-check" />}
           </button>
@@ -436,7 +443,7 @@ export default function ScreenDrawing() {
           key={value}
           className={`drawing-width ${width === value ? "active" : ""}`}
           title={`${t("Line Thickness")} ${value}`}
-          onPointerDown={() => void sendCommand({ type: "width", value })}
+          onClick={() => void sendCommand({ type: "width", value })}
         >
           <span style={{ width: value, height: value }} />
         </button>
@@ -444,7 +451,7 @@ export default function ScreenDrawing() {
       <button
         disabled={!canUndo}
         title={`${t("Undo")} (Ctrl+Z)`}
-        onPointerDown={() => void sendCommand({ type: "undo" })}
+        onClick={() => void sendCommand({ type: "undo" })}
       >
         <Redo2 className="drawing-undo" />
       </button>

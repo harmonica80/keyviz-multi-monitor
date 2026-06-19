@@ -50,6 +50,14 @@ pub fn map_mouse_button(button: Button) -> MouseButton {
     }
 }
 
+fn is_screen_drawing_shortcut_pressed(pressed_keys: &[String]) -> bool {
+    let has_control = pressed_keys
+        .iter()
+        .any(|key| matches!(key.as_str(), "ControlLeft" | "ControlRight"));
+    let has_zero = pressed_keys.iter().any(|key| matches!(key.as_str(), "Num0" | "Kp0"));
+    has_control && has_zero
+}
+
 pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
     start_cursor_updater(app_handle.clone());
 
@@ -74,6 +82,22 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 }
                 // record key as pressed
                 app_state.pressed_keys.push(key_name);
+                if is_screen_drawing_shortcut_pressed(&app_state.pressed_keys) {
+                    drop(app_state);
+                    let is_visible = app_handle
+                        .get_webview_window("drawing-toolbar")
+                        .and_then(|window| window.is_visible().ok())
+                        .unwrap_or(false);
+                    let result = if is_visible {
+                        crate::close_screen_drawing_impl(app_handle.clone())
+                    } else {
+                        crate::show_drawing_window(&app_handle)
+                    };
+                    if let Err(error) = result {
+                        eprintln!("Failed to toggle screen drawing shortcut: {error}");
+                    }
+                    return;
+                }
                 // check if toggle shortcut is pressed
                 if app_state.toggle_shortcut == app_state.pressed_keys {
                     app_state.toggle_listener(&app_handle, &toggle_menu_item);
@@ -107,6 +131,48 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 app_state.cursor_x = x;
                 app_state.cursor_y = y;
                 app_state.cursor_update_pending = true;
+                let should_send_drawing_move = if app_state.drawing_input_passthrough
+                    && app_state.drawing_pointer_down
+                {
+                    let now = Instant::now();
+                    let due = app_state
+                        .drawing_last_move
+                        .map(|last| now.duration_since(last) >= Duration::from_millis(16))
+                        .unwrap_or(true);
+                    if due {
+                        app_state.drawing_last_move = Some(now);
+                    }
+                    due
+                } else {
+                    false
+                };
+                if should_send_drawing_move {
+                    app_state
+                        .drawing_overlay
+                        .pointer_move(x.round() as i32, y.round() as i32);
+                }
+            }
+
+            match event.event_type {
+                EventType::ButtonPress(Button::Left) => {
+                    if app_state.drawing_input_passthrough {
+                        let x = app_state.cursor_x.round() as i32;
+                        let y = app_state.cursor_y.round() as i32;
+                        app_state.drawing_pointer_down = true;
+                        app_state.drawing_last_move = Some(Instant::now());
+                        app_state.drawing_overlay.pointer_down(x, y);
+                    }
+                }
+                EventType::ButtonRelease(Button::Left) => {
+                    if app_state.drawing_input_passthrough {
+                        let x = app_state.cursor_x.round() as i32;
+                        let y = app_state.cursor_y.round() as i32;
+                        app_state.drawing_overlay.pointer_up(x, y);
+                    }
+                    app_state.drawing_pointer_down = false;
+                    app_state.drawing_last_move = None;
+                }
+                _ => {}
             }
 
             // emit event if listening

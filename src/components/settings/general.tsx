@@ -162,5 +162,22 @@ export const GeneralSettings = () => {
                 }} />
             </ItemContent>
         </Item>
+
+        <Item variant="muted">
+            <ItemHeader className="flex-col items-start">
+                <ItemTitle>
+                    <HugeiconsIcon icon={PaintBoardIcon} size="1em" /> {t("Screen Drawing Shortcut")}
+                </ItemTitle>
+                <ItemDescription>
+                    {t("Global shortcut to toggle screen drawing")}
+                </ItemDescription>
+            </ItemHeader>
+            <ItemContent>
+                <div className="flex gap-2 rounded-xl bg-background p-3">
+                    <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Ctrl</span>
+                    <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">0</span>
+                </div>
+            </ItemContent>
+        </Item>
     </div>;
 }

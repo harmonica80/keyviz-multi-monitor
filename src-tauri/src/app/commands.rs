@@ -4,6 +4,7 @@ use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
+use crate::app::native_drawing::{parse_tool, NativeTool};
 use crate::app::state::{AppState, TrayMenuItems};
 use crate::app::window::{
     monitor_identifier, position_overlay_window, set_window_monitor, OverlayAlignment,
@@ -170,4 +171,51 @@ pub fn set_main_window_monitor(
         .ok_or_else(|| "No monitor is available".to_string())?;
 
     set_window_monitor(&window, &target_monitor, &mut app_state)
+}
+
+#[tauri::command]
+pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), String> {
+    let tool = parse_tool(&tool).ok_or_else(|| format!("Unknown drawing tool: {tool}"))?;
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    let passthrough = matches!(tool, NativeTool::Pointer);
+    app_state.drawing_input_passthrough = passthrough;
+    if passthrough {
+        app_state.drawing_pointer_down = false;
+        app_state.drawing_last_move = None;
+    }
+    app_state.drawing_overlay.set_tool(tool);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn drawing_set_color(app: tauri::AppHandle, color: String) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.set_color(&color);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn drawing_set_width(app: tauri::AppHandle, width: i32) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.set_width(width);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn drawing_clear(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.clear();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn drawing_undo(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.undo();
+    Ok(())
 }

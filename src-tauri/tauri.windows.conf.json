@@ -14,19 +14,6 @@
                 "focus": false,
                 "focusable": false,
                 "visible": false
-            },
-            {
-                "label": "drawing-toolbar",
-                "title": "Keyviz Drawing Toolbar",
-                "url": "index.html?mode=drawing-toolbar",
-                "width": 48,
-                "height": 820,
-                "resizable": false,
-                "alwaysOnTop": true,
-                "skipTaskbar": true,
-                "decorations": false,
-                "shadow": false,
-                "visible": false
             }
         ]
     },

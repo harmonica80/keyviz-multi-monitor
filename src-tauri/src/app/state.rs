@@ -2,6 +2,7 @@ use serde::Deserialize;
 use tauri::{image::Image, include_image, menu::MenuItem, Emitter, Manager, Wry};
 use tauri_plugin_store::StoreExt;
 
+use crate::app::native_drawing::NativeDrawingOverlay;
 use crate::app::native_cursor::NativeCursorOverlay;
 
 #[derive(Default)]
@@ -25,6 +26,10 @@ pub struct AppState {
     pub cursor_update_pending: bool,
     pub cursor_window_visible: bool,
     pub cursor_overlay: NativeCursorOverlay,
+    pub drawing_overlay: NativeDrawingOverlay,
+    pub drawing_input_passthrough: bool,
+    pub drawing_pointer_down: bool,
+    pub drawing_last_move: Option<std::time::Instant>,
 }
 
 pub struct TrayMenuItems {
@@ -37,7 +42,7 @@ pub struct TrayMenuItems {
 impl AppState {
     pub fn new(app: &tauri::AppHandle) -> Self {
         let mut toggle_shortcut = vec!["Shift".to_string(), "F10".to_string()];
-        let mut locale = "en".to_string();
+        let mut locale = "zh-TW".to_string();
         let mut cursor_keep_highlight = true;
         let mut cursor_size = 80.0;
         let mut cursor_color = "#ff0000".to_string();
@@ -101,6 +106,10 @@ impl AppState {
             cursor_update_pending: false,
             cursor_window_visible: false,
             cursor_overlay: NativeCursorOverlay::new(),
+            drawing_overlay: NativeDrawingOverlay::new(app),
+            drawing_input_passthrough: false,
+            drawing_pointer_down: false,
+            drawing_last_move: None,
         }
     }
     pub fn toggle_listener(&mut self, app: &tauri::AppHandle, toggle: &MenuItem<Wry>) {
