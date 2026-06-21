@@ -81,8 +81,9 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     return;
                 }
                 // record key as pressed
-                app_state.pressed_keys.push(key_name);
+                app_state.pressed_keys.push(key_name.clone());
                 if is_screen_drawing_shortcut_pressed(&app_state.pressed_keys) {
+                    app_state.pressed_keys.clear();
                     drop(app_state);
                     let is_visible = app_handle
                         .get_webview_window("drawing-toolbar")
@@ -96,6 +97,14 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     if let Err(error) = result {
                         eprintln!("Failed to toggle screen drawing shortcut: {error}");
                     }
+                    return;
+                }
+                let drawing_visible = app_handle
+                    .get_webview_window("drawing-toolbar")
+                    .and_then(|window| window.is_visible().ok())
+                    .unwrap_or(false);
+                if drawing_visible && key_name == "Delete" {
+                    app_state.drawing_overlay.clear();
                     return;
                 }
                 // check if toggle shortcut is pressed

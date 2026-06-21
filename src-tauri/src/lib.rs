@@ -315,6 +315,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height)?;
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.pressed_keys.clear();
     app_state.drawing_input_passthrough = false;
     app_state.drawing_pointer_down = false;
     app_state.drawing_last_move = None;
@@ -381,6 +382,7 @@ pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
 
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.pressed_keys.clear();
     app_state.drawing_input_passthrough = false;
     app_state.drawing_pointer_down = false;
     app_state.drawing_last_move = None;

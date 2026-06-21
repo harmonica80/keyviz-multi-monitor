@@ -29,7 +29,7 @@ mod platform {
             UI::{
                 Input::KeyboardAndMouse::{
                     GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_CONTROL,
-                    VK_ESCAPE, VK_RETURN, VK_Z,
+                    VK_DELETE, VK_ESCAPE, VK_RETURN, VK_Z,
                 },
                 WindowsAndMessaging::{
                     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
@@ -791,6 +791,12 @@ mod platform {
                 if let Some(edit) = state.edit.as_mut() {
                     edit.text.pop();
                 }
+                refresh_overlay(state);
+            }
+            code if code == VK_DELETE.0 as u32 && state.edit.is_none() => {
+                state.drawings.clear();
+                state.active = None;
+                emit_history(&state.app, false);
                 refresh_overlay(state);
             }
             code if code == VK_ESCAPE.0 as u32 => {

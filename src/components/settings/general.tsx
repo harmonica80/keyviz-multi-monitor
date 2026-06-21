@@ -173,9 +173,16 @@ export const GeneralSettings = () => {
                 </ItemDescription>
             </ItemHeader>
             <ItemContent>
-                <div className="flex gap-2 rounded-xl bg-background p-3">
-                    <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Ctrl</span>
-                    <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">0</span>
+                <div className="flex flex-col gap-3 rounded-xl bg-background p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="min-w-24 text-sm text-muted-foreground">{t("Toggle Screen Drawing")}</span>
+                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Ctrl</span>
+                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">0</span>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="min-w-24 text-sm text-muted-foreground">{t("Clear Screen Drawing")}</span>
+                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Del</span>
+                    </div>
                 </div>
             </ItemContent>
         </Item>

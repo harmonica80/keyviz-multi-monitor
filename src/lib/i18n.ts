@@ -44,6 +44,8 @@ const zhTW: Record<string, string> = {
   "Global shortcut to show/hide the key visualizer, click box to set": "用來顯示或隱藏按鍵畫面的全域快速鍵，點選方框即可設定",
   "Screen Drawing Shortcut": "切換螢幕繪圖快速鍵",
   "Global shortcut to toggle screen drawing": "用來開啟或關閉螢幕繪圖的全域快速鍵",
+  "Toggle Screen Drawing": "開啟 / 關閉螢幕繪圖",
+  "Clear Screen Drawing": "清空螢幕繪圖",
   "Click to set shortcut": "點選以設定快速鍵",
   "Press your combination. Esc to cancel.": "請按下快速鍵組合，按 Esc 取消。",
   "Keyboard": "鍵盤",
