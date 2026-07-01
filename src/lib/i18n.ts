@@ -46,6 +46,7 @@ const zhTW: Record<string, string> = {
   "Global shortcut to toggle screen drawing": "用來開啟或關閉螢幕繪圖的全域快速鍵",
   "Toggle Screen Drawing": "開啟 / 關閉螢幕繪圖",
   "Clear Screen Drawing": "清空螢幕繪圖",
+  "Return To Mouse Mode": "回到滑鼠模式",
   "Click to set shortcut": "點選以設定快速鍵",
   "Press your combination. Esc to cancel.": "請按下快速鍵組合，按 Esc 取消。",
   "Keyboard": "鍵盤",

@@ -183,8 +183,12 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
     if passthrough {
         app_state.drawing_pointer_down = false;
         app_state.drawing_last_move = None;
+    } else {
+        app_state.drawing_pointer_down = false;
+        app_state.drawing_last_move = None;
     }
     app_state.drawing_overlay.set_tool(tool);
+    app_state.drawing_overlay.set_click_through(passthrough);
     Ok(())
 }
 

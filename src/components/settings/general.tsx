@@ -183,6 +183,11 @@ export const GeneralSettings = () => {
                         <span className="min-w-24 text-sm text-muted-foreground">{t("Clear Screen Drawing")}</span>
                         <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Del</span>
                     </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <span className="min-w-24 text-sm text-muted-foreground">{t("Return To Mouse Mode")}</span>
+                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Ctrl</span>
+                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">9</span>
+                    </div>
                 </div>
             </ItemContent>
         </Item>

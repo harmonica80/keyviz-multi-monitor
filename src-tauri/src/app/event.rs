@@ -8,7 +8,18 @@ use rdev::{listen, Button, EventType};
 use serde::Serialize;
 use tauri::{menu::MenuItem, AppHandle, Emitter, Manager, Wry};
 
+use crate::app::native_drawing::NativeTool;
 use crate::app::state::AppState;
+
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_RCONTROL,
+};
+
+#[cfg(target_os = "windows")]
+const VK_0: i32 = 0x30;
+#[cfg(target_os = "windows")]
+const VK_9: i32 = 0x39;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -58,8 +69,17 @@ fn is_screen_drawing_shortcut_pressed(pressed_keys: &[String]) -> bool {
     has_control && has_zero
 }
 
+fn is_drawing_pointer_shortcut_pressed(pressed_keys: &[String]) -> bool {
+    let has_control = pressed_keys
+        .iter()
+        .any(|key| matches!(key.as_str(), "ControlLeft" | "ControlRight"));
+    let has_nine = pressed_keys.iter().any(|key| matches!(key.as_str(), "Num9" | "Kp9"));
+    has_control && has_nine
+}
+
 pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
     start_cursor_updater(app_handle.clone());
+    start_drawing_shortcut_poller(app_handle.clone());
 
     thread::spawn(move || {
         println!("Starting global input listener...");
@@ -83,13 +103,10 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 // record key as pressed
                 app_state.pressed_keys.push(key_name.clone());
                 if is_screen_drawing_shortcut_pressed(&app_state.pressed_keys) {
+                    let drawing_visible = app_state.drawing_visible;
                     app_state.pressed_keys.clear();
                     drop(app_state);
-                    let is_visible = app_handle
-                        .get_webview_window("drawing-toolbar")
-                        .and_then(|window| window.is_visible().ok())
-                        .unwrap_or(false);
-                    let result = if is_visible {
+                    let result = if drawing_visible {
                         crate::close_screen_drawing_impl(app_handle.clone())
                     } else {
                         crate::show_drawing_window(&app_handle)
@@ -99,10 +116,14 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     }
                     return;
                 }
-                let drawing_visible = app_handle
-                    .get_webview_window("drawing-toolbar")
-                    .and_then(|window| window.is_visible().ok())
-                    .unwrap_or(false);
+                let drawing_visible = app_state.drawing_visible;
+                if drawing_visible && is_drawing_pointer_shortcut_pressed(&app_state.pressed_keys) {
+                    drop(app_state);
+                    if let Err(error) = set_drawing_pointer_mode(&app_handle) {
+                        eprintln!("Failed to set drawing pointer shortcut: {error}");
+                    }
+                    return;
+                }
                 if drawing_visible && key_name == "Delete" {
                     app_state.drawing_overlay.clear();
                     return;
@@ -217,6 +238,86 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
         }
     });
 }
+
+#[cfg(target_os = "windows")]
+fn key_is_down(vk: i32) -> bool {
+    unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(target_os = "windows")]
+fn control_is_down() -> bool {
+    key_is_down(VK_CONTROL.0 as i32)
+        || key_is_down(VK_LCONTROL.0 as i32)
+        || key_is_down(VK_RCONTROL.0 as i32)
+}
+
+#[cfg(target_os = "windows")]
+fn set_drawing_pointer_mode(app_handle: &AppHandle) -> Result<(), String> {
+    let state = app_handle.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    if !app_state.drawing_visible {
+        return Ok(());
+    }
+    app_state.pressed_keys.clear();
+    app_state.drawing_input_passthrough = true;
+    app_state.drawing_pointer_down = false;
+    app_state.drawing_last_move = None;
+    app_state.drawing_overlay.set_tool(NativeTool::Pointer);
+    app_state.drawing_overlay.set_click_through(true);
+    drop(app_state);
+    app_handle
+        .emit(
+            "drawing-tool-changed",
+            serde_json::json!({ "tool": "pointer" }),
+        )
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "windows")]
+fn start_drawing_shortcut_poller(app_handle: AppHandle) {
+    thread::spawn(move || {
+        let mut ctrl_0_was_down = false;
+        let mut ctrl_9_was_down = false;
+
+        loop {
+            thread::sleep(Duration::from_millis(40));
+
+            let ctrl_down = control_is_down();
+            let ctrl_0_down = ctrl_down && key_is_down(VK_0);
+            let ctrl_9_down = ctrl_down && key_is_down(VK_9);
+
+            if ctrl_0_down && !ctrl_0_was_down {
+                let drawing_visible = {
+                    let state = app_handle.state::<Mutex<AppState>>();
+                    state
+                        .lock()
+                        .map(|app_state| app_state.drawing_visible)
+                        .unwrap_or(false)
+                };
+                let result = if drawing_visible {
+                    crate::close_screen_drawing_impl(app_handle.clone())
+                } else {
+                    crate::show_drawing_window(&app_handle)
+                };
+                if let Err(error) = result {
+                    eprintln!("Failed to toggle screen drawing poller shortcut: {error}");
+                }
+            }
+
+            if ctrl_9_down && !ctrl_9_was_down {
+                if let Err(error) = set_drawing_pointer_mode(&app_handle) {
+                    eprintln!("Failed to set drawing pointer poller shortcut: {error}");
+                }
+            }
+
+            ctrl_0_was_down = ctrl_0_down;
+            ctrl_9_was_down = ctrl_9_down;
+        }
+    });
+}
+
+#[cfg(not(target_os = "windows"))]
+fn start_drawing_shortcut_poller(_app_handle: AppHandle) {}
 
 fn start_cursor_updater(app_handle: AppHandle) {
     let mut last_refresh = Instant::now() - Duration::from_secs(1);

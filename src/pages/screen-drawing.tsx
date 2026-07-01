@@ -39,6 +39,7 @@ type DrawingCommand =
   | { type: "width"; value: number }
   | { type: "clear" }
   | { type: "undo" };
+type ToolChangedPayload = { tool: Tool };
 
 const COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
 const WIDTHS = [2, 5, 9, 15];
@@ -140,6 +141,15 @@ export default function ScreenDrawing() {
   const isTextEditorOpen = textEditor !== null;
 
   const notifyHistory = useCallback(() => {}, []);
+
+  useEffect(() => {
+    const toolListener = listen<ToolChangedPayload>("drawing-tool-changed", (event) => {
+      setTool(event.payload.tool);
+    });
+    return () => {
+      void toolListener.then((unlisten) => unlisten());
+    };
+  }, []);
 
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;

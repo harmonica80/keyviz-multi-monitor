@@ -122,6 +122,8 @@ export const ModernKeycap = ({ event, isPressed }: KeycapProps) => {
     const text = useKeyStyle(state => state.text);
     const display = keymaps[event.name];
     const theme = modernKeycapThemes[style];
+    const Icon = display.icon;
+    const forceIcon = display.category === "mouse" && Icon;
     const label = text.variant === "text" ? display.label : display.shortLabel ?? display.label;
     const horizontalPadding = event.isModifier() ? text.size * 0.85 : text.size * 0.65;
 
@@ -141,7 +143,7 @@ export const ModernKeycap = ({ event, isPressed }: KeycapProps) => {
             transition={{ duration: 0.08 }}
             style={{
                 ...theme.key,
-                minWidth: text.size * (event.isModifier() ? 2.8 : 2),
+                minWidth: text.size * (event.isModifier() ? 2.8 : forceIcon ? 1.9 : 2),
                 height: text.size * 1.9,
                 paddingInline: horizontalPadding,
                 borderRadius: Math.max(8, text.size * 0.28),
@@ -157,7 +159,7 @@ export const ModernKeycap = ({ event, isPressed }: KeycapProps) => {
                 whiteSpace: "nowrap",
             }}
         >
-            {label}
+            {forceIcon ? <Icon size={text.size * 0.9} strokeWidth={2.2} /> : label}
         </motion.div>
     );
 };

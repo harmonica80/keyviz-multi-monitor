@@ -21,6 +21,7 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 - 繪圖工具列可移動，預設顯示於畫面右側。
 - 繪圖色塊會在目前選取顏色上顯示勾選標記，並保留原本顏色。
 - 快速鍵 `Ctrl + 0` 可開啟或關閉螢幕繪圖。
+- 在螢幕繪圖模式下按 `Ctrl + 9` 可切回游標/滑鼠模式。
 - 在螢幕繪圖模式下按 `Del` 可清空目前螢幕上的繪圖。
 
 ## Features
@@ -40,6 +41,7 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 - Movable drawing toolbar, shown on the right side by default.
 - Selected drawing color is marked with a check while keeping the original color visible.
 - Press `Ctrl + 0` to toggle screen drawing.
+- Press `Ctrl + 9` while screen drawing is active to return to pointer/mouse mode.
 - Press `Del` while screen drawing is active to clear the current drawings.
 
 ## 下載與使用
