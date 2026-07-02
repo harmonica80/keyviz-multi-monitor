@@ -1,0 +1,39 @@
+name: Build portable exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/publish-keyviz-multi-monitor
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build portable executable
+        run: npm run build:portable
+
+      - name: Prepare portable artifact
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release
+          Copy-Item src-tauri/target/x86_64-pc-windows-msvc/release/keyviz.exe release/keyviz-portable.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyviz-portable
+          path: release/keyviz-portable.exe

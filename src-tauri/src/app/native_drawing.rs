@@ -50,7 +50,9 @@ mod platform {
 
     const TRANSPARENT_KEY: COLORREF = COLORREF(1 | (2 << 8) | (3 << 16));
     const TRANSPARENT_PIXEL: u32 = 0x0001_0203;
-    const INPUT_CAPTURE_PIXEL: u32 = 0x0100_0000;
+    // Use the same RGB as the transparent key with minimal alpha so the layered
+    // window can receive mouse input without showing dark artifacts on video.
+    const INPUT_CAPTURE_PIXEL: u32 = 0x0101_0203;
     const WM_APP_COMMIT_TEXT: u32 = WM_APP + 1;
     const WM_APP_CANCEL_TEXT: u32 = WM_APP + 2;
     const NON_ANTIALIASED_FONT_QUALITY: u32 = 3;
