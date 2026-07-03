@@ -316,16 +316,45 @@ body.drawing-page #root {
     drop-shadow(0 -1px 0 #fff);
 }
 
-.drawing-toolbar .drawing-width span {
+.drawing-width-slider {
+  display: grid;
+  grid-template-columns: 16px 1fr;
+  align-items: center;
+  gap: 3px;
+  min-height: 30px;
+  padding: 2px 3px;
+  border: 1px solid #9a9a9a;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.drawing-width-slider span {
   display: block;
-  max-width: 18px;
-  max-height: 18px;
+  justify-self: center;
+  max-width: 14px;
+  max-height: 14px;
   border-radius: 999px;
   background: #111;
 }
 
-.drawing-toolbar .drawing-width {
-  min-height: 32px;
+.drawing-width-slider input {
+  width: 100%;
+  min-width: 0;
+  height: 18px;
+  margin: 0;
+  accent-color: #333;
+}
+
+.drawing-width-slider input::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 999px;
+  background: #777;
+}
+
+.drawing-width-slider input::-webkit-slider-thumb {
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
 }
 
 .drawing-undo {

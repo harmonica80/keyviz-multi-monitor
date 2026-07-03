@@ -45,6 +45,8 @@ type ToolChangedPayload = { tool: Tool };
 
 const COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
 const WIDTHS = [2, 5, 9, 15];
+const MIN_WIDTH = WIDTHS[0];
+const MAX_WIDTH = WIDTHS[WIDTHS.length - 1];
 
 const keyboardEventKey = (event: KeyboardEvent): string => {
   if (event.code.startsWith("Key")) return event.code;
@@ -480,16 +482,18 @@ export default function ScreenDrawing() {
         ))}
       </div>
       <div className="drawing-divider" />
-      {WIDTHS.map((value) => (
-        <button
-          key={value}
-          className={`drawing-width ${width === value ? "active" : ""}`}
-          title={`${t("Line Thickness")} ${value}`}
-          onClick={() => void sendCommand({ type: "width", value })}
-        >
-          <span style={{ width: value, height: value }} />
-        </button>
-      ))}
+      <label className="drawing-width-slider" title={`${t("Line Thickness")} ${width}`}>
+        <span style={{ width, height: width }} />
+        <input
+          aria-label={t("Line Thickness")}
+          type="range"
+          min={MIN_WIDTH}
+          max={MAX_WIDTH}
+          step={1}
+          value={width}
+          onChange={(event) => void sendCommand({ type: "width", value: Number(event.target.value) })}
+        />
+      </label>
       <button
         disabled={!canUndo}
         title={`${t("Undo")}${undoShortcutLabel ? ` (${undoShortcutLabel})` : ""}`}
