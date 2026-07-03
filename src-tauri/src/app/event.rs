@@ -392,24 +392,33 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
     thread::spawn(move || {
         let mut toggle_was_down = false;
         let mut pointer_was_down = false;
+        let mut clear_was_down = false;
+        let mut undo_was_down = false;
+        let mut close_was_down = false;
 
         loop {
             thread::sleep(Duration::from_millis(40));
 
-            let (toggle_shortcut, pointer_shortcut) = {
+            let (toggle_shortcut, pointer_shortcut, clear_shortcut, undo_shortcut, close_shortcut) = {
                 let state = app_handle.state::<Mutex<AppState>>();
                 let shortcuts = match state.lock() {
                     Ok(app_state) => (
                         app_state.drawing_toggle_shortcut.clone(),
                         app_state.drawing_pointer_shortcut.clone(),
+                        app_state.drawing_clear_shortcut.clone(),
+                        app_state.drawing_undo_shortcut.clone(),
+                        app_state.drawing_close_shortcut.clone(),
                     ),
-                    Err(_) => (Vec::new(), Vec::new()),
+                    Err(_) => (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()),
                 };
                 shortcuts
             };
 
             let toggle_down = shortcut_is_down(&toggle_shortcut);
             let pointer_down = shortcut_is_down(&pointer_shortcut);
+            let clear_down = shortcut_is_down(&clear_shortcut);
+            let undo_down = shortcut_is_down(&undo_shortcut);
+            let close_down = shortcut_is_down(&close_shortcut);
 
             if toggle_down && !toggle_was_down {
                 let drawing_visible = {
@@ -429,6 +438,41 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
                 }
             }
 
+            if clear_down && !clear_was_down {
+                let state = app_handle.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    if app_state.drawing_visible {
+                        app_state.drawing_overlay.clear();
+                        app_state.pressed_keys.clear();
+                    }
+                };
+            }
+
+            if undo_down && !undo_was_down {
+                let state = app_handle.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    if app_state.drawing_visible {
+                        app_state.drawing_overlay.undo();
+                        app_state.pressed_keys.clear();
+                    }
+                };
+            }
+
+            if close_down && !close_was_down {
+                let drawing_visible = {
+                    let state = app_handle.state::<Mutex<AppState>>();
+                    state
+                        .lock()
+                        .map(|app_state| app_state.drawing_visible)
+                        .unwrap_or(false)
+                };
+                if drawing_visible {
+                    if let Err(error) = crate::close_screen_drawing_impl(app_handle.clone()) {
+                        eprintln!("Failed to close screen drawing poller shortcut: {error}");
+                    }
+                }
+            }
+
             if pointer_down && !pointer_was_down {
                 if let Err(error) = set_drawing_pointer_mode(&app_handle) {
                     eprintln!("Failed to set drawing pointer poller shortcut: {error}");
@@ -437,6 +481,9 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
 
             toggle_was_down = toggle_down;
             pointer_was_down = pointer_down;
+            clear_was_down = clear_down;
+            undo_was_down = undo_down;
+            close_was_down = close_down;
         }
     });
 }

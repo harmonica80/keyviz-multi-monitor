@@ -172,7 +172,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
             pressedKeys.push(event.name);
 
             // 1. filter event
-            if (state.filter !== "none" && state.ignoreEvent(pressedKeys)) {
+            if (state.filter !== "none" && state.ignoreEvent([event.name])) {
                 set({ pressedKeys });
                 return;
             }
@@ -243,11 +243,12 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         },
         ignoreEvent(pressedKeys) {
             const state = get();
+            const keyName = pressedKeys[pressedKeys.length - 1];
             if (state.filter === "modifiers") {
-                return !MODIFIERS.has(pressedKeys[0]);
+                return !MODIFIERS.has(keyName);
             }
             else if (state.filter === "custom") {
-                return !state.allowedKeys.includes(pressedKeys[0]);
+                return !state.allowedKeys.includes(keyName);
             }
             return false;
         },
