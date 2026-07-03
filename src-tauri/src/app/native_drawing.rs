@@ -17,32 +17,31 @@ mod platform {
     use windows::{
         core::PCWSTR,
         Win32::{
-            Foundation::{COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE, WPARAM},
+            Foundation::{
+                COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE, WPARAM,
+            },
             Graphics::Gdi::{
-                BLENDFUNCTION, AC_SRC_ALPHA, BI_RGB, BITMAPINFO, BITMAPINFOHEADER, HDC,
                 CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen, DeleteDC,
-                DeleteObject, DIB_RGB_COLORS, DrawTextW, Ellipse, GetDC, GetStockObject, LineTo,
-                MoveToEx, Rectangle, ReleaseDC, SelectObject, SetBkMode, DT_LEFT, DT_SINGLELINE,
-                DT_TOP, HOLLOW_BRUSH, PS_SOLID, TRANSPARENT,
+                DeleteObject, DrawTextW, Ellipse, GetDC, GetStockObject, LineTo, MoveToEx,
+                Rectangle, ReleaseDC, SelectObject, SetBkMode, AC_SRC_ALPHA, BITMAPINFO,
+                BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DT_LEFT, DT_SINGLELINE,
+                DT_TOP, HDC, HOLLOW_BRUSH, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
                 Input::KeyboardAndMouse::{
-                    GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_CONTROL,
-                    VK_DELETE, VK_ESCAPE, VK_RETURN, VK_Z,
+                    ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN,
                 },
                 WindowsAndMessaging::{
-                    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-                    GetAncestor, GetWindowLongPtrW, PeekMessageW, RegisterClassW,
-                    SetWindowLongPtrW, SetWindowPos, ShowWindow, UpdateLayeredWindow,
-                    TranslateMessage, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW, GA_ROOT,
-                    GWLP_USERDATA, GWL_EXSTYLE, HTCLIENT, HTTRANSPARENT,
-                    HWND_TOPMOST, MSG, PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE,
-                    SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, WM_APP, WM_COMMAND, WM_CREATE,
-                    WM_CHAR, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
-                    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WNDCLASSW,
-                    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-                    WS_EX_TRANSPARENT, WS_POPUP, ULW_ALPHA,
+                    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetAncestor,
+                    GetWindowLongPtrW, PeekMessageW, RegisterClassW, SetWindowLongPtrW,
+                    SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW,
+                    CS_HREDRAW, CS_VREDRAW, GA_ROOT, GWLP_USERDATA, GWL_EXSTYLE, HTCLIENT,
+                    HTTRANSPARENT, HWND_TOPMOST, MSG, PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+                    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WM_APP, WM_CHAR,
+                    WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
+                    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WNDCLASSW, WS_EX_LAYERED,
+                    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
@@ -795,33 +794,9 @@ mod platform {
                 }
                 refresh_overlay(state);
             }
-            code if code == VK_DELETE.0 as u32 && state.edit.is_none() => {
-                state.drawings.clear();
-                state.active = None;
-                emit_history(&state.app, false);
-                refresh_overlay(state);
-            }
-            code if code == VK_ESCAPE.0 as u32 => {
+            code if code == VK_ESCAPE.0 as u32 && state.edit.is_some() => {
                 if state.edit.is_some() {
                     cancel_text_editor(state);
-                    return;
-                }
-                state.drawings.clear();
-                state.active = None;
-                cancel_text_editor(state);
-                ShowWindow(state.hwnd, SW_HIDE);
-                if let Some(toolbar) = state.app.get_webview_window("drawing-toolbar") {
-                    let _ = toolbar.hide();
-                }
-                let _ = state.app.emit("native-drawing-close", ());
-                emit_history(&state.app, false);
-            }
-            code if code == VK_Z.0 as u32 => {
-                let ctrl_pressed = GetKeyState(VK_CONTROL.0 as i32) < 0;
-                if ctrl_pressed && state.edit.is_none() {
-                    state.drawings.pop();
-                    emit_history(&state.app, !state.drawings.is_empty());
-                    refresh_overlay(state);
                 }
             }
             _ => {}
@@ -1162,7 +1137,12 @@ mod platform {
             bottom: start.y + 120,
         };
         let mut wide_text = wide(text);
-        DrawTextW(dc, &mut wide_text, &mut rect, DT_LEFT | DT_TOP | DT_SINGLELINE);
+        DrawTextW(
+            dc,
+            &mut wide_text,
+            &mut rect,
+            DT_LEFT | DT_TOP | DT_SINGLELINE,
+        );
         windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
         SelectObject(dc, old_font);
         DeleteObject(font);
@@ -1234,9 +1214,12 @@ mod platform {
             .lock()
             .ok()
             .and_then(|guard| {
-                guard.as_ref().filter(|state| state.hwnd == hwnd).map(|state| {
-                    state.click_through || is_toolbar_passthrough_point(state, point, true)
-                })
+                guard
+                    .as_ref()
+                    .filter(|state| state.hwnd == hwnd)
+                    .map(|state| {
+                        state.click_through || is_toolbar_passthrough_point(state, point, true)
+                    })
             })
             .unwrap_or(true)
     }

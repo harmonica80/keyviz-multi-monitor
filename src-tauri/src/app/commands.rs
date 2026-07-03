@@ -22,6 +22,34 @@ pub fn set_toggle_shortcut(app: tauri::AppHandle, shortcut: Vec<String>) {
     app_state.toggle_shortcut = shortcut;
 }
 
+#[tauri::command]
+pub fn set_drawing_shortcuts(
+    app: tauri::AppHandle,
+    toggle_shortcut: Option<Vec<String>>,
+    pointer_shortcut: Option<Vec<String>>,
+    clear_shortcut: Option<Vec<String>>,
+    undo_shortcut: Option<Vec<String>>,
+    close_shortcut: Option<Vec<String>>,
+) {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().unwrap();
+    if let Some(shortcut) = toggle_shortcut {
+        app_state.drawing_toggle_shortcut = shortcut;
+    }
+    if let Some(shortcut) = pointer_shortcut {
+        app_state.drawing_pointer_shortcut = shortcut;
+    }
+    if let Some(shortcut) = clear_shortcut {
+        app_state.drawing_clear_shortcut = shortcut;
+    }
+    if let Some(shortcut) = undo_shortcut {
+        app_state.drawing_undo_shortcut = shortcut;
+    }
+    if let Some(shortcut) = close_shortcut {
+        app_state.drawing_close_shortcut = shortcut;
+    }
+}
+
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CursorSettingsPayload {

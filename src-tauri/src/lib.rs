@@ -3,14 +3,15 @@ use tauri::{
     image::Image,
     include_image,
     menu::{Menu, MenuItem},
-    tray::TrayIconBuilder, AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder,
+    tray::TrayIconBuilder,
+    AppHandle, Emitter, Manager, WebviewWindow, WebviewWindowBuilder,
 };
 
 mod app;
 use app::commands::{
     drawing_clear, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_undo,
-    get_cursor_settings, log, set_cursor_settings, set_main_window_monitor, set_toggle_shortcut,
-    set_tray_locale, update_overlay_window,
+    get_cursor_settings, log, set_cursor_settings, set_drawing_shortcuts, set_main_window_monitor,
+    set_toggle_shortcut, set_tray_locale, update_overlay_window,
 };
 use app::event::start_listener;
 use app::state::{AppState, TrayMenuItems};
@@ -244,7 +245,9 @@ fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
 
     #[cfg(not(target_os = "windows"))]
     {
-        let position = toolbar.outer_position().map_err(|error| error.to_string())?;
+        let position = toolbar
+            .outer_position()
+            .map_err(|error| error.to_string())?;
         let size = toolbar.outer_size().map_err(|error| error.to_string())?;
         let padding = 12;
         let state = app.state::<Mutex<AppState>>();
@@ -308,8 +311,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     let drawing_height = bottom - top;
     let toolbar_height = (primary.size().height.saturating_sub(16)).min(820);
     let toolbar_width = 64;
-    let toolbar_x =
-        primary.position().x + primary.size().width as i32 - toolbar_width - 8;
+    let toolbar_x = primary.position().x + primary.size().width as i32 - toolbar_width - 8;
     let toolbar_y = primary.position().y + 8;
 
     create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height)?;
@@ -322,13 +324,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     app_state.drawing_last_move = None;
     app_state
         .drawing_overlay
-        .show(
-            left,
-            top,
-            drawing_width,
-            drawing_height,
-            None,
-        );
+        .show(left, top, drawing_width, drawing_height, None);
     app_state.drawing_overlay.set_click_through(false);
     drop(app_state);
     keep_drawing_toolbar_above_canvas(app)?;
@@ -634,6 +630,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             log,
             set_toggle_shortcut,
+            set_drawing_shortcuts,
             set_main_window_monitor,
             set_tray_locale,
             update_overlay_window,

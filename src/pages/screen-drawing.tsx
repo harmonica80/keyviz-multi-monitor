@@ -1,4 +1,6 @@
 import { useTranslation } from "@/lib/i18n";
+import { keymaps } from "@/lib/keymaps";
+import { useKeyEvent } from "@/stores/key_event";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -43,6 +45,28 @@ type ToolChangedPayload = { tool: Tool };
 
 const COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
 const WIDTHS = [2, 5, 9, 15];
+
+const keyboardEventKey = (event: KeyboardEvent): string => {
+  if (event.code.startsWith("Key")) return event.code;
+  if (event.code.startsWith("Digit")) return `Num${event.code.slice(5)}`;
+  if (event.code.startsWith("Numpad")) return `Kp${event.code.slice(6)}`;
+  return event.key.length === 1 ? event.key : event.key;
+};
+
+const shortcutMatchesEvent = (event: KeyboardEvent, shortcut: string[]) => {
+  if (shortcut.length === 0) return false;
+  const mainKey = keyboardEventKey(event);
+  return shortcut.every((key) => {
+    if (key === "ControlLeft" || key === "ControlRight" || key === "Control") return event.ctrlKey;
+    if (key === "ShiftLeft" || key === "ShiftRight" || key === "Shift") return event.shiftKey;
+    if (key === "Alt" || key === "AltLeft" || key === "AltRight") return event.altKey;
+    if (key === "MetaLeft" || key === "MetaRight" || key === "Meta") return event.metaKey;
+    return key === mainKey || (key.startsWith("Num") && mainKey === `Kp${key.slice(3)}`);
+  });
+};
+
+const formatShortcut = (shortcut: string[]) =>
+  shortcut.map((key) => keymaps[key]?.label ?? key).join(" + ");
 
 const drawArrowHead = (
   context: CanvasRenderingContext2D,
@@ -139,6 +163,10 @@ export default function ScreenDrawing() {
   const [canUndo, setCanUndo] = useState(false);
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const isTextEditorOpen = textEditor !== null;
+  const drawingUndoShortcut = useKeyEvent((state) => state.drawingUndoShortcut);
+  const drawingCloseShortcut = useKeyEvent((state) => state.drawingCloseShortcut);
+  const closeShortcutLabel = formatShortcut(drawingCloseShortcut);
+  const undoShortcutLabel = formatShortcut(drawingUndoShortcut);
 
   const notifyHistory = useCallback(() => {}, []);
 
@@ -271,8 +299,12 @@ export default function ScreenDrawing() {
       void invoke("close_screen_drawing");
     });
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") void invoke("close_screen_drawing");
-      if (event.ctrlKey && event.key.toLowerCase() === "z") {
+      if (shortcutMatchesEvent(event, drawingCloseShortcut)) {
+        event.preventDefault();
+        void invoke("close_screen_drawing");
+      }
+      if (shortcutMatchesEvent(event, drawingUndoShortcut)) {
+        event.preventDefault();
         drawingsRef.current.pop();
         redraw();
         notifyHistory();
@@ -286,7 +318,7 @@ export default function ScreenDrawing() {
       void commandListener.then((unlisten) => unlisten());
       void closeListener.then((unlisten) => unlisten());
     };
-  }, [finishTextEditor, isToolbar, notifyHistory, redraw, resizeCanvas, updateTextEditor]);
+  }, [drawingCloseShortcut, drawingUndoShortcut, finishTextEditor, isToolbar, notifyHistory, redraw, resizeCanvas, updateTextEditor]);
 
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {
@@ -415,7 +447,7 @@ export default function ScreenDrawing() {
       </button>
       <button
         className="drawing-close"
-        title={`${t("Exit Drawing")} (Esc)`}
+        title={`${t("Exit Drawing")}${closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`}
         onClick={() => void invoke("close_screen_drawing")}
       >
         <X />
@@ -460,7 +492,7 @@ export default function ScreenDrawing() {
       ))}
       <button
         disabled={!canUndo}
-        title={`${t("Undo")} (Ctrl+Z)`}
+        title={`${t("Undo")}${undoShortcutLabel ? ` (${undoShortcutLabel})` : ""}`}
         onClick={() => void sendCommand({ type: "undo" })}
       >
         <Redo2 className="drawing-undo" />

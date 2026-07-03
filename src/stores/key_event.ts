@@ -38,6 +38,11 @@ export interface KeyEventState {
     maxHistory: number;
     lingerDurationMs: number;
     toggleShortcut: string[];
+    drawingToggleShortcut: string[];
+    drawingPointerShortcut: string[];
+    drawingClearShortcut: string[];
+    drawingUndoShortcut: string[];
+    drawingCloseShortcut: string[];
 }
 
 interface KeyEventActions {
@@ -50,6 +55,11 @@ interface KeyEventActions {
     // setShowMouseEvents(value: KeyEventState["showMouseEvents"]): void;
     setLingerDurationMs(value: KeyEventState["lingerDurationMs"]): void;
     setToggleShortcut(value: KeyEventState["toggleShortcut"]): void;
+    setDrawingToggleShortcut(value: KeyEventState["drawingToggleShortcut"]): void;
+    setDrawingPointerShortcut(value: KeyEventState["drawingPointerShortcut"]): void;
+    setDrawingClearShortcut(value: KeyEventState["drawingClearShortcut"]): void;
+    setDrawingUndoShortcut(value: KeyEventState["drawingUndoShortcut"]): void;
+    setDrawingCloseShortcut(value: KeyEventState["drawingCloseShortcut"]): void;
     // ───────────── event actions ─────────────
     onEvent(event: EventPayload): void;
     onKeyPress(event: RawKeyEvent): void;
@@ -84,6 +94,11 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         maxHistory: 5,
         lingerDurationMs: 1_000,
         toggleShortcut: [RawKey.ShiftLeft, RawKey.F10],
+        drawingToggleShortcut: [RawKey.ControlLeft, RawKey.Num0],
+        drawingPointerShortcut: [RawKey.ControlLeft, RawKey.Num9],
+        drawingClearShortcut: [RawKey.Delete],
+        drawingUndoShortcut: [RawKey.ControlLeft, RawKey.KeyZ],
+        drawingCloseShortcut: [RawKey.Escape],
 
         setDragThreshold(value: number) {
             set({ dragThreshold: value });
@@ -105,6 +120,21 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         },
         setToggleShortcut(value: string[]) {
             set({ toggleShortcut: value });
+        },
+        setDrawingToggleShortcut(value: string[]) {
+            set({ drawingToggleShortcut: value });
+        },
+        setDrawingPointerShortcut(value: string[]) {
+            set({ drawingPointerShortcut: value });
+        },
+        setDrawingClearShortcut(value: string[]) {
+            set({ drawingClearShortcut: value });
+        },
+        setDrawingUndoShortcut(value: string[]) {
+            set({ drawingUndoShortcut: value });
+        },
+        setDrawingCloseShortcut(value: string[]) {
+            set({ drawingCloseShortcut: value });
         },
         onEvent(event: EventPayload) {
             const state = get();
@@ -409,6 +439,11 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
                     version < 1 && state.lingerDurationMs === 5_000
                         ? 1_000
                         : state.lingerDurationMs,
+                drawingToggleShortcut: state.drawingToggleShortcut ?? [RawKey.ControlLeft, RawKey.Num0],
+                drawingPointerShortcut: state.drawingPointerShortcut ?? [RawKey.ControlLeft, RawKey.Num9],
+                drawingClearShortcut: state.drawingClearShortcut ?? [RawKey.Delete],
+                drawingUndoShortcut: state.drawingUndoShortcut ?? [RawKey.ControlLeft, RawKey.KeyZ],
+                drawingCloseShortcut: state.drawingCloseShortcut ?? [RawKey.Escape],
             };
         },
         partialize: (state) => {

@@ -2,14 +2,19 @@ use serde::Deserialize;
 use tauri::{image::Image, include_image, menu::MenuItem, Emitter, Manager, Wry};
 use tauri_plugin_store::StoreExt;
 
-use crate::app::native_drawing::NativeDrawingOverlay;
 use crate::app::native_cursor::NativeCursorOverlay;
+use crate::app::native_drawing::NativeDrawingOverlay;
 
 #[derive(Default)]
 pub struct AppState {
     pub listening: bool,
     pub pressed_keys: Vec<String>,
     pub toggle_shortcut: Vec<String>,
+    pub drawing_toggle_shortcut: Vec<String>,
+    pub drawing_pointer_shortcut: Vec<String>,
+    pub drawing_clear_shortcut: Vec<String>,
+    pub drawing_undo_shortcut: Vec<String>,
+    pub drawing_close_shortcut: Vec<String>,
 
     pub monitor_name: Option<String>,
     pub monitor_scale: f64,
@@ -42,7 +47,12 @@ pub struct TrayMenuItems {
 
 impl AppState {
     pub fn new(app: &tauri::AppHandle) -> Self {
-        let mut toggle_shortcut = vec!["Shift".to_string(), "F10".to_string()];
+        let mut toggle_shortcut = default_toggle_shortcut();
+        let mut drawing_toggle_shortcut = default_drawing_toggle_shortcut();
+        let mut drawing_pointer_shortcut = default_drawing_pointer_shortcut();
+        let mut drawing_clear_shortcut = default_drawing_clear_shortcut();
+        let mut drawing_undo_shortcut = default_drawing_undo_shortcut();
+        let mut drawing_close_shortcut = default_drawing_close_shortcut();
         let mut locale = "zh-TW".to_string();
         let mut cursor_keep_highlight = true;
         let mut cursor_size = 80.0;
@@ -59,6 +69,11 @@ impl AppState {
                     match serde_json::from_str::<KeyEventStore>(json_str) {
                         Ok(parsed) => {
                             toggle_shortcut = parsed.state.toggle_shortcut;
+                            drawing_toggle_shortcut = parsed.state.drawing_toggle_shortcut;
+                            drawing_pointer_shortcut = parsed.state.drawing_pointer_shortcut;
+                            drawing_clear_shortcut = parsed.state.drawing_clear_shortcut;
+                            drawing_undo_shortcut = parsed.state.drawing_undo_shortcut;
+                            drawing_close_shortcut = parsed.state.drawing_close_shortcut;
                         }
                         Err(e) => eprintln!("Failed to parse inner config JSON: {}", e),
                     }
@@ -92,6 +107,11 @@ impl AppState {
             listening: true,
             pressed_keys: vec![],
             toggle_shortcut,
+            drawing_toggle_shortcut,
+            drawing_pointer_shortcut,
+            drawing_clear_shortcut,
+            drawing_undo_shortcut,
+            drawing_close_shortcut,
             monitor_name: None,
             monitor_scale: 1.0,
             monitor_position: (0, 0),
@@ -165,7 +185,42 @@ struct KeyEventState {
     // pub max_history: u32,
     // pub linger_duration_ms: u32,
     // pub show_mouse_events: bool,
+    #[serde(default = "default_toggle_shortcut")]
     pub toggle_shortcut: Vec<String>,
+    #[serde(default = "default_drawing_toggle_shortcut")]
+    pub drawing_toggle_shortcut: Vec<String>,
+    #[serde(default = "default_drawing_pointer_shortcut")]
+    pub drawing_pointer_shortcut: Vec<String>,
+    #[serde(default = "default_drawing_clear_shortcut")]
+    pub drawing_clear_shortcut: Vec<String>,
+    #[serde(default = "default_drawing_undo_shortcut")]
+    pub drawing_undo_shortcut: Vec<String>,
+    #[serde(default = "default_drawing_close_shortcut")]
+    pub drawing_close_shortcut: Vec<String>,
+}
+
+fn default_toggle_shortcut() -> Vec<String> {
+    vec!["ShiftLeft".to_string(), "F10".to_string()]
+}
+
+fn default_drawing_toggle_shortcut() -> Vec<String> {
+    vec!["ControlLeft".to_string(), "Num0".to_string()]
+}
+
+fn default_drawing_pointer_shortcut() -> Vec<String> {
+    vec!["ControlLeft".to_string(), "Num9".to_string()]
+}
+
+fn default_drawing_clear_shortcut() -> Vec<String> {
+    vec!["Delete".to_string()]
+}
+
+fn default_drawing_undo_shortcut() -> Vec<String> {
+    vec!["ControlLeft".to_string(), "KeyZ".to_string()]
+}
+
+fn default_drawing_close_shortcut() -> Vec<String> {
+    vec!["Escape".to_string()]
 }
 
 #[derive(Debug, Deserialize)]

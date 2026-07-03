@@ -30,7 +30,12 @@ export const GeneralSettings = () => {
         allowedKeys,
         showEventHistory, setShowEventHistory,
         maxHistory, setMaxHistory,
-        toggleShortcut, setToggleShortcut
+        toggleShortcut, setToggleShortcut,
+        drawingToggleShortcut, setDrawingToggleShortcut,
+        drawingPointerShortcut, setDrawingPointerShortcut,
+        drawingClearShortcut, setDrawingClearShortcut,
+        drawingUndoShortcut, setDrawingUndoShortcut,
+        drawingCloseShortcut, setDrawingCloseShortcut,
     } = useKeyEvent();
 
     const direction = useKeyStyle(state => state.appearance.flexDirection);
@@ -174,22 +179,63 @@ export const GeneralSettings = () => {
             </ItemHeader>
             <ItemContent>
                 <div className="flex flex-col gap-3 rounded-xl bg-background p-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="min-w-24 text-sm text-muted-foreground">{t("Toggle Screen Drawing")}</span>
-                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Ctrl</span>
-                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">0</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="min-w-24 text-sm text-muted-foreground">{t("Clear Screen Drawing")}</span>
-                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Del</span>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <span className="min-w-24 text-sm text-muted-foreground">{t("Return To Mouse Mode")}</span>
-                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">Ctrl</span>
-                        <span className="rounded-xl border bg-card px-4 py-2 text-lg shadow-sm">9</span>
-                    </div>
+                    <ShortcutRow
+                        label={t("Toggle Screen Drawing")}
+                        value={drawingToggleShortcut}
+                        onChange={(shortcut) => {
+                            setDrawingToggleShortcut(shortcut);
+                            invoke("set_drawing_shortcuts", { toggleShortcut: shortcut });
+                        }}
+                    />
+                    <ShortcutRow
+                        label={t("Return To Mouse Mode")}
+                        value={drawingPointerShortcut}
+                        onChange={(shortcut) => {
+                            setDrawingPointerShortcut(shortcut);
+                            invoke("set_drawing_shortcuts", { pointerShortcut: shortcut });
+                        }}
+                    />
+                    <ShortcutRow
+                        label={t("Clear Screen Drawing")}
+                        value={drawingClearShortcut}
+                        onChange={(shortcut) => {
+                            setDrawingClearShortcut(shortcut);
+                            invoke("set_drawing_shortcuts", { clearShortcut: shortcut });
+                        }}
+                    />
+                    <ShortcutRow
+                        label={t("Undo Screen Drawing")}
+                        value={drawingUndoShortcut}
+                        onChange={(shortcut) => {
+                            setDrawingUndoShortcut(shortcut);
+                            invoke("set_drawing_shortcuts", { undoShortcut: shortcut });
+                        }}
+                    />
+                    <ShortcutRow
+                        label={t("Close Screen Drawing")}
+                        value={drawingCloseShortcut}
+                        onChange={(shortcut) => {
+                            setDrawingCloseShortcut(shortcut);
+                            invoke("set_drawing_shortcuts", { closeShortcut: shortcut });
+                        }}
+                    />
                 </div>
             </ItemContent>
         </Item>
     </div>;
 }
+
+const ShortcutRow = ({
+    label,
+    value,
+    onChange,
+}: {
+    label: string;
+    value: string[];
+    onChange: (shortcut: string[]) => void;
+}) => (
+    <div className="grid gap-2 md:grid-cols-[10rem_1fr] md:items-center">
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <ShortcutRecorder value={value} onChange={onChange} />
+    </div>
+);
