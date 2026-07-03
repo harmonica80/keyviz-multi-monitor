@@ -6,6 +6,7 @@ import { createSyncedStore } from "./sync";
 
 
 export const KEY_EVENT_STORE = "key_event_store";
+const FILTER_VALUES = new Set<KeyEventState["filter"]>(["none", "modifiers", "custom"]);
 const SCROLL_LINGER_MS = 300;
 
 interface KeyGroup {
@@ -104,6 +105,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
             set({ dragThreshold: value });
         },
         setFilter(value: "none" | "modifiers" | "custom") {
+            if (!FILTER_VALUES.has(value)) return;
             set({ filter: value });
         },
         setAllowedKeys(keys: string[]) {
@@ -431,11 +433,14 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
     (config) => persist(config, {
         name: KEY_EVENT_STORE,
         storage: createJSONStorage(() => tauriStorage),
-        version: 1,
+        version: 2,
         migrate: (persistedState, version) => {
             const state = persistedState as Partial<KeyEventState>;
             return {
                 ...state,
+                filter: FILTER_VALUES.has(state.filter as KeyEventState["filter"])
+                    ? state.filter
+                    : "modifiers",
                 lingerDurationMs:
                     version < 1 && state.lingerDurationMs === 5_000
                         ? 1_000

@@ -80,7 +80,9 @@ export const GeneralSettings = () => {
                     type="single"
                     variant="outline"
                     value={filter}
-                    onValueChange={(value) => setFilter(value as KeyEventState["filter"])}
+                    onValueChange={(value) => {
+                        if (value) setFilter(value as KeyEventState["filter"]);
+                    }}
                 >
                     <ToggleGroupItem value="none" aria-label="No Filter">{t("Off")}</ToggleGroupItem>
                     <ToggleGroupItem value="modifiers" aria-label="Modifiers Only">{t("Hotkeys")}</ToggleGroupItem>
