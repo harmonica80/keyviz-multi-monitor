@@ -483,7 +483,6 @@ export default function ScreenDrawing() {
       </div>
       <div className="drawing-divider" />
       <label className="drawing-width-slider" title={`${t("Line Thickness")} ${width}`}>
-        <span style={{ width, height: width }} />
         <input
           aria-label={t("Line Thickness")}
           type="range"
@@ -491,6 +490,9 @@ export default function ScreenDrawing() {
           max={MAX_WIDTH}
           step={1}
           value={width}
+          style={{
+            "--drawing-width-progress": `${((width - MIN_WIDTH) / (MAX_WIDTH - MIN_WIDTH)) * 100}%`,
+          } as CSSProperties}
           onChange={(event) => void sendCommand({ type: "width", value: Number(event.target.value) })}
         />
       </label>
