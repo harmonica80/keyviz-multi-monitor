@@ -115,7 +115,7 @@ fn create_drawing_toolbar(
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_SHOWWINDOW,
+            GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_NOSIZE, SWP_SHOWWINDOW,
         };
 
         let toolbar_hwnd = HWND(toolbar.hwnd().map_err(|error| error.to_string())?.0 as isize);
@@ -153,7 +153,7 @@ fn create_drawing_toolbar(
                         toolbar_y,
                         toolbar_width,
                         toolbar_height as i32,
-                        SWP_SHOWWINDOW,
+                        SWP_SHOWWINDOW | SWP_NOSIZE,
                     );
                 }
             }
@@ -460,7 +460,7 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
     window
         .set_size(tauri::LogicalSize {
             width: 48.0,
-            height: height.clamp(120.0, 820.0),
+            height: height.clamp(32.0, 820.0),
         })
         .map_err(|error| error.to_string())?;
     keep_drawing_toolbar_above_canvas(&app)?;
