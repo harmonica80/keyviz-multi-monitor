@@ -25,7 +25,7 @@ mod platform {
                 DeleteObject, DrawTextW, Ellipse, GetDC, GetStockObject, LineTo, MoveToEx,
                 Rectangle, ReleaseDC, SelectObject, SetBkMode, AC_SRC_ALPHA, BITMAPINFO,
                 BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DT_LEFT, DT_SINGLELINE,
-                DT_TOP, HDC, HOLLOW_BRUSH, PS_SOLID, TRANSPARENT,
+                DT_TOP, HDC, HOLLOW_BRUSH, PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -40,8 +40,9 @@ mod platform {
                     HTTRANSPARENT, HWND_TOPMOST, MSG, PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
                     SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WM_APP, WM_CHAR,
                     WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
-                    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCHITTEST, WM_PAINT, WNDCLASSW, WS_EX_LAYERED,
-                    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+                    WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_PAINT, WNDCLASSW,
+                    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+                    WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
@@ -63,7 +64,7 @@ mod platform {
         sender: Option<Sender<DrawingCommand>>,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy, PartialEq, Eq)]
     pub enum NativeTool {
         Pointer,
         Pen,
@@ -165,6 +166,11 @@ mod platform {
         width: i32,
     }
 
+    struct DragSession {
+        index: usize,
+        last: Point,
+    }
+
     struct OverlayState {
         app: AppHandle,
         hwnd: HWND,
@@ -178,11 +184,18 @@ mod platform {
         bounds: RECT,
         toolbar_passthrough: Option<RECT>,
         edit: Option<EditSession>,
+        selected: Option<usize>,
+        drag: Option<DragSession>,
     }
 
     #[derive(Clone, Serialize)]
     struct DrawingHistoryPayload {
         can_undo: bool,
+    }
+
+    #[derive(Clone, Serialize)]
+    struct DrawingWidthPayload {
+        width: i32,
     }
 
     static OVERLAY_STATE: OnceLock<Mutex<Option<OverlayState>>> = OnceLock::new();
@@ -404,6 +417,8 @@ mod platform {
                     bounds: RECT::default(),
                     toolbar_passthrough: None,
                     edit: None,
+                    selected: None,
+                    drag: None,
                 });
             }
 
@@ -502,6 +517,8 @@ mod platform {
                 cancel_text_editor(state);
                 state.drawings.clear();
                 state.active = None;
+                state.selected = None;
+                state.drag = None;
                 state.visible = false;
                 ShowWindow(state.hwnd, SW_HIDE);
                 emit_history(&state.app, false);
@@ -510,22 +527,40 @@ mod platform {
                 commit_text_editor(state);
                 let click_through = matches!(tool, NativeTool::Pointer);
                 state.tool = tool;
+                state.selected = None;
+                state.drag = None;
                 state.click_through = click_through;
                 apply_click_through(state.hwnd, click_through);
                 raise_toolbar(&state.app);
                 refresh_overlay(state);
             }
             DrawingCommand::SetColor(color) => state.color = parse_color(&color),
-            DrawingCommand::SetWidth(width) => state.width = width.max(1),
+            DrawingCommand::SetWidth(width) => {
+                let width = width.clamp(1, 15);
+                state.width = width;
+                if let Some(index) = state.selected {
+                    let tool = state.tool;
+                    if let Some(item) = state.drawings.get_mut(index) {
+                        if drawing_matches_tool(item, tool) {
+                            set_drawing_width(item, width);
+                            refresh_overlay(state);
+                        }
+                    }
+                }
+            }
             DrawingCommand::Clear => {
                 cancel_text_editor(state);
                 state.drawings.clear();
                 state.active = None;
+                state.selected = None;
+                state.drag = None;
                 emit_history(&state.app, false);
                 refresh_overlay(state);
             }
             DrawingCommand::Undo => {
                 if state.edit.is_none() {
+                    state.selected = None;
+                    state.drag = None;
                     state.drawings.pop();
                     emit_history(&state.app, !state.drawings.is_empty());
                     refresh_overlay(state);
@@ -599,6 +634,10 @@ mod platform {
                 on_left_button_up(hwnd, lparam);
                 LRESULT(0)
             }
+            WM_MOUSEWHEEL => {
+                on_mouse_wheel(hwnd, wparam);
+                LRESULT(0)
+            }
             WM_KEYDOWN => {
                 on_key_down(hwnd, wparam);
                 LRESULT(0)
@@ -643,10 +682,27 @@ mod platform {
         {
             return;
         }
+
+        commit_text_editor(state);
+        if !matches!(state.tool, NativeTool::Eraser) {
+            if let Some(index) = hit_test_drawing(state, point) {
+                state.selected = Some(index);
+                state.drag = Some(DragSession { index, last: point });
+                state.width = drawing_width(&state.drawings[index]);
+                emit_width(&state.app, state.width);
+                if let Some(hwnd) = capture_hwnd {
+                    SetCapture(hwnd);
+                }
+                refresh_overlay(state);
+                return;
+            }
+        }
+
+        state.selected = None;
+        state.drag = None;
         match state.tool.clone() {
             NativeTool::Pointer => {}
             NativeTool::Text => {
-                commit_text_editor(state);
                 create_text_editor(state, point);
             }
             NativeTool::Pen => {
@@ -694,7 +750,7 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd || state.active.is_none() {
+        if state.hwnd != hwnd || (state.active.is_none() && state.drag.is_none()) {
             return;
         }
         if (wparam.0 & MK_LBUTTON_MASK) == 0 {
@@ -709,6 +765,19 @@ mod platform {
         if !state.visible || matches!(state.tool, NativeTool::Pointer) {
             return;
         }
+        if let Some(drag) = state.drag.as_mut() {
+            let dx = point.x - drag.last.x;
+            let dy = point.y - drag.last.y;
+            if dx != 0 || dy != 0 {
+                if let Some(item) = state.drawings.get_mut(drag.index) {
+                    translate_drawing(item, dx, dy);
+                }
+                drag.last = point;
+            }
+            refresh_overlay(state);
+            return;
+        }
+
         match state.active.as_mut() {
             Some(ActiveDrawing::Stroke { points, .. }) => points.push(point),
             Some(ActiveDrawing::Shape { end, .. }) => *end = point,
@@ -731,6 +800,12 @@ mod platform {
     }
 
     unsafe fn finish_drawing_at(state: &mut OverlayState, _point: Point) {
+        if state.drag.take().is_some() {
+            ReleaseCapture();
+            refresh_overlay(state);
+            return;
+        }
+
         let Some(active) = state.active.take() else {
             return;
         };
@@ -770,6 +845,42 @@ mod platform {
         state.drawings.push(drawing);
         ReleaseCapture();
         emit_history(&state.app, true);
+        refresh_overlay(state);
+    }
+
+    unsafe fn on_mouse_wheel(hwnd: HWND, wparam: WPARAM) {
+        let Ok(mut state_guard) = overlay_state().lock() else {
+            return;
+        };
+        let Some(state) = state_guard.as_mut() else {
+            return;
+        };
+        if state.hwnd != hwnd || !state.visible {
+            return;
+        }
+
+        let delta = ((wparam.0 >> 16) & 0xffff) as u16 as i16;
+        if delta == 0 {
+            return;
+        }
+        let Some(index) = state.selected else {
+            return;
+        };
+        let tool = state.tool;
+        let Some(item) = state.drawings.get_mut(index) else {
+            state.selected = None;
+            return;
+        };
+        if !drawing_matches_tool(item, tool) {
+            state.selected = None;
+            return;
+        }
+
+        let step = if delta > 0 { 1 } else { -1 };
+        let width = (drawing_width(item) + step).clamp(1, 15);
+        set_drawing_width(item, width);
+        state.width = width;
+        emit_width(&state.app, width);
         refresh_overlay(state);
     }
 
@@ -912,6 +1023,11 @@ mod platform {
         for drawing in state.drawings.iter() {
             draw_item(drawing_dc, drawing);
         }
+        if let Some(index) = state.selected {
+            if let Some(drawing) = state.drawings.get(index) {
+                draw_selection(drawing_dc, drawing);
+            }
+        }
         if let Some(active) = state.active.as_ref() {
             draw_active(drawing_dc, active);
         }
@@ -982,6 +1098,198 @@ mod platform {
         DeleteObject(bitmap);
         DeleteDC(memory_dc);
         ReleaseDC(HWND(0), screen_dc);
+    }
+
+    fn drawing_matches_tool(drawing: &DrawingItem, tool: NativeTool) -> bool {
+        match drawing {
+            DrawingItem::Stroke { erase, .. } => matches!(tool, NativeTool::Pen) && !erase,
+            DrawingItem::Shape {
+                tool: item_tool, ..
+            } => *item_tool == tool,
+            DrawingItem::Text { .. } => matches!(tool, NativeTool::Text),
+        }
+    }
+
+    fn drawing_width(drawing: &DrawingItem) -> i32 {
+        match drawing {
+            DrawingItem::Stroke { width, .. }
+            | DrawingItem::Shape { width, .. }
+            | DrawingItem::Text { width, .. } => *width,
+        }
+    }
+
+    fn set_drawing_width(drawing: &mut DrawingItem, value: i32) {
+        let value = value.clamp(1, 15);
+        match drawing {
+            DrawingItem::Stroke { width, .. }
+            | DrawingItem::Shape { width, .. }
+            | DrawingItem::Text { width, .. } => *width = value,
+        }
+    }
+
+    fn translate_drawing(drawing: &mut DrawingItem, dx: i32, dy: i32) {
+        match drawing {
+            DrawingItem::Stroke { points, .. } => {
+                for point in points {
+                    point.x += dx;
+                    point.y += dy;
+                }
+            }
+            DrawingItem::Shape { start, end, .. } => {
+                start.x += dx;
+                start.y += dy;
+                end.x += dx;
+                end.y += dy;
+            }
+            DrawingItem::Text { start, .. } => {
+                start.x += dx;
+                start.y += dy;
+            }
+        }
+    }
+
+    fn hit_test_drawing(state: &OverlayState, point: Point) -> Option<usize> {
+        state
+            .drawings
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, drawing)| {
+                drawing_matches_tool(drawing, state.tool) && drawing_hit_test(drawing, point)
+            })
+            .map(|(index, _)| index)
+    }
+
+    fn drawing_hit_test(drawing: &DrawingItem, point: Point) -> bool {
+        let tolerance = (drawing_width(drawing) as f64 / 2.0 + 8.0).max(10.0);
+        match drawing {
+            DrawingItem::Stroke { points, .. } => points
+                .windows(2)
+                .any(|segment| distance_to_segment(point, segment[0], segment[1]) <= tolerance),
+            DrawingItem::Shape {
+                tool, start, end, ..
+            } => match tool {
+                NativeTool::Line | NativeTool::Arrow => {
+                    distance_to_segment(point, *start, *end) <= tolerance
+                }
+                NativeTool::Rectangle => {
+                    let left = start.x.min(end.x);
+                    let right = start.x.max(end.x);
+                    let top = start.y.min(end.y);
+                    let bottom = start.y.max(end.y);
+                    let corners = [
+                        Point { x: left, y: top },
+                        Point { x: right, y: top },
+                        Point {
+                            x: right,
+                            y: bottom,
+                        },
+                        Point { x: left, y: bottom },
+                    ];
+                    (0..4).any(|index| {
+                        distance_to_segment(point, corners[index], corners[(index + 1) % 4])
+                            <= tolerance
+                    })
+                }
+                NativeTool::Ellipse => ellipse_hit_test(point, *start, *end, tolerance),
+                _ => false,
+            },
+            DrawingItem::Text {
+                start, text, width, ..
+            } => {
+                let font_size = text_font_size(*width) as f64;
+                let text_units: f64 = text
+                    .chars()
+                    .map(|character| if character.is_ascii() { 0.62 } else { 1.0 })
+                    .sum();
+                let text_width = (text_units * font_size).max(font_size * 0.6);
+                point.x as f64 >= start.x as f64 - tolerance
+                    && point.x as f64 <= start.x as f64 + text_width + tolerance
+                    && point.y as f64 >= start.y as f64 - tolerance
+                    && point.y as f64 <= start.y as f64 + font_size + tolerance
+            }
+        }
+    }
+
+    fn distance_to_segment(point: Point, start: Point, end: Point) -> f64 {
+        let dx = (end.x - start.x) as f64;
+        let dy = (end.y - start.y) as f64;
+        if dx == 0.0 && dy == 0.0 {
+            return (((point.x - start.x).pow(2) + (point.y - start.y).pow(2)) as f64).sqrt();
+        }
+        let projection = (((point.x - start.x) as f64 * dx + (point.y - start.y) as f64 * dy)
+            / (dx * dx + dy * dy))
+            .clamp(0.0, 1.0);
+        let nearest_x = start.x as f64 + projection * dx;
+        let nearest_y = start.y as f64 + projection * dy;
+        ((point.x as f64 - nearest_x).powi(2) + (point.y as f64 - nearest_y).powi(2)).sqrt()
+    }
+
+    fn ellipse_hit_test(point: Point, start: Point, end: Point, tolerance: f64) -> bool {
+        let radius_x = ((end.x - start.x).abs() as f64 / 2.0).max(1.0);
+        let radius_y = ((end.y - start.y).abs() as f64 / 2.0).max(1.0);
+        let center_x = (start.x + end.x) as f64 / 2.0;
+        let center_y = (start.y + end.y) as f64 / 2.0;
+        let normalized = (((point.x as f64 - center_x) / radius_x).powi(2)
+            + ((point.y as f64 - center_y) / radius_y).powi(2))
+        .sqrt();
+        (normalized - 1.0).abs() * radius_x.min(radius_y) <= tolerance
+    }
+
+    fn drawing_bounds(drawing: &DrawingItem) -> RECT {
+        match drawing {
+            DrawingItem::Stroke { points, width, .. } => {
+                let padding = (*width).max(1) + 5;
+                let left = points.iter().map(|point| point.x).min().unwrap_or(0) - padding;
+                let top = points.iter().map(|point| point.y).min().unwrap_or(0) - padding;
+                let right = points.iter().map(|point| point.x).max().unwrap_or(0) + padding;
+                let bottom = points.iter().map(|point| point.y).max().unwrap_or(0) + padding;
+                RECT {
+                    left,
+                    top,
+                    right,
+                    bottom,
+                }
+            }
+            DrawingItem::Shape {
+                start, end, width, ..
+            } => {
+                let padding = (*width).max(1) + 5;
+                RECT {
+                    left: start.x.min(end.x) - padding,
+                    top: start.y.min(end.y) - padding,
+                    right: start.x.max(end.x) + padding,
+                    bottom: start.y.max(end.y) + padding,
+                }
+            }
+            DrawingItem::Text {
+                start, text, width, ..
+            } => {
+                let font_size = text_font_size(*width);
+                let units: f64 = text
+                    .chars()
+                    .map(|character| if character.is_ascii() { 0.62 } else { 1.0 })
+                    .sum();
+                RECT {
+                    left: start.x - 5,
+                    top: start.y - 5,
+                    right: start.x + (units * font_size as f64).ceil() as i32 + 5,
+                    bottom: start.y + font_size + 5,
+                }
+            }
+        }
+    }
+
+    unsafe fn draw_selection(dc: HDC, drawing: &DrawingItem) {
+        let bounds = drawing_bounds(drawing);
+        let pen = CreatePen(PS_DOT, 1, COLORREF(0x0080_8080));
+        let old_pen = SelectObject(dc, pen);
+        let brush = GetStockObject(HOLLOW_BRUSH);
+        let old_brush = SelectObject(dc, brush);
+        Rectangle(dc, bounds.left, bounds.top, bounds.right, bounds.bottom);
+        SelectObject(dc, old_brush);
+        SelectObject(dc, old_pen);
+        DeleteObject(pen);
     }
 
     unsafe fn draw_item(dc: windows::Win32::Graphics::Gdi::HDC, drawing: &DrawingItem) {
@@ -1110,7 +1418,7 @@ mod platform {
         color: COLORREF,
         width: i32,
     ) {
-        let height = -((18).max(width * 4));
+        let height = -text_font_size(width);
         let font = CreateFontW(
             height,
             0,
@@ -1146,6 +1454,10 @@ mod platform {
         windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
         SelectObject(dc, old_font);
         DeleteObject(font);
+    }
+
+    fn text_font_size(width: i32) -> i32 {
+        18.max(width * 4)
     }
 
     unsafe fn create_text_editor(state: &mut OverlayState, point: Point) {
@@ -1309,6 +1621,14 @@ mod platform {
             "drawing-toolbar",
             "drawing-history",
             DrawingHistoryPayload { can_undo },
+        );
+    }
+
+    fn emit_width(app: &AppHandle, width: i32) {
+        let _ = app.emit_to(
+            "drawing-toolbar",
+            "drawing-width-changed",
+            DrawingWidthPayload { width },
         );
     }
 
