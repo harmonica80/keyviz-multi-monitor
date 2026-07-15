@@ -254,7 +254,7 @@ export default function ScreenDrawing() {
   useEffect(() => {
     if (isToolbar) {
       let lastHeight = 0;
-      const resizeToolbar = () => {
+      const resizeToolbar = (force = false) => {
         const toolbar = toolbarRef.current;
         if (!toolbar) return;
         const height = Math.ceil(Math.max(
@@ -262,14 +262,19 @@ export default function ScreenDrawing() {
           toolbar.scrollHeight,
           toolbar.offsetHeight,
         ));
-        if (height <= 0 || height === lastHeight) return;
+        if (height <= 0 || (!force && height === lastHeight)) return;
         lastHeight = height;
         void invoke("resize_drawing_toolbar", { height });
       };
-      const observer = new ResizeObserver(resizeToolbar);
+      const observer = new ResizeObserver(() => resizeToolbar());
       if (toolbarRef.current) observer.observe(toolbarRef.current);
-      window.requestAnimationFrame(() => window.requestAnimationFrame(resizeToolbar));
-      [50, 200, 600, 1200].forEach((delay) => window.setTimeout(resizeToolbar, delay));
+      window.requestAnimationFrame(() => window.requestAnimationFrame(() => resizeToolbar()));
+      [50, 200, 600, 1200].forEach((delay) =>
+        window.setTimeout(() => resizeToolbar(), delay),
+      );
+      const resizeRequestListener = listen("drawing-toolbar-resize-request", () => {
+        resizeToolbar(true);
+      });
       const historyListener = listen<{ canUndo: boolean }>("drawing-history", (event) => {
         setCanUndo(event.payload.canUndo);
       });
@@ -281,6 +286,7 @@ export default function ScreenDrawing() {
       });
       return () => {
         observer.disconnect();
+        void resizeRequestListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
         void widthListener.then((unlisten) => unlisten());
         void nativeCloseListener.then((unlisten) => unlisten());

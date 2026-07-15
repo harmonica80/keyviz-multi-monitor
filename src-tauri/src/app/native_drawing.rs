@@ -93,6 +93,7 @@ mod platform {
         SetClickThrough(bool),
         SetToolbarPassthrough(Option<RECT>),
         Focus,
+        Raise,
         PointerDown {
             x: i32,
             y: i32,
@@ -317,6 +318,13 @@ mod platform {
                 return;
             };
             let _ = sender.send(DrawingCommand::Focus);
+        }
+
+        pub fn raise(&self) {
+            let Some(sender) = &self.sender else {
+                return;
+            };
+            let _ = sender.send(DrawingCommand::Raise);
         }
 
         pub fn pointer_down(&self, x: i32, y: i32) {
@@ -580,6 +588,18 @@ mod platform {
                 if state.edit.is_some() || !state.click_through {
                     let _ = SetFocus(state.hwnd);
                 }
+            }
+            DrawingCommand::Raise => {
+                let _ = SetWindowPos(
+                    state.hwnd,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                );
+                raise_toolbar(&state.app);
             }
             DrawingCommand::PointerDown { x, y } => {
                 if let Some(point) = global_point_for_drawing(state, x, y) {
@@ -1683,6 +1703,7 @@ mod platform_stub {
         pub fn set_click_through(&self, _enabled: bool) {}
         pub fn set_toolbar_passthrough(&self, _bounds: Option<(i32, i32, i32, i32)>) {}
         pub fn focus(&self) {}
+        pub fn raise(&self) {}
         pub fn resize(&self, _left: i32, _top: i32, _width: i32, _height: i32) {}
     }
 

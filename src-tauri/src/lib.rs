@@ -94,22 +94,25 @@ fn create_drawing_toolbar(
     _toolbar_height: u32,
 ) -> Result<(), String> {
     const TOOLBAR_WIDTH: f64 = 48.0;
-    let toolbar = if let Some(toolbar) = app.get_webview_window("drawing-toolbar") {
-        toolbar
+    let (toolbar, is_new) = if let Some(toolbar) = app.get_webview_window("drawing-toolbar") {
+        (toolbar, false)
     } else {
         let toolbar_url = tauri::WebviewUrl::App("index.html?mode=drawing-toolbar".into());
-        WebviewWindowBuilder::new(app, "drawing-toolbar", toolbar_url)
-            .title("Keyviz Drawing Toolbar")
-            .position(toolbar_x as f64, toolbar_y as f64)
-            .inner_size(TOOLBAR_WIDTH, 32.0)
-            .resizable(false)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .shadow(false)
-            .visible(false)
-            .build()
-            .map_err(|error| error.to_string())?
+        (
+            WebviewWindowBuilder::new(app, "drawing-toolbar", toolbar_url)
+                .title("Keyviz Drawing Toolbar")
+                .position(toolbar_x as f64, toolbar_y as f64)
+                .inner_size(TOOLBAR_WIDTH, 32.0)
+                .resizable(false)
+                .decorations(false)
+                .always_on_top(true)
+                .skip_taskbar(true)
+                .shadow(false)
+                .visible(false)
+                .build()
+                .map_err(|error| error.to_string())?,
+            true,
+        )
     };
 
     #[cfg(target_os = "windows")]
@@ -129,15 +132,27 @@ fn create_drawing_toolbar(
         let toolbar_width = (TOOLBAR_WIDTH * toolbar.scale_factor().unwrap_or(1.0)).round() as i32;
         let initial_height = (32.0 * toolbar.scale_factor().unwrap_or(1.0)).round() as i32;
         let result = unsafe {
-            SetWindowPos(
-                toolbar_target,
-                HWND_TOPMOST,
-                toolbar_x,
-                toolbar_y,
-                toolbar_width,
-                initial_height,
-                SWP_NOACTIVATE,
-            )
+            if is_new {
+                SetWindowPos(
+                    toolbar_target,
+                    HWND_TOPMOST,
+                    toolbar_x,
+                    toolbar_y,
+                    toolbar_width,
+                    initial_height,
+                    SWP_NOACTIVATE,
+                )
+            } else {
+                SetWindowPos(
+                    toolbar_target,
+                    HWND_TOPMOST,
+                    toolbar_x,
+                    toolbar_y,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOSIZE,
+                )
+            }
         };
         if !result.as_bool() {
             return Err(std::io::Error::last_os_error().to_string());
@@ -165,7 +180,8 @@ fn create_drawing_toolbar(
     #[cfg(not(target_os = "windows"))]
     toolbar.show().map_err(|error| error.to_string())?;
 
-    toolbar.set_focus().map_err(|error| error.to_string())
+    let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ());
+    Ok(())
 }
 
 fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
@@ -328,6 +344,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
         .drawing_overlay
         .show(left, top, drawing_width, drawing_height, None);
     app_state.drawing_overlay.set_click_through(false);
+    app_state.drawing_overlay.raise();
     drop(app_state);
     keep_drawing_toolbar_above_canvas(app)?;
     sync_drawing_toolbar_passthrough(app)?;
@@ -335,6 +352,9 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     std::thread::spawn(move || {
         for delay in [150, 500, 1000] {
             std::thread::sleep(std::time::Duration::from_millis(delay));
+            if let Ok(app_state) = app_handle.state::<Mutex<AppState>>().lock() {
+                app_state.drawing_overlay.raise();
+            }
             let _ = sync_drawing_toolbar_passthrough(&app_handle);
             let _ = keep_drawing_toolbar_above_canvas(&app_handle);
         }
