@@ -385,11 +385,17 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn open_screen_drawing(app: AppHandle) -> Result<(), String> {
-    show_drawing_window(&app)?;
-    if let Some(settings) = app.get_webview_window("settings") {
-        let _ = settings.hide();
-    }
-    Ok(())
+    let app_handle = app.clone();
+    app.run_on_main_thread(move || {
+        if let Err(error) = show_drawing_window(&app_handle) {
+            eprintln!("Failed to open screen drawing from settings: {error}");
+            return;
+        }
+        if let Some(settings) = app_handle.get_webview_window("settings") {
+            let _ = settings.hide();
+        }
+    })
+    .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
