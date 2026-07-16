@@ -21,11 +21,12 @@ mod platform {
                 COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE, WPARAM,
             },
             Graphics::Gdi::{
-                CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen, CreateSolidBrush,
-                DeleteDC, DeleteObject, DrawTextW, Ellipse, GetDC, GetStockObject, LineTo,
-                MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject, SetBkMode, AC_SRC_ALPHA,
-                BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DT_LEFT,
-                DT_SINGLELINE, DT_TOP, HDC, HOLLOW_BRUSH, PS_DOT, PS_SOLID, TRANSPARENT,
+                CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen,
+                CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, Ellipse, GetDC,
+                GetStockObject, LineTo, MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject,
+                SetBkMode, AC_SRC_ALPHA, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
+                DIB_RGB_COLORS, DT_LEFT, DT_SINGLELINE, DT_TOP, HDC, HOLLOW_BRUSH, PS_DOT,
+                PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -33,14 +34,16 @@ mod platform {
                     ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN,
                 },
                 WindowsAndMessaging::{
-                    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetAncestor,
-                    GetWindowLongPtrW, PeekMessageW, RegisterClassW, SetWindowLongPtrW,
-                    SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW,
-                    CS_HREDRAW, CS_VREDRAW, GA_ROOT, GWLP_USERDATA, GWL_EXSTYLE, HTCLIENT,
-                    HTTRANSPARENT, HWND_TOPMOST, MSG, PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-                    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WM_APP, WM_CHAR,
-                    WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
-                    WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_PAINT, WNDCLASSW,
+                    CreateIconIndirect, CreateWindowExW, DefWindowProcW, DestroyCursor,
+                    DestroyWindow, DispatchMessageW, GetAncestor, GetWindowLongPtrW, LoadCursorW,
+                    PeekMessageW, RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos,
+                    ShowWindow, TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW, CS_HREDRAW,
+                    CS_VREDRAW, GA_ROOT, GWLP_USERDATA, GWL_EXSTYLE, HCURSOR, HTCLIENT,
+                    HTTRANSPARENT, HWND_TOPMOST, ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM, MSG,
+                    PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+                    SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE,
+                    WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+                    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WNDCLASSW,
                     WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
                     WS_EX_TRANSPARENT, WS_POPUP,
                 },
@@ -188,6 +191,8 @@ mod platform {
         edit: Option<EditSession>,
         selected: Option<usize>,
         drag: Option<DragSession>,
+        cursor: HCURSOR,
+        cursor_owned: bool,
     }
 
     #[derive(Clone, Serialize)]
@@ -411,6 +416,7 @@ mod platform {
             if hwnd.0 == 0 {
                 return Err(std::io::Error::last_os_error().to_string());
             }
+            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5);
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
@@ -428,6 +434,8 @@ mod platform {
                     edit: None,
                     selected: None,
                     drag: None,
+                    cursor,
+                    cursor_owned,
                 });
             }
 
@@ -540,6 +548,7 @@ mod platform {
                 state.drag = None;
                 state.click_through = click_through;
                 apply_click_through(state.hwnd, click_through);
+                replace_tool_cursor(state, false);
                 if state.visible {
                     raise_toolbar(&state.app);
                 }
@@ -549,6 +558,9 @@ mod platform {
             DrawingCommand::SetWidth(width) => {
                 let width = width.clamp(1, 15);
                 state.width = width;
+                if matches!(state.tool, NativeTool::Eraser) {
+                    replace_tool_cursor(state, false);
+                }
                 if let Some(index) = state.selected {
                     let tool = state.tool;
                     if let Some(item) = state.drawings.get_mut(index) {
@@ -647,6 +659,13 @@ mod platform {
                     LRESULT(HTTRANSPARENT as isize)
                 } else {
                     LRESULT(HTCLIENT as isize)
+                }
+            }
+            WM_SETCURSOR => {
+                if set_overlay_cursor(hwnd) {
+                    LRESULT(1)
+                } else {
+                    DefWindowProcW(hwnd, message, wparam, lparam)
                 }
             }
             WM_PAINT => DefWindowProcW(hwnd, message, wparam, lparam),
@@ -896,6 +915,7 @@ mod platform {
         if matches!(state.tool, NativeTool::Eraser) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
+            replace_tool_cursor(state, true);
             emit_width(&state.app, width);
             refresh_overlay(state);
             return;
@@ -1406,9 +1426,7 @@ mod platform {
                 LineTo(dc, end.x, end.y);
             }
             NativeTool::Arrow => {
-                MoveToEx(dc, start.x, start.y, None);
-                LineTo(dc, end.x, end.y);
-                draw_arrow_head(dc, start, end, color, width.max(1));
+                draw_tapered_arrow(dc, start, end, color, width.max(1));
             }
             NativeTool::Rectangle => {
                 Rectangle(dc, start.x, start.y, end.x, end.y);
@@ -1423,7 +1441,7 @@ mod platform {
         DeleteObject(pen);
     }
 
-    unsafe fn draw_arrow_head(
+    unsafe fn draw_tapered_arrow(
         dc: windows::Win32::Graphics::Gdi::HDC,
         start: Point,
         end: Point,
@@ -1432,29 +1450,34 @@ mod platform {
     ) {
         let dx = (end.x - start.x) as f64;
         let dy = (end.y - start.y) as f64;
-        let angle = dy.atan2(dx);
-        let length = (24f64).max((width * 5) as f64);
-        let left = Point {
-            x: (end.x as f64 - length * (angle - std::f64::consts::PI / 6.0).cos()).round() as i32,
-            y: (end.y as f64 - length * (angle - std::f64::consts::PI / 6.0).sin()).round() as i32,
+        let distance = (dx * dx + dy * dy).sqrt();
+        if distance < 2.0 {
+            return;
+        }
+        let ux = dx / distance;
+        let uy = dy / distance;
+        let nx = -uy;
+        let ny = ux;
+        let head_length = ((width * 6) as f64).max(30.0).min(distance * 0.48);
+        let head_half = ((width * 3) as f64).max(12.0).min(distance * 0.24);
+        let start_half = ((width as f64) * 0.2).max(1.0);
+        let neck_half = ((width as f64) * 0.9).max(3.0);
+        let point = |along: f64, normal: f64| WinPoint {
+            x: (start.x as f64 + ux * along + nx * normal).round() as i32,
+            y: (start.y as f64 + uy * along + ny * normal).round() as i32,
         };
-        let right = Point {
-            x: (end.x as f64 - length * (angle + std::f64::consts::PI / 6.0).cos()).round() as i32,
-            y: (end.y as f64 - length * (angle + std::f64::consts::PI / 6.0).sin()).round() as i32,
-        };
+        let neck = distance - head_length;
+        let points = [
+            point(0.0, start_half),
+            point(neck, neck_half),
+            point(distance - head_length * 0.68, head_half),
+            WinPoint { x: end.x, y: end.y },
+            point(distance - head_length * 1.02, -head_half * 0.62),
+            point(neck, -neck_half),
+            point(0.0, -start_half),
+        ];
         let brush = CreateSolidBrush(color);
         let old_brush = SelectObject(dc, brush);
-        let points = [
-            WinPoint { x: end.x, y: end.y },
-            WinPoint {
-                x: left.x,
-                y: left.y,
-            },
-            WinPoint {
-                x: right.x,
-                y: right.y,
-            },
-        ];
         let _ = Polygon(dc, &points);
         SelectObject(dc, old_brush);
         DeleteObject(brush);
@@ -1629,6 +1652,223 @@ mod platform {
                     && global.y < rect.bottom
             })
             .unwrap_or(false)
+    }
+
+    unsafe fn create_tool_cursor(tool: NativeTool, width: i32) -> (HCURSOR, bool) {
+        let custom = match tool {
+            NativeTool::Pen => create_pen_cursor(),
+            NativeTool::Eraser => create_eraser_cursor(width),
+            _ => None,
+        };
+        if let Some(cursor) = custom {
+            return (cursor, true);
+        }
+
+        let resource = match tool {
+            NativeTool::Pointer => IDC_ARROW,
+            NativeTool::Text => IDC_IBEAM,
+            _ => IDC_CROSS,
+        };
+        (LoadCursorW(None, resource).unwrap_or(HCURSOR(0)), false)
+    }
+
+    unsafe fn replace_tool_cursor(state: &mut OverlayState, apply_now: bool) {
+        let (cursor, owned) = create_tool_cursor(state.tool, state.width);
+        if cursor.0 == 0 {
+            return;
+        }
+        let previous = state.cursor;
+        let previous_owned = state.cursor_owned;
+        state.cursor = cursor;
+        state.cursor_owned = owned;
+        if apply_now {
+            SetCursor(cursor);
+        }
+        if previous_owned && previous.0 != 0 && previous != cursor {
+            let _ = DestroyCursor(previous);
+        }
+    }
+
+    unsafe fn set_overlay_cursor(hwnd: HWND) -> bool {
+        let Ok(state_guard) = overlay_state().lock() else {
+            return false;
+        };
+        let Some(state) = state_guard.as_ref() else {
+            return false;
+        };
+        if state.hwnd != hwnd || !state.visible || state.cursor.0 == 0 {
+            return false;
+        }
+        SetCursor(state.cursor);
+        true
+    }
+
+    unsafe fn create_pen_cursor() -> Option<HCURSOR> {
+        create_argb_cursor(40, 4, 34, |dc| {
+            let outline = CreatePen(PS_SOLID, 2, COLORREF(0x0018_1818));
+            let fill = CreateSolidBrush(COLORREF(0x00f4_f4f4));
+            let old_pen = SelectObject(dc, outline);
+            let old_brush = SelectObject(dc, fill);
+            let body = [
+                WinPoint { x: 5, y: 32 },
+                WinPoint { x: 9, y: 22 },
+                WinPoint { x: 26, y: 5 },
+                WinPoint { x: 34, y: 13 },
+                WinPoint { x: 17, y: 30 },
+            ];
+            let _ = Polygon(dc, &body);
+            SelectObject(dc, old_brush);
+            SelectObject(dc, old_pen);
+            DeleteObject(fill);
+            DeleteObject(outline);
+
+            let tip_brush = CreateSolidBrush(COLORREF(0x0018_1818));
+            let old_tip_brush = SelectObject(dc, tip_brush);
+            let tip = [
+                WinPoint { x: 5, y: 32 },
+                WinPoint { x: 9, y: 22 },
+                WinPoint { x: 13, y: 28 },
+            ];
+            let _ = Polygon(dc, &tip);
+            SelectObject(dc, old_tip_brush);
+            DeleteObject(tip_brush);
+        })
+    }
+
+    unsafe fn create_eraser_cursor(width: i32) -> Option<HCURSOR> {
+        let diameter = (width.clamp(1, 15) * ERASER_WIDTH_MULTIPLIER).clamp(12, 180);
+        let size = diameter + 20;
+        let center = size / 2;
+        create_argb_cursor(size, center as u32, center as u32, |dc| {
+            let circle_pen = CreatePen(PS_DOT, 1, COLORREF(0x0070_7070));
+            let old_pen = SelectObject(dc, circle_pen);
+            let old_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
+            let radius = diameter / 2;
+            Ellipse(
+                dc,
+                center - radius,
+                center - radius,
+                center + radius,
+                center + radius,
+            );
+            SelectObject(dc, old_brush);
+            SelectObject(dc, old_pen);
+            DeleteObject(circle_pen);
+
+            let eraser_pen = CreatePen(PS_SOLID, 2, COLORREF(0x0018_1818));
+            let eraser_brush = CreateSolidBrush(COLORREF(0x00f4_f4f4));
+            let old_eraser_pen = SelectObject(dc, eraser_pen);
+            let old_eraser_brush = SelectObject(dc, eraser_brush);
+            let eraser = [
+                WinPoint {
+                    x: center - 10,
+                    y: center + 2,
+                },
+                WinPoint {
+                    x: center - 3,
+                    y: center - 8,
+                },
+                WinPoint {
+                    x: center + 11,
+                    y: center + 1,
+                },
+                WinPoint {
+                    x: center + 4,
+                    y: center + 11,
+                },
+            ];
+            let _ = Polygon(dc, &eraser);
+            MoveToEx(dc, center - 3, center - 8, None);
+            LineTo(dc, center + 4, center + 11);
+            SelectObject(dc, old_eraser_brush);
+            SelectObject(dc, old_eraser_pen);
+            DeleteObject(eraser_brush);
+            DeleteObject(eraser_pen);
+        })
+    }
+
+    unsafe fn create_argb_cursor<F>(
+        size: i32,
+        hotspot_x: u32,
+        hotspot_y: u32,
+        draw: F,
+    ) -> Option<HCURSOR>
+    where
+        F: FnOnce(HDC),
+    {
+        let screen_dc = GetDC(HWND(0));
+        if screen_dc.0 == 0 {
+            return None;
+        }
+        let memory_dc = CreateCompatibleDC(screen_dc);
+        if memory_dc.0 == 0 {
+            ReleaseDC(HWND(0), screen_dc);
+            return None;
+        }
+
+        let mut bitmap_info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: size,
+                biHeight: -size,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0 as u32,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut bits: *mut c_void = std::ptr::null_mut();
+        let Ok(color_bitmap) = CreateDIBSection(
+            memory_dc,
+            &mut bitmap_info,
+            DIB_RGB_COLORS,
+            &mut bits,
+            HANDLE(0),
+            0,
+        ) else {
+            DeleteDC(memory_dc);
+            ReleaseDC(HWND(0), screen_dc);
+            return None;
+        };
+        if bits.is_null() {
+            DeleteObject(color_bitmap);
+            DeleteDC(memory_dc);
+            ReleaseDC(HWND(0), screen_dc);
+            return None;
+        }
+
+        let old_bitmap = SelectObject(memory_dc, color_bitmap);
+        let pixels = std::slice::from_raw_parts_mut(bits as *mut u32, (size * size) as usize);
+        pixels.fill(0);
+        SetBkMode(memory_dc, TRANSPARENT);
+        draw(memory_dc);
+        for pixel in pixels.iter_mut() {
+            if (*pixel & 0x00ff_ffff) != 0 {
+                *pixel |= 0xff00_0000;
+            }
+        }
+        SelectObject(memory_dc, old_bitmap);
+
+        let mask_stride = ((size as usize + 15) / 16) * 2;
+        let mask_bits = vec![0u8; mask_stride * size as usize];
+        let mask_bitmap = CreateBitmap(size, size, 1, 1, Some(mask_bits.as_ptr() as *const c_void));
+        let icon_info = ICONINFO {
+            fIcon: false.into(),
+            xHotspot: hotspot_x,
+            yHotspot: hotspot_y,
+            hbmMask: mask_bitmap,
+            hbmColor: color_bitmap,
+        };
+        let cursor = CreateIconIndirect(&icon_info)
+            .ok()
+            .map(|icon| HCURSOR(icon.0));
+
+        DeleteObject(mask_bitmap);
+        DeleteObject(color_bitmap);
+        DeleteDC(memory_dc);
+        ReleaseDC(HWND(0), screen_dc);
+        cursor
     }
 
     unsafe fn apply_click_through(hwnd: HWND, enabled: bool) {

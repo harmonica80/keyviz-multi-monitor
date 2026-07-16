@@ -14,6 +14,7 @@ use app::commands::{
     set_toggle_shortcut, set_tray_locale, update_overlay_window,
 };
 use app::event::start_listener;
+use app::native_drawing::NativeTool;
 use app::state::{AppState, TrayMenuItems};
 use app::window::config_window;
 
@@ -335,6 +336,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height)?;
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    let is_first_drawing_session = app_state.drawing_session_id == 0;
     app_state.pressed_keys.clear();
     app_state.drawing_visible = true;
     app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
@@ -342,12 +344,18 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     app_state.drawing_input_passthrough = false;
     app_state.drawing_pointer_down = false;
     app_state.drawing_last_move = None;
+    if is_first_drawing_session {
+        app_state.drawing_overlay.set_tool(NativeTool::Pen);
+    }
     app_state
         .drawing_overlay
         .show(left, top, drawing_width, drawing_height, None);
     app_state.drawing_overlay.set_click_through(false);
     app_state.drawing_overlay.raise();
     drop(app_state);
+    if is_first_drawing_session {
+        let _ = app.emit("drawing-tool-changed", serde_json::json!({ "tool": "pen" }));
+    }
     let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ());
     keep_drawing_toolbar_above_canvas(app)?;
     sync_drawing_toolbar_passthrough(app)?;

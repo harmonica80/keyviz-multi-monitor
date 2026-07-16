@@ -70,24 +70,41 @@ const shortcutMatchesEvent = (event: KeyboardEvent, shortcut: string[]) => {
 const formatShortcut = (shortcut: string[]) =>
   shortcut.map((key) => keymaps[key]?.label ?? key).join(" + ");
 
-const drawArrowHead = (
+const drawTaperedArrow = (
   context: CanvasRenderingContext2D,
   start: Point,
   end: Point,
   width: number,
 ) => {
-  const angle = Math.atan2(end.y - start.y, end.x - start.x);
-  const length = Math.max(24, width * 5);
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 2) return;
+  const ux = dx / distance;
+  const uy = dy / distance;
+  const nx = -uy;
+  const ny = ux;
+  const headLength = Math.min(Math.max(30, width * 6), distance * 0.48);
+  const headHalf = Math.min(Math.max(12, width * 3), distance * 0.24);
+  const startHalf = Math.max(1, width * 0.2);
+  const neckHalf = Math.max(3, width * 0.9);
+  const point = (along: number, normal: number) => ({
+    x: start.x + ux * along + nx * normal,
+    y: start.y + uy * along + ny * normal,
+  });
+  const neck = distance - headLength;
+  const points = [
+    point(0, startHalf),
+    point(neck, neckHalf),
+    point(distance - headLength * 0.68, headHalf),
+    end,
+    point(distance - headLength * 1.02, -headHalf * 0.62),
+    point(neck, -neckHalf),
+    point(0, -startHalf),
+  ];
   context.beginPath();
-  context.moveTo(end.x, end.y);
-  context.lineTo(
-    end.x - length * Math.cos(angle - Math.PI / 6),
-    end.y - length * Math.sin(angle - Math.PI / 6),
-  );
-  context.lineTo(
-    end.x - length * Math.cos(angle + Math.PI / 6),
-    end.y - length * Math.sin(angle + Math.PI / 6),
-  );
+  context.moveTo(points[0].x, points[0].y);
+  points.slice(1).forEach((pointValue) => context.lineTo(pointValue.x, pointValue.y));
   context.closePath();
   context.fill();
 };
@@ -125,8 +142,13 @@ const renderDrawing = (context: CanvasRenderingContext2D, drawing: Drawing) => {
 
   const shapeWidth = drawing.end.x - drawing.start.x;
   const shapeHeight = drawing.end.y - drawing.start.y;
+  if (drawing.tool === "arrow") {
+    drawTaperedArrow(context, drawing.start, drawing.end, drawing.width);
+    context.restore();
+    return;
+  }
   context.beginPath();
-  if (drawing.tool === "line" || drawing.tool === "arrow") {
+  if (drawing.tool === "line") {
     context.moveTo(drawing.start.x, drawing.start.y);
     context.lineTo(drawing.end.x, drawing.end.y);
   } else if (drawing.tool === "rectangle") {
@@ -143,9 +165,6 @@ const renderDrawing = (context: CanvasRenderingContext2D, drawing: Drawing) => {
     );
   }
   context.stroke();
-  if (drawing.tool === "arrow") {
-    drawArrowHead(context, drawing.start, drawing.end, drawing.width);
-  }
   context.restore();
 };
 
