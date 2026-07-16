@@ -1464,22 +1464,31 @@ mod platform {
         let head_half = (11.0 + width as f64 * 0.9)
             .clamp(14.0, 25.0)
             .min(distance * 0.2);
-        let start_half = 1.0;
+        let start_half = 0.8;
         let neck_half = (3.0 + width as f64 * 0.45).clamp(4.0, 10.0);
         let point = |along: f64, normal: f64| WinPoint {
             x: (start.x as f64 + ux * along + nx * normal).round() as i32,
             y: (start.y as f64 + uy * along + ny * normal).round() as i32,
         };
-        let neck = distance - head_length;
-        let points = [
-            point(0.0, start_half),
-            point(neck, neck_half),
-            point(distance - head_length * 1.12, head_half),
-            WinPoint { x: end.x, y: end.y },
-            point(distance - head_length * 1.12, -head_half),
-            point(neck, -neck_half),
-            point(0.0, -start_half),
-        ];
+        let neck = distance - head_length * 0.56;
+        let wing = distance - head_length * 1.12;
+        let samples = 18;
+        let mut points = Vec::with_capacity(samples * 2 + 3);
+        for index in 0..samples {
+            let t = index as f64 / (samples - 1) as f64;
+            let smooth_t = t * t * (3.0 - 2.0 * t);
+            let half_width = start_half + (neck_half - start_half) * smooth_t;
+            points.push(point(neck * t, half_width));
+        }
+        points.push(point(wing, head_half));
+        points.push(WinPoint { x: end.x, y: end.y });
+        points.push(point(wing, -head_half));
+        for index in (0..samples).rev() {
+            let t = index as f64 / (samples - 1) as f64;
+            let smooth_t = t * t * (3.0 - 2.0 * t);
+            let half_width = start_half + (neck_half - start_half) * smooth_t;
+            points.push(point(neck * t, -half_width));
+        }
         let brush = CreateSolidBrush(color);
         let old_brush = SelectObject(dc, brush);
         let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
@@ -1710,32 +1719,40 @@ mod platform {
     }
 
     unsafe fn create_pen_cursor() -> Option<HCURSOR> {
-        create_argb_cursor(40, 4, 34, |dc| {
-            let outline = CreatePen(PS_SOLID, 2, COLORREF(0x0018_1818));
-            let fill = CreateSolidBrush(COLORREF(0x00f4_f4f4));
+        create_argb_cursor(40, 4, 35, |dc| {
+            // Match the toolbar's Lucide pencil: a slim outlined body, a dark
+            // graphite tip, and the short diagonal cap separator.
+            let outline = CreatePen(PS_SOLID, 2, COLORREF(0x0028_2828));
+            let fill = CreateSolidBrush(COLORREF(0x00f8_f8f8));
             let old_pen = SelectObject(dc, outline);
             let old_brush = SelectObject(dc, fill);
             let body = [
-                WinPoint { x: 5, y: 32 },
-                WinPoint { x: 9, y: 22 },
-                WinPoint { x: 26, y: 5 },
-                WinPoint { x: 34, y: 13 },
-                WinPoint { x: 17, y: 30 },
+                WinPoint { x: 4, y: 35 },
+                WinPoint { x: 8, y: 24 },
+                WinPoint { x: 27, y: 5 },
+                WinPoint { x: 36, y: 14 },
+                WinPoint { x: 17, y: 33 },
             ];
             let _ = Polygon(dc, &body);
+
+            MoveToEx(dc, 25, 8, None);
+            LineTo(dc, 33, 16);
+
             SelectObject(dc, old_brush);
             SelectObject(dc, old_pen);
             DeleteObject(fill);
             DeleteObject(outline);
 
-            let tip_brush = CreateSolidBrush(COLORREF(0x0018_1818));
+            let tip_brush = CreateSolidBrush(COLORREF(0x0028_2828));
             let old_tip_brush = SelectObject(dc, tip_brush);
+            let old_tip_pen = SelectObject(dc, GetStockObject(NULL_PEN));
             let tip = [
-                WinPoint { x: 5, y: 32 },
-                WinPoint { x: 9, y: 22 },
-                WinPoint { x: 13, y: 28 },
+                WinPoint { x: 4, y: 35 },
+                WinPoint { x: 8, y: 24 },
+                WinPoint { x: 14, y: 30 },
             ];
             let _ = Polygon(dc, &tip);
+            SelectObject(dc, old_tip_pen);
             SelectObject(dc, old_tip_brush);
             DeleteObject(tip_brush);
         })
