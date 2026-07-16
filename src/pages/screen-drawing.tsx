@@ -84,10 +84,10 @@ const drawTaperedArrow = (
   const uy = dy / distance;
   const nx = -uy;
   const ny = ux;
-  const headLength = Math.min(Math.max(30, width * 6), distance * 0.48);
-  const headHalf = Math.min(Math.max(12, width * 3), distance * 0.24);
-  const startHalf = Math.max(1, width * 0.2);
-  const neckHalf = Math.max(3, width * 0.9);
+  const headLength = Math.min(Math.min(Math.max(26, 24 + width * 0.7), 36), distance * 0.38);
+  const headHalf = Math.min(Math.min(Math.max(14, 11 + width * 0.9), 25), distance * 0.2);
+  const startHalf = 1;
+  const neckHalf = Math.min(Math.max(4, 3 + width * 0.45), 10);
   const point = (along: number, normal: number) => ({
     x: start.x + ux * along + nx * normal,
     y: start.y + uy * along + ny * normal,
@@ -96,9 +96,9 @@ const drawTaperedArrow = (
   const points = [
     point(0, startHalf),
     point(neck, neckHalf),
-    point(distance - headLength * 0.68, headHalf),
+    point(distance - headLength * 1.12, headHalf),
     end,
-    point(distance - headLength * 1.02, -headHalf * 0.62),
+    point(distance - headLength * 1.12, -headHalf),
     point(neck, -neckHalf),
     point(0, -startHalf),
   ];

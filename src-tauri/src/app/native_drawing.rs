@@ -25,8 +25,8 @@ mod platform {
                 CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, Ellipse, GetDC,
                 GetStockObject, LineTo, MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject,
                 SetBkMode, AC_SRC_ALPHA, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
-                DIB_RGB_COLORS, DT_LEFT, DT_SINGLELINE, DT_TOP, HDC, HOLLOW_BRUSH, PS_DOT,
-                PS_SOLID, TRANSPARENT,
+                DIB_RGB_COLORS, DT_LEFT, DT_SINGLELINE, DT_TOP, HDC, HOLLOW_BRUSH, NULL_PEN,
+                PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -1458,10 +1458,14 @@ mod platform {
         let uy = dy / distance;
         let nx = -uy;
         let ny = ux;
-        let head_length = ((width * 6) as f64).max(30.0).min(distance * 0.48);
-        let head_half = ((width * 3) as f64).max(12.0).min(distance * 0.24);
-        let start_half = ((width as f64) * 0.2).max(1.0);
-        let neck_half = ((width as f64) * 0.9).max(3.0);
+        let head_length = (24.0 + width as f64 * 0.7)
+            .clamp(26.0, 36.0)
+            .min(distance * 0.38);
+        let head_half = (11.0 + width as f64 * 0.9)
+            .clamp(14.0, 25.0)
+            .min(distance * 0.2);
+        let start_half = 1.0;
+        let neck_half = (3.0 + width as f64 * 0.45).clamp(4.0, 10.0);
         let point = |along: f64, normal: f64| WinPoint {
             x: (start.x as f64 + ux * along + nx * normal).round() as i32,
             y: (start.y as f64 + uy * along + ny * normal).round() as i32,
@@ -1470,15 +1474,17 @@ mod platform {
         let points = [
             point(0.0, start_half),
             point(neck, neck_half),
-            point(distance - head_length * 0.68, head_half),
+            point(distance - head_length * 1.12, head_half),
             WinPoint { x: end.x, y: end.y },
-            point(distance - head_length * 1.02, -head_half * 0.62),
+            point(distance - head_length * 1.12, -head_half),
             point(neck, -neck_half),
             point(0.0, -start_half),
         ];
         let brush = CreateSolidBrush(color);
         let old_brush = SelectObject(dc, brush);
+        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
         let _ = Polygon(dc, &points);
+        SelectObject(dc, old_pen);
         SelectObject(dc, old_brush);
         DeleteObject(brush);
     }
