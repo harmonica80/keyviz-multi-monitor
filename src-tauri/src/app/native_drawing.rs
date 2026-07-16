@@ -539,7 +539,9 @@ mod platform {
                 state.drag = None;
                 state.click_through = click_through;
                 apply_click_through(state.hwnd, click_through);
-                raise_toolbar(&state.app);
+                if state.visible {
+                    raise_toolbar(&state.app);
+                }
                 refresh_overlay(state);
             }
             DrawingCommand::SetColor(color) => state.color = parse_color(&color),
@@ -577,7 +579,9 @@ mod platform {
             DrawingCommand::SetClickThrough(enabled) => {
                 state.click_through = enabled;
                 apply_click_through(state.hwnd, enabled);
-                raise_toolbar(&state.app);
+                if state.visible {
+                    raise_toolbar(&state.app);
+                }
                 refresh_overlay(state);
             }
             DrawingCommand::SetToolbarPassthrough(bounds) => {
@@ -590,6 +594,9 @@ mod platform {
                 }
             }
             DrawingCommand::Raise => {
+                if !state.visible {
+                    return;
+                }
                 let _ = SetWindowPos(
                     state.hwnd,
                     HWND_TOPMOST,
@@ -1619,7 +1626,7 @@ mod platform {
             0,
             0,
             0,
-            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
         );
     }
 

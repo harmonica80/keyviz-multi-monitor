@@ -125,7 +125,11 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 }
                 // record key as pressed
                 app_state.pressed_keys.push(key_name.clone());
-                if shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_toggle_shortcut) {
+                // Windows drawing shortcuts are handled by the raw-key poller below.
+                // Processing them here as well can toggle the same session twice.
+                if !cfg!(target_os = "windows")
+                    && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_toggle_shortcut)
+                {
                     let drawing_visible = app_state.drawing_visible;
                     app_state.pressed_keys.clear();
                     drop(app_state);
@@ -140,7 +144,8 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     return;
                 }
                 let drawing_visible = app_state.drawing_visible;
-                if drawing_visible
+                if !cfg!(target_os = "windows")
+                    && drawing_visible
                     && shortcut_pressed(
                         &app_state.pressed_keys,
                         &app_state.drawing_pointer_shortcut,
@@ -152,19 +157,22 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     }
                     return;
                 }
-                if drawing_visible
+                if !cfg!(target_os = "windows")
+                    && drawing_visible
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_clear_shortcut)
                 {
                     app_state.drawing_overlay.clear();
                     return;
                 }
-                if drawing_visible
+                if !cfg!(target_os = "windows")
+                    && drawing_visible
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_undo_shortcut)
                 {
                     app_state.drawing_overlay.undo();
                     return;
                 }
-                if drawing_visible
+                if !cfg!(target_os = "windows")
+                    && drawing_visible
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_close_shortcut)
                 {
                     app_state.pressed_keys.clear();

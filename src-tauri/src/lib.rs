@@ -194,7 +194,7 @@ fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
             GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_NOSIZE, SWP_SHOWWINDOW,
+            SWP_NOSIZE,
         };
 
         let toolbar_hwnd = HWND(toolbar.hwnd().map_err(|error| error.to_string())?.0 as isize);
@@ -213,7 +213,7 @@ fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
                 0,
                 0,
                 0,
-                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
             )
         };
         if !result.as_bool() {
@@ -337,6 +337,8 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.pressed_keys.clear();
     app_state.drawing_visible = true;
+    app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
+    let drawing_session_id = app_state.drawing_session_id;
     app_state.drawing_input_passthrough = false;
     app_state.drawing_pointer_down = false;
     app_state.drawing_last_move = None;
@@ -346,14 +348,26 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     app_state.drawing_overlay.set_click_through(false);
     app_state.drawing_overlay.raise();
     drop(app_state);
+    let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ());
     keep_drawing_toolbar_above_canvas(app)?;
     sync_drawing_toolbar_passthrough(app)?;
     let app_handle = app.clone();
     std::thread::spawn(move || {
         for delay in [150, 500, 1000] {
             std::thread::sleep(std::time::Duration::from_millis(delay));
-            if let Ok(app_state) = app_handle.state::<Mutex<AppState>>().lock() {
-                app_state.drawing_overlay.raise();
+            let should_raise = if let Ok(app_state) = app_handle.state::<Mutex<AppState>>().lock() {
+                if !app_state.drawing_visible || app_state.drawing_session_id != drawing_session_id
+                {
+                    false
+                } else {
+                    app_state.drawing_overlay.raise();
+                    true
+                }
+            } else {
+                false
+            };
+            if !should_raise {
+                break;
             }
             let _ = sync_drawing_toolbar_passthrough(&app_handle);
             let _ = keep_drawing_toolbar_above_canvas(&app_handle);
@@ -374,6 +388,17 @@ fn close_screen_drawing(app: AppHandle) -> Result<(), String> {
 }
 
 pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.pressed_keys.clear();
+    app_state.drawing_visible = false;
+    app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
+    app_state.drawing_input_passthrough = false;
+    app_state.drawing_pointer_down = false;
+    app_state.drawing_last_move = None;
+    app_state.drawing_overlay.hide();
+    drop(app_state);
+
     #[cfg(target_os = "windows")]
     if let Some(toolbar) = app.get_webview_window("drawing-toolbar") {
         use windows::Win32::Foundation::HWND;
@@ -399,14 +424,6 @@ pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
         let _ = window.hide();
     }
 
-    let state = app.state::<Mutex<AppState>>();
-    let mut app_state = state.lock().map_err(|error| error.to_string())?;
-    app_state.pressed_keys.clear();
-    app_state.drawing_visible = false;
-    app_state.drawing_input_passthrough = false;
-    app_state.drawing_pointer_down = false;
-    app_state.drawing_last_move = None;
-    app_state.drawing_overlay.hide();
     Ok(())
 }
 
@@ -476,6 +493,15 @@ fn start_drawing_toolbar_drag(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
+    let drawing_visible = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .map_err(|error| error.to_string())?
+        .drawing_visible;
+    if !drawing_visible {
+        return Ok(());
+    }
+
     let window = app
         .get_webview_window("drawing-toolbar")
         .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
