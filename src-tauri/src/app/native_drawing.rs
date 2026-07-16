@@ -1842,7 +1842,7 @@ mod platform {
         let pixels = std::slice::from_raw_parts_mut(bits as *mut u32, (size * size) as usize);
         pixels.fill(0);
         SetBkMode(memory_dc, TRANSPARENT);
-        draw(memory_dc);
+        draw(HDC(memory_dc.0));
         for pixel in pixels.iter_mut() {
             if (*pixel & 0x00ff_ffff) != 0 {
                 *pixel |= 0xff00_0000;
