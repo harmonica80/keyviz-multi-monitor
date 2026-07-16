@@ -21,11 +21,11 @@ mod platform {
                 COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE, WPARAM,
             },
             Graphics::Gdi::{
-                CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen, DeleteDC,
-                DeleteObject, DrawTextW, Ellipse, GetDC, GetStockObject, LineTo, MoveToEx,
-                Rectangle, ReleaseDC, SelectObject, SetBkMode, AC_SRC_ALPHA, BITMAPINFO,
-                BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DT_LEFT, DT_SINGLELINE,
-                DT_TOP, HDC, HOLLOW_BRUSH, PS_DOT, PS_SOLID, TRANSPARENT,
+                CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen, CreateSolidBrush,
+                DeleteDC, DeleteObject, DrawTextW, Ellipse, GetDC, GetStockObject, LineTo,
+                MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject, SetBkMode, AC_SRC_ALPHA,
+                BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, DT_LEFT,
+                DT_SINGLELINE, DT_TOP, HDC, HOLLOW_BRUSH, PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -58,6 +58,7 @@ mod platform {
     const NON_ANTIALIASED_FONT_QUALITY: u32 = 3;
     const TEXT_PADDING: i32 = 8;
     const MK_LBUTTON_MASK: usize = 0x0001;
+    const ERASER_WIDTH_MULTIPLIER: i32 = 12;
 
     #[derive(Clone)]
     pub struct NativeDrawingOverlay {
@@ -747,7 +748,8 @@ mod platform {
                 state.active = Some(ActiveDrawing::Stroke {
                     points: vec![point],
                     color: TRANSPARENT_KEY,
-                    width: (state.width.max(1) * 3).max(3),
+                    width: (state.width.max(1) * ERASER_WIDTH_MULTIPLIER)
+                        .max(ERASER_WIDTH_MULTIPLIER),
                     erase: true,
                 });
                 if let Some(hwnd) = capture_hwnd {
@@ -890,6 +892,14 @@ mod platform {
         if delta == 0 {
             return;
         }
+        let step = if delta > 0 { 1 } else { -1 };
+        if matches!(state.tool, NativeTool::Eraser) {
+            let width = (state.width + step).clamp(1, 15);
+            state.width = width;
+            emit_width(&state.app, width);
+            refresh_overlay(state);
+            return;
+        }
         let Some(index) = state.selected else {
             return;
         };
@@ -903,7 +913,6 @@ mod platform {
             return;
         }
 
-        let step = if delta > 0 { 1 } else { -1 };
         let width = (drawing_width(item) + step).clamp(1, 15);
         set_drawing_width(item, width);
         state.width = width;
@@ -1399,7 +1408,7 @@ mod platform {
             NativeTool::Arrow => {
                 MoveToEx(dc, start.x, start.y, None);
                 LineTo(dc, end.x, end.y);
-                draw_arrow_head(dc, start, end, width.max(1));
+                draw_arrow_head(dc, start, end, color, width.max(1));
             }
             NativeTool::Rectangle => {
                 Rectangle(dc, start.x, start.y, end.x, end.y);
@@ -1418,12 +1427,13 @@ mod platform {
         dc: windows::Win32::Graphics::Gdi::HDC,
         start: Point,
         end: Point,
+        color: COLORREF,
         width: i32,
     ) {
         let dx = (end.x - start.x) as f64;
         let dy = (end.y - start.y) as f64;
         let angle = dy.atan2(dx);
-        let length = (14f64).max((width * 3) as f64);
+        let length = (24f64).max((width * 5) as f64);
         let left = Point {
             x: (end.x as f64 - length * (angle - std::f64::consts::PI / 6.0).cos()).round() as i32,
             y: (end.y as f64 - length * (angle - std::f64::consts::PI / 6.0).sin()).round() as i32,
@@ -1432,10 +1442,22 @@ mod platform {
             x: (end.x as f64 - length * (angle + std::f64::consts::PI / 6.0).cos()).round() as i32,
             y: (end.y as f64 - length * (angle + std::f64::consts::PI / 6.0).sin()).round() as i32,
         };
-        MoveToEx(dc, end.x, end.y, None);
-        LineTo(dc, left.x, left.y);
-        MoveToEx(dc, end.x, end.y, None);
-        LineTo(dc, right.x, right.y);
+        let brush = CreateSolidBrush(color);
+        let old_brush = SelectObject(dc, brush);
+        let points = [
+            WinPoint { x: end.x, y: end.y },
+            WinPoint {
+                x: left.x,
+                y: left.y,
+            },
+            WinPoint {
+                x: right.x,
+                y: right.y,
+            },
+        ];
+        let _ = Polygon(dc, &points);
+        SelectObject(dc, old_brush);
+        DeleteObject(brush);
     }
 
     unsafe fn draw_text(

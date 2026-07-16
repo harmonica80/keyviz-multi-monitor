@@ -77,19 +77,19 @@ const drawArrowHead = (
   width: number,
 ) => {
   const angle = Math.atan2(end.y - start.y, end.x - start.x);
-  const length = Math.max(14, width * 3);
+  const length = Math.max(24, width * 5);
   context.beginPath();
   context.moveTo(end.x, end.y);
   context.lineTo(
     end.x - length * Math.cos(angle - Math.PI / 6),
     end.y - length * Math.sin(angle - Math.PI / 6),
   );
-  context.moveTo(end.x, end.y);
   context.lineTo(
     end.x - length * Math.cos(angle + Math.PI / 6),
     end.y - length * Math.sin(angle + Math.PI / 6),
   );
-  context.stroke();
+  context.closePath();
+  context.fill();
 };
 
 const renderDrawing = (context: CanvasRenderingContext2D, drawing: Drawing) => {
@@ -107,7 +107,7 @@ const renderDrawing = (context: CanvasRenderingContext2D, drawing: Drawing) => {
     }
     context.globalCompositeOperation =
       drawing.tool === "eraser" ? "destination-out" : "source-over";
-    context.lineWidth = drawing.tool === "eraser" ? drawing.width * 3 : drawing.width;
+    context.lineWidth = drawing.tool === "eraser" ? drawing.width * 12 : drawing.width;
     context.beginPath();
     context.moveTo(drawing.points[0].x, drawing.points[0].y);
     drawing.points.slice(1).forEach((point) => context.lineTo(point.x, point.y));
