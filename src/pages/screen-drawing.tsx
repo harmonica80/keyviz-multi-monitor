@@ -86,26 +86,22 @@ const drawTaperedArrow = (
   const ny = ux;
   const headLength = Math.min(Math.min(Math.max(26, 24 + width * 0.7), 36), distance * 0.38);
   const headHalf = Math.min(Math.min(Math.max(14, 11 + width * 0.9), 25), distance * 0.2);
-  const startHalf = 0.8;
-  const neckHalf = Math.min(Math.max(4, 3 + width * 0.45), 10);
+  const startHalf = 0.7;
+  const shaftHalf = Math.min(Math.max(4, 3 + width * 0.45), 10);
   const point = (along: number, normal: number) => ({
     x: start.x + ux * along + nx * normal,
     y: start.y + uy * along + ny * normal,
   });
-  const neck = distance - headLength * 0.56;
-  const wing = distance - headLength * 1.12;
-  const samples = 18;
-  const upper = Array.from({ length: samples }, (_, index) => {
-    const t = index / (samples - 1);
-    const smoothT = t * t * (3 - 2 * t);
-    return point(neck * t, startHalf + (neckHalf - startHalf) * smoothT);
-  });
-  const lower = Array.from({ length: samples }, (_, index) => {
-    const t = (samples - 1 - index) / (samples - 1);
-    const smoothT = t * t * (3 - 2 * t);
-    return point(neck * t, -(startHalf + (neckHalf - startHalf) * smoothT));
-  });
-  const points = [...upper, point(wing, headHalf), end, point(wing, -headHalf), ...lower];
+  const headBase = distance - headLength;
+  const points = [
+    point(0, startHalf),
+    point(headBase, shaftHalf),
+    point(headBase, headHalf),
+    end,
+    point(headBase, -headHalf),
+    point(headBase, -shaftHalf),
+    point(0, -startHalf),
+  ];
   context.beginPath();
   context.moveTo(points[0].x, points[0].y);
   points.slice(1).forEach((pointValue) => context.lineTo(pointValue.x, pointValue.y));

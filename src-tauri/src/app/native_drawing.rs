@@ -1464,31 +1464,22 @@ mod platform {
         let head_half = (11.0 + width as f64 * 0.9)
             .clamp(14.0, 25.0)
             .min(distance * 0.2);
-        let start_half = 0.8;
-        let neck_half = (3.0 + width as f64 * 0.45).clamp(4.0, 10.0);
+        let start_half = 0.7;
+        let shaft_half = (3.0 + width as f64 * 0.45).clamp(4.0, 10.0);
         let point = |along: f64, normal: f64| WinPoint {
             x: (start.x as f64 + ux * along + nx * normal).round() as i32,
             y: (start.y as f64 + uy * along + ny * normal).round() as i32,
         };
-        let neck = distance - head_length * 0.56;
-        let wing = distance - head_length * 1.12;
-        let samples = 18;
-        let mut points = Vec::with_capacity(samples * 2 + 3);
-        for index in 0..samples {
-            let t = index as f64 / (samples - 1) as f64;
-            let smooth_t = t * t * (3.0 - 2.0 * t);
-            let half_width = start_half + (neck_half - start_half) * smooth_t;
-            points.push(point(neck * t, half_width));
-        }
-        points.push(point(wing, head_half));
-        points.push(WinPoint { x: end.x, y: end.y });
-        points.push(point(wing, -head_half));
-        for index in (0..samples).rev() {
-            let t = index as f64 / (samples - 1) as f64;
-            let smooth_t = t * t * (3.0 - 2.0 * t);
-            let half_width = start_half + (neck_half - start_half) * smooth_t;
-            points.push(point(neck * t, -half_width));
-        }
+        let head_base = distance - head_length;
+        let points = [
+            point(0.0, start_half),
+            point(head_base, shaft_half),
+            point(head_base, head_half),
+            WinPoint { x: end.x, y: end.y },
+            point(head_base, -head_half),
+            point(head_base, -shaft_half),
+            point(0.0, -start_half),
+        ];
         let brush = CreateSolidBrush(color);
         let old_brush = SelectObject(dc, brush);
         let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
