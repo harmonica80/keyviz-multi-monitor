@@ -70,8 +70,24 @@ impl AppState {
                     match serde_json::from_str::<KeyEventStore>(json_str) {
                         Ok(parsed) => {
                             toggle_shortcut = parsed.state.toggle_shortcut;
-                            drawing_toggle_shortcut = parsed.state.drawing_toggle_shortcut;
-                            drawing_pointer_shortcut = parsed.state.drawing_pointer_shortcut;
+                            drawing_toggle_shortcut = if parsed.version < 3
+                                && shortcut_is(
+                                    &parsed.state.drawing_toggle_shortcut,
+                                    &["ControlLeft", "Num0"],
+                                ) {
+                                default_drawing_toggle_shortcut()
+                            } else {
+                                parsed.state.drawing_toggle_shortcut
+                            };
+                            drawing_pointer_shortcut = if parsed.version < 3
+                                && shortcut_is(
+                                    &parsed.state.drawing_pointer_shortcut,
+                                    &["ControlLeft", "Num9"],
+                                ) {
+                                default_drawing_pointer_shortcut()
+                            } else {
+                                parsed.state.drawing_pointer_shortcut
+                            };
                             drawing_clear_shortcut = parsed.state.drawing_clear_shortcut;
                             drawing_undo_shortcut = parsed.state.drawing_undo_shortcut;
                             drawing_close_shortcut = parsed.state.drawing_close_shortcut;
@@ -174,7 +190,8 @@ impl AppState {
 #[derive(Debug, Deserialize)]
 struct KeyEventStore {
     pub state: KeyEventState,
-    // pub version: u32,
+    #[serde(default)]
+    pub version: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -205,12 +222,20 @@ fn default_toggle_shortcut() -> Vec<String> {
     vec!["ShiftLeft".to_string(), "F10".to_string()]
 }
 
+fn shortcut_is(shortcut: &[String], expected: &[&str]) -> bool {
+    shortcut.len() == expected.len()
+        && shortcut
+            .iter()
+            .zip(expected)
+            .all(|(actual, expected)| actual == expected)
+}
+
 fn default_drawing_toggle_shortcut() -> Vec<String> {
-    vec!["ControlLeft".to_string(), "Num0".to_string()]
+    vec!["F8".to_string()]
 }
 
 fn default_drawing_pointer_shortcut() -> Vec<String> {
-    vec!["ControlLeft".to_string(), "Num9".to_string()]
+    vec!["F7".to_string()]
 }
 
 fn default_drawing_clear_shortcut() -> Vec<String> {

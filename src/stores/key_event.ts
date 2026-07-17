@@ -8,6 +8,13 @@ import { createSyncedStore } from "./sync";
 export const KEY_EVENT_STORE = "key_event_store";
 const FILTER_VALUES = new Set<KeyEventState["filter"]>(["none", "modifiers", "custom"]);
 const SCROLL_LINGER_MS = 300;
+const DEFAULT_DRAWING_TOGGLE_SHORTCUT = [RawKey.F8];
+const DEFAULT_DRAWING_POINTER_SHORTCUT = [RawKey.F7];
+const LEGACY_DRAWING_TOGGLE_SHORTCUT = [RawKey.ControlLeft, RawKey.Num0];
+const LEGACY_DRAWING_POINTER_SHORTCUT = [RawKey.ControlLeft, RawKey.Num9];
+
+const shortcutsEqual = (left: string[] | undefined, right: string[]) =>
+    left?.length === right.length && left.every((key, index) => key === right[index]);
 
 interface KeyGroup {
     keys: KeyEvent[];
@@ -95,8 +102,8 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         maxHistory: 5,
         lingerDurationMs: 1_000,
         toggleShortcut: [RawKey.ShiftLeft, RawKey.F10],
-        drawingToggleShortcut: [RawKey.ControlLeft, RawKey.Num0],
-        drawingPointerShortcut: [RawKey.ControlLeft, RawKey.Num9],
+        drawingToggleShortcut: DEFAULT_DRAWING_TOGGLE_SHORTCUT,
+        drawingPointerShortcut: DEFAULT_DRAWING_POINTER_SHORTCUT,
         drawingClearShortcut: [RawKey.Delete],
         drawingUndoShortcut: [RawKey.ControlLeft, RawKey.KeyZ],
         drawingCloseShortcut: [RawKey.Escape],
@@ -433,7 +440,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
     (config) => persist(config, {
         name: KEY_EVENT_STORE,
         storage: createJSONStorage(() => tauriStorage),
-        version: 2,
+        version: 3,
         migrate: (persistedState, version) => {
             const state = persistedState as Partial<KeyEventState>;
             return {
@@ -445,8 +452,14 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
                     version < 1 && state.lingerDurationMs === 5_000
                         ? 1_000
                         : state.lingerDurationMs,
-                drawingToggleShortcut: state.drawingToggleShortcut ?? [RawKey.ControlLeft, RawKey.Num0],
-                drawingPointerShortcut: state.drawingPointerShortcut ?? [RawKey.ControlLeft, RawKey.Num9],
+                drawingToggleShortcut:
+                    version < 3 && shortcutsEqual(state.drawingToggleShortcut, LEGACY_DRAWING_TOGGLE_SHORTCUT)
+                        ? DEFAULT_DRAWING_TOGGLE_SHORTCUT
+                        : state.drawingToggleShortcut ?? DEFAULT_DRAWING_TOGGLE_SHORTCUT,
+                drawingPointerShortcut:
+                    version < 3 && shortcutsEqual(state.drawingPointerShortcut, LEGACY_DRAWING_POINTER_SHORTCUT)
+                        ? DEFAULT_DRAWING_POINTER_SHORTCUT
+                        : state.drawingPointerShortcut ?? DEFAULT_DRAWING_POINTER_SHORTCUT,
                 drawingClearShortcut: state.drawingClearShortcut ?? [RawKey.Delete],
                 drawingUndoShortcut: state.drawingUndoShortcut ?? [RawKey.ControlLeft, RawKey.KeyZ],
                 drawingCloseShortcut: state.drawingCloseShortcut ?? [RawKey.Escape],
