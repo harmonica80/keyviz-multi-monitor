@@ -1884,7 +1884,6 @@ mod platform {
         points: &[Point],
         color: COLORREF,
         width: i32,
-        rotation: f64,
     ) {
         if points.len() < 2 {
             return;
@@ -1906,6 +1905,7 @@ mod platform {
         end: Point,
         color: COLORREF,
         width: i32,
+        rotation: f64,
     ) {
         let pen = CreatePen(PS_SOLID, width.max(1), color);
         let old_pen = SelectObject(dc, pen);
