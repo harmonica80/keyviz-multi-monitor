@@ -251,3 +251,11 @@ pub fn drawing_undo(app: tauri::AppHandle) -> Result<(), String> {
     app_state.drawing_overlay.undo();
     Ok(())
 }
+
+#[tauri::command]
+pub fn drawing_toggle_group(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.toggle_group();
+    Ok(())
+}

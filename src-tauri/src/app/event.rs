@@ -161,7 +161,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     && drawing_visible
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_clear_shortcut)
                 {
-                    app_state.drawing_overlay.clear();
+                    app_state.drawing_overlay.delete_selection_or_clear();
                     return;
                 }
                 if !cfg!(target_os = "windows")
@@ -450,7 +450,7 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
                 let state = app_handle.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
                     if app_state.drawing_visible {
-                        app_state.drawing_overlay.clear();
+                        app_state.drawing_overlay.delete_selection_or_clear();
                         app_state.pressed_keys.clear();
                     }
                 };

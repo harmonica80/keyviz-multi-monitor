@@ -9,11 +9,13 @@ import {
   Circle,
   Eraser,
   GripHorizontal,
+  Group,
   Minus,
   MousePointer2,
   Pencil,
   Redo2,
   Square,
+  SquareDashedMousePointer,
   Trash2,
   Type,
   X,
@@ -30,7 +32,7 @@ import {
 
 type Point = { x: number; y: number };
 type TextEditor = { start: Point; value: string; color: string; width: number };
-type Tool = "pointer" | "pen" | "eraser" | "line" | "arrow" | "rectangle" | "ellipse" | "text";
+type Tool = "pointer" | "select" | "pen" | "eraser" | "line" | "arrow" | "rectangle" | "ellipse" | "text";
 type Drawing =
   | { tool: "pen" | "eraser"; points: Point[]; color: string; width: number }
   | { tool: "line" | "arrow" | "rectangle" | "ellipse"; start: Point; end: Point; color: string; width: number }
@@ -40,6 +42,7 @@ type DrawingCommand =
   | { type: "color"; value: string }
   | { type: "width"; value: number }
   | { type: "clear" }
+  | { type: "group" }
   | { type: "undo" };
 type ToolChangedPayload = { tool: Tool };
 
@@ -382,11 +385,15 @@ export default function ScreenDrawing() {
     }
     if (command.type === "undo") {
       await invoke("drawing_undo");
+      return;
+    }
+    if (command.type === "group") {
+      await invoke("drawing_toggle_group");
     }
   };
 
   const onPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
-    if (tool === "pointer") return;
+    if (tool === "pointer" || tool === "select") return;
     const start = { x: event.clientX, y: event.clientY };
     if (tool === "text") {
       finishTextEditor(true);
@@ -467,6 +474,7 @@ export default function ScreenDrawing() {
 
   const toolButtons: Array<{ value: Tool; label: string; icon: typeof Pencil }> = [
     { value: "pointer", label: t("Pointer"), icon: MousePointer2 },
+    { value: "select", label: t("Select Objects"), icon: SquareDashedMousePointer },
     { value: "pen", label: t("Pen"), icon: Pencil },
     { value: "eraser", label: t("Eraser"), icon: Eraser },
     { value: "line", label: t("Line"), icon: Minus },
@@ -505,6 +513,11 @@ export default function ScreenDrawing() {
           <Icon />
         </button>
       ))}
+      {tool === "select" && (
+        <button title={t("Group / Ungroup")} onClick={() => void sendCommand({ type: "group" })}>
+          <Group />
+        </button>
+      )}
       <div className="drawing-divider" />
       <div className="drawing-colors">
         {COLORS.map((value) => (

@@ -136,6 +136,8 @@ const zhTW: Record<string, string> = {
   "Exit Drawing": "結束繪圖",
   "Clear All": "全部清除",
   "Pointer": "游標",
+  "Select Objects": "框選物件",
+  "Group / Ungroup": "群組／取消群組",
   "Pen": "畫筆",
   "Eraser": "橡皮擦",
   "Line": "直線",

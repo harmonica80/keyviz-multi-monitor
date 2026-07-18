@@ -62,6 +62,8 @@ mod platform {
     const TEXT_PADDING: i32 = 8;
     const MK_LBUTTON_MASK: usize = 0x0001;
     const ERASER_WIDTH_MULTIPLIER: i32 = 12;
+    const SELECTION_HANDLE_SIZE: i32 = 7;
+    const ROTATION_HANDLE_OFFSET: i32 = 24;
 
     #[derive(Clone)]
     pub struct NativeDrawingOverlay {
@@ -71,6 +73,7 @@ mod platform {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub enum NativeTool {
         Pointer,
+        Select,
         Pen,
         Eraser,
         Line,
@@ -94,6 +97,8 @@ mod platform {
         SetWidth(i32),
         Clear,
         Undo,
+        ToggleGroup,
+        DeleteSelectionOrClear,
         SetClickThrough(bool),
         SetToolbarPassthrough(Option<RECT>),
         Focus,
@@ -131,6 +136,7 @@ mod platform {
             color: COLORREF,
             width: i32,
             erase: bool,
+            group: Option<u64>,
         },
         Shape {
             tool: NativeTool,
@@ -138,12 +144,16 @@ mod platform {
             end: Point,
             color: COLORREF,
             width: i32,
+            rotation: f64,
+            group: Option<u64>,
         },
         Text {
             start: Point,
             text: String,
             color: COLORREF,
             width: i32,
+            rotation: f64,
+            group: Option<u64>,
         },
     }
 
@@ -171,9 +181,26 @@ mod platform {
         width: i32,
     }
 
-    struct DragSession {
-        index: usize,
-        last: Point,
+    enum SelectionAction {
+        Marquee,
+        Move {
+            last: Point,
+        },
+        Resize {
+            anchor: Point,
+            originals: Vec<(usize, DrawingItem)>,
+        },
+        Rotate {
+            center: Point,
+            start_angle: f64,
+            originals: Vec<(usize, DrawingItem)>,
+        },
+    }
+
+    struct SelectionSession {
+        start: Point,
+        current: Point,
+        action: SelectionAction,
     }
 
     struct OverlayState {
@@ -189,8 +216,9 @@ mod platform {
         bounds: RECT,
         toolbar_passthrough: Option<RECT>,
         edit: Option<EditSession>,
-        selected: Option<usize>,
-        drag: Option<DragSession>,
+        selected: Vec<usize>,
+        selection: Option<SelectionSession>,
+        next_group_id: u64,
         cursor: HCURSOR,
         cursor_owned: bool,
     }
@@ -298,6 +326,20 @@ mod platform {
             let _ = sender.send(DrawingCommand::Undo);
         }
 
+        pub fn toggle_group(&self) {
+            let Some(sender) = &self.sender else {
+                return;
+            };
+            let _ = sender.send(DrawingCommand::ToggleGroup);
+        }
+
+        pub fn delete_selection_or_clear(&self) {
+            let Some(sender) = &self.sender else {
+                return;
+            };
+            let _ = sender.send(DrawingCommand::DeleteSelectionOrClear);
+        }
+
         pub fn set_click_through(&self, enabled: bool) {
             let Some(sender) = &self.sender else {
                 return;
@@ -370,6 +412,7 @@ mod platform {
     pub fn parse_tool(value: &str) -> Option<NativeTool> {
         match value {
             "pointer" => Some(NativeTool::Pointer),
+            "select" => Some(NativeTool::Select),
             "pen" => Some(NativeTool::Pen),
             "eraser" => Some(NativeTool::Eraser),
             "line" => Some(NativeTool::Line),
@@ -432,8 +475,9 @@ mod platform {
                     bounds: RECT::default(),
                     toolbar_passthrough: None,
                     edit: None,
-                    selected: None,
-                    drag: None,
+                    selected: Vec::new(),
+                    selection: None,
+                    next_group_id: 1,
                     cursor,
                     cursor_owned,
                 });
@@ -534,8 +578,8 @@ mod platform {
                 cancel_text_editor(state);
                 state.drawings.clear();
                 state.active = None;
-                state.selected = None;
-                state.drag = None;
+                state.selected.clear();
+                state.selection = None;
                 state.visible = false;
                 ShowWindow(state.hwnd, SW_HIDE);
                 emit_history(&state.app, false);
@@ -544,8 +588,8 @@ mod platform {
                 commit_text_editor(state);
                 let click_through = matches!(tool, NativeTool::Pointer);
                 state.tool = tool;
-                state.selected = None;
-                state.drag = None;
+                state.selected.clear();
+                state.selection = None;
                 state.click_through = click_through;
                 apply_click_through(state.hwnd, click_through);
                 replace_tool_cursor(state, false);
@@ -561,33 +605,40 @@ mod platform {
                 if matches!(state.tool, NativeTool::Eraser) {
                     replace_tool_cursor(state, false);
                 }
-                if let Some(index) = state.selected {
-                    let tool = state.tool;
-                    if let Some(item) = state.drawings.get_mut(index) {
-                        if drawing_matches_tool(item, tool) {
-                            set_drawing_width(item, width);
-                            refresh_overlay(state);
-                        }
-                    }
-                }
             }
             DrawingCommand::Clear => {
                 cancel_text_editor(state);
                 state.drawings.clear();
                 state.active = None;
-                state.selected = None;
-                state.drag = None;
+                state.selected.clear();
+                state.selection = None;
                 emit_history(&state.app, false);
                 refresh_overlay(state);
             }
             DrawingCommand::Undo => {
                 if state.edit.is_none() {
-                    state.selected = None;
-                    state.drag = None;
+                    state.selected.clear();
+                    state.selection = None;
                     state.drawings.pop();
                     emit_history(&state.app, !state.drawings.is_empty());
                     refresh_overlay(state);
                 }
+            }
+            DrawingCommand::ToggleGroup => {
+                toggle_selected_group(state);
+                refresh_overlay(state);
+            }
+            DrawingCommand::DeleteSelectionOrClear => {
+                if matches!(state.tool, NativeTool::Select) {
+                    delete_selected(state);
+                } else {
+                    state.drawings.clear();
+                    state.active = None;
+                    state.selected.clear();
+                    state.selection = None;
+                }
+                emit_history(&state.app, !state.drawings.is_empty());
+                refresh_overlay(state);
             }
             DrawingCommand::SetClickThrough(enabled) => {
                 state.click_through = enabled;
@@ -731,24 +782,19 @@ mod platform {
         }
 
         commit_text_editor(state);
-        if !matches!(state.tool, NativeTool::Eraser) {
-            if let Some(index) = hit_test_drawing(state, point) {
-                state.selected = Some(index);
-                state.drag = Some(DragSession { index, last: point });
-                state.width = drawing_width(&state.drawings[index]);
-                emit_width(&state.app, state.width);
-                if let Some(hwnd) = capture_hwnd {
-                    SetCapture(hwnd);
-                }
-                refresh_overlay(state);
-                return;
+        if matches!(state.tool, NativeTool::Select) {
+            begin_selection_at(state, point);
+            if let Some(hwnd) = capture_hwnd {
+                SetCapture(hwnd);
             }
+            refresh_overlay(state);
+            return;
         }
 
-        state.selected = None;
-        state.drag = None;
+        state.selected.clear();
+        state.selection = None;
         match state.tool.clone() {
-            NativeTool::Pointer => {}
+            NativeTool::Pointer | NativeTool::Select => {}
             NativeTool::Text => {
                 create_text_editor(state, point);
             }
@@ -798,7 +844,7 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd || (state.active.is_none() && state.drag.is_none()) {
+        if state.hwnd != hwnd || (state.active.is_none() && state.selection.is_none()) {
             return;
         }
         if (wparam.0 & MK_LBUTTON_MASK) == 0 {
@@ -813,15 +859,8 @@ mod platform {
         if !state.visible || matches!(state.tool, NativeTool::Pointer) {
             return;
         }
-        if let Some(drag) = state.drag.as_mut() {
-            let dx = point.x - drag.last.x;
-            let dy = point.y - drag.last.y;
-            if dx != 0 || dy != 0 {
-                if let Some(item) = state.drawings.get_mut(drag.index) {
-                    translate_drawing(item, dx, dy);
-                }
-                drag.last = point;
-            }
+        if matches!(state.tool, NativeTool::Select) && state.selection.is_some() {
+            update_selection_at(state, point);
             refresh_overlay(state);
             return;
         }
@@ -848,7 +887,8 @@ mod platform {
     }
 
     unsafe fn finish_drawing_at(state: &mut OverlayState, _point: Point) {
-        if state.drag.take().is_some() {
+        if matches!(state.tool, NativeTool::Select) && state.selection.is_some() {
+            finish_selection(state);
             ReleaseCapture();
             refresh_overlay(state);
             return;
@@ -873,6 +913,7 @@ mod platform {
                     color,
                     width,
                     erase,
+                    group: None,
                 }
             }
             ActiveDrawing::Shape {
@@ -887,6 +928,8 @@ mod platform {
                 end,
                 color,
                 width,
+                rotation: 0.0,
+                group: None,
             },
         };
 
@@ -920,24 +963,7 @@ mod platform {
             refresh_overlay(state);
             return;
         }
-        let Some(index) = state.selected else {
-            return;
-        };
-        let tool = state.tool;
-        let Some(item) = state.drawings.get_mut(index) else {
-            state.selected = None;
-            return;
-        };
-        if !drawing_matches_tool(item, tool) {
-            state.selected = None;
-            return;
-        }
-
-        let width = (drawing_width(item) + step).clamp(1, 15);
-        set_drawing_width(item, width);
-        state.width = width;
-        emit_width(&state.app, width);
-        refresh_overlay(state);
+        // Object editing is intentionally limited to the selection tool.
     }
 
     unsafe fn on_key_down(hwnd: HWND, wparam: WPARAM) {
@@ -1079,10 +1105,16 @@ mod platform {
         for drawing in state.drawings.iter() {
             draw_item(drawing_dc, drawing);
         }
-        if let Some(index) = state.selected {
-            if let Some(drawing) = state.drawings.get(index) {
-                draw_selection(drawing_dc, drawing);
-            }
+        if !state.selected.is_empty() {
+            draw_selection(drawing_dc, state);
+        }
+        if let Some(SelectionSession {
+            start,
+            current,
+            action: SelectionAction::Marquee,
+        }) = state.selection.as_ref()
+        {
+            draw_marquee(drawing_dc, rect_from_points(*start, *current));
         }
         if let Some(active) = state.active.as_ref() {
             draw_active(drawing_dc, active);
@@ -1102,6 +1134,7 @@ mod platform {
                 &preview,
                 edit.color,
                 edit.width,
+                0.0,
             );
         }
 
@@ -1156,13 +1189,19 @@ mod platform {
         ReleaseDC(HWND(0), screen_dc);
     }
 
-    fn drawing_matches_tool(drawing: &DrawingItem, tool: NativeTool) -> bool {
+    fn drawing_group(drawing: &DrawingItem) -> Option<u64> {
         match drawing {
-            DrawingItem::Stroke { erase, .. } => matches!(tool, NativeTool::Pen) && !erase,
-            DrawingItem::Shape {
-                tool: item_tool, ..
-            } => *item_tool == tool,
-            DrawingItem::Text { .. } => matches!(tool, NativeTool::Text),
+            DrawingItem::Stroke { group, .. }
+            | DrawingItem::Shape { group, .. }
+            | DrawingItem::Text { group, .. } => *group,
+        }
+    }
+
+    fn set_drawing_group(drawing: &mut DrawingItem, value: Option<u64>) {
+        match drawing {
+            DrawingItem::Stroke { group, .. }
+            | DrawingItem::Shape { group, .. }
+            | DrawingItem::Text { group, .. } => *group = value,
         }
     }
 
@@ -1175,7 +1214,7 @@ mod platform {
     }
 
     fn set_drawing_width(drawing: &mut DrawingItem, value: i32) {
-        let value = value.clamp(1, 15);
+        let value = value.clamp(1, 100);
         match drawing {
             DrawingItem::Stroke { width, .. }
             | DrawingItem::Shape { width, .. }
@@ -1210,86 +1249,421 @@ mod platform {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, drawing)| {
-                drawing_matches_tool(drawing, state.tool) && drawing_hit_test(drawing, point)
-            })
+            .find(|(_, drawing)| drawing_hit_test(drawing, point))
             .map(|(index, _)| index)
     }
 
-    fn drawing_hit_test(drawing: &DrawingItem, point: Point) -> bool {
-        let tolerance = (drawing_width(drawing) as f64 / 2.0 + 8.0).max(10.0);
-        match drawing {
-            DrawingItem::Stroke { points, .. } => points
-                .windows(2)
-                .any(|segment| distance_to_segment(point, segment[0], segment[1]) <= tolerance),
-            DrawingItem::Shape {
-                tool, start, end, ..
-            } => match tool {
-                NativeTool::Line | NativeTool::Arrow => {
-                    distance_to_segment(point, *start, *end) <= tolerance
+    fn grouped_indices(state: &OverlayState, index: usize) -> Vec<usize> {
+        let Some(group) = state.drawings.get(index).and_then(drawing_group) else {
+            return vec![index];
+        };
+        state
+            .drawings
+            .iter()
+            .enumerate()
+            .filter_map(|(item_index, drawing)| {
+                (drawing_group(drawing) == Some(group)).then_some(item_index)
+            })
+            .collect()
+    }
+
+    fn expand_selected_groups(state: &OverlayState, selected: &mut Vec<usize>) {
+        let groups: Vec<u64> = selected
+            .iter()
+            .filter_map(|index| state.drawings.get(*index).and_then(drawing_group))
+            .collect();
+        for (index, drawing) in state.drawings.iter().enumerate() {
+            if drawing_group(drawing).is_some_and(|group| groups.contains(&group))
+                && !selected.contains(&index)
+            {
+                selected.push(index);
+            }
+        }
+        selected.sort_unstable();
+        selected.dedup();
+    }
+
+    fn toggle_selected_group(state: &mut OverlayState) {
+        if state.selected.is_empty() {
+            return;
+        }
+        let common_group = state
+            .selected
+            .first()
+            .and_then(|index| state.drawings.get(*index))
+            .and_then(drawing_group)
+            .filter(|group| {
+                state
+                    .selected
+                    .iter()
+                    .all(|index| state.drawings.get(*index).and_then(drawing_group) == Some(*group))
+            });
+        if let Some(group) = common_group {
+            for drawing in state.drawings.iter_mut() {
+                if drawing_group(drawing) == Some(group) {
+                    set_drawing_group(drawing, None);
                 }
-                NativeTool::Rectangle => {
-                    let left = start.x.min(end.x);
-                    let right = start.x.max(end.x);
-                    let top = start.y.min(end.y);
-                    let bottom = start.y.max(end.y);
-                    let corners = [
-                        Point { x: left, y: top },
-                        Point { x: right, y: top },
-                        Point {
-                            x: right,
-                            y: bottom,
-                        },
-                        Point { x: left, y: bottom },
-                    ];
-                    (0..4).any(|index| {
-                        distance_to_segment(point, corners[index], corners[(index + 1) % 4])
-                            <= tolerance
-                    })
+            }
+        } else if state.selected.len() >= 2 {
+            let group = state.next_group_id;
+            state.next_group_id = state.next_group_id.wrapping_add(1).max(1);
+            for index in state.selected.iter().copied() {
+                if let Some(drawing) = state.drawings.get_mut(index) {
+                    set_drawing_group(drawing, Some(group));
                 }
-                NativeTool::Ellipse => ellipse_hit_test(point, *start, *end, tolerance),
-                _ => false,
-            },
-            DrawingItem::Text {
-                start, text, width, ..
-            } => {
-                let font_size = text_font_size(*width) as f64;
-                let text_units: f64 = text
-                    .chars()
-                    .map(|character| if character.is_ascii() { 0.62 } else { 1.0 })
-                    .sum();
-                let text_width = (text_units * font_size).max(font_size * 0.6);
-                point.x as f64 >= start.x as f64 - tolerance
-                    && point.x as f64 <= start.x as f64 + text_width + tolerance
-                    && point.y as f64 >= start.y as f64 - tolerance
-                    && point.y as f64 <= start.y as f64 + font_size + tolerance
             }
         }
     }
 
-    fn distance_to_segment(point: Point, start: Point, end: Point) -> f64 {
-        let dx = (end.x - start.x) as f64;
-        let dy = (end.y - start.y) as f64;
-        if dx == 0.0 && dy == 0.0 {
-            return (((point.x - start.x).pow(2) + (point.y - start.y).pow(2)) as f64).sqrt();
+    fn delete_selected(state: &mut OverlayState) {
+        if state.selected.is_empty() {
+            return;
         }
-        let projection = (((point.x - start.x) as f64 * dx + (point.y - start.y) as f64 * dy)
-            / (dx * dx + dy * dy))
-            .clamp(0.0, 1.0);
-        let nearest_x = start.x as f64 + projection * dx;
-        let nearest_y = start.y as f64 + projection * dy;
-        ((point.x as f64 - nearest_x).powi(2) + (point.y as f64 - nearest_y).powi(2)).sqrt()
+        let mut selected = state.selected.clone();
+        selected.sort_unstable_by(|left, right| right.cmp(left));
+        selected.dedup();
+        for index in selected {
+            if index < state.drawings.len() {
+                state.drawings.remove(index);
+            }
+        }
+        state.selected.clear();
+        state.selection = None;
     }
 
-    fn ellipse_hit_test(point: Point, start: Point, end: Point, tolerance: f64) -> bool {
-        let radius_x = ((end.x - start.x).abs() as f64 / 2.0).max(1.0);
-        let radius_y = ((end.y - start.y).abs() as f64 / 2.0).max(1.0);
-        let center_x = (start.x + end.x) as f64 / 2.0;
-        let center_y = (start.y + end.y) as f64 / 2.0;
-        let normalized = (((point.x as f64 - center_x) / radius_x).powi(2)
-            + ((point.y as f64 - center_y) / radius_y).powi(2))
-        .sqrt();
-        (normalized - 1.0).abs() * radius_x.min(radius_y) <= tolerance
+    fn selection_bounds(state: &OverlayState) -> Option<RECT> {
+        let mut bounds = state
+            .selected
+            .iter()
+            .filter_map(|index| state.drawings.get(*index).map(drawing_bounds));
+        let first = bounds.next()?;
+        Some(bounds.fold(first, |combined, item| RECT {
+            left: combined.left.min(item.left),
+            top: combined.top.min(item.top),
+            right: combined.right.max(item.right),
+            bottom: combined.bottom.max(item.bottom),
+        }))
+    }
+
+    fn point_near(point: Point, target: Point, radius: i32) -> bool {
+        (point.x - target.x).abs() <= radius && (point.y - target.y).abs() <= radius
+    }
+
+    fn selection_resize_anchor(bounds: RECT, point: Point) -> Option<Point> {
+        let corners = [
+            (
+                Point {
+                    x: bounds.left,
+                    y: bounds.top,
+                },
+                Point {
+                    x: bounds.right,
+                    y: bounds.bottom,
+                },
+            ),
+            (
+                Point {
+                    x: bounds.right,
+                    y: bounds.top,
+                },
+                Point {
+                    x: bounds.left,
+                    y: bounds.bottom,
+                },
+            ),
+            (
+                Point {
+                    x: bounds.left,
+                    y: bounds.bottom,
+                },
+                Point {
+                    x: bounds.right,
+                    y: bounds.top,
+                },
+            ),
+            (
+                Point {
+                    x: bounds.right,
+                    y: bounds.bottom,
+                },
+                Point {
+                    x: bounds.left,
+                    y: bounds.top,
+                },
+            ),
+        ];
+        corners.iter().find_map(|(handle, anchor)| {
+            point_near(point, *handle, SELECTION_HANDLE_SIZE + 3).then_some(*anchor)
+        })
+    }
+
+    fn rotation_handle(bounds: RECT) -> Point {
+        Point {
+            x: (bounds.left + bounds.right) / 2,
+            y: bounds.top - ROTATION_HANDLE_OFFSET,
+        }
+    }
+
+    fn selected_originals(state: &OverlayState) -> Vec<(usize, DrawingItem)> {
+        state
+            .selected
+            .iter()
+            .filter_map(|index| {
+                state
+                    .drawings
+                    .get(*index)
+                    .cloned()
+                    .map(|item| (*index, item))
+            })
+            .collect()
+    }
+
+    fn begin_selection_at(state: &mut OverlayState, point: Point) {
+        if let Some(bounds) = selection_bounds(state) {
+            let rotate_handle = rotation_handle(bounds);
+            if point_near(point, rotate_handle, SELECTION_HANDLE_SIZE + 4) {
+                let center = Point {
+                    x: (bounds.left + bounds.right) / 2,
+                    y: (bounds.top + bounds.bottom) / 2,
+                };
+                state.selection = Some(SelectionSession {
+                    start: point,
+                    current: point,
+                    action: SelectionAction::Rotate {
+                        center,
+                        start_angle: angle_between(center, point),
+                        originals: selected_originals(state),
+                    },
+                });
+                return;
+            }
+            if let Some(anchor) = selection_resize_anchor(bounds, point) {
+                state.selection = Some(SelectionSession {
+                    start: point,
+                    current: point,
+                    action: SelectionAction::Resize {
+                        anchor,
+                        originals: selected_originals(state),
+                    },
+                });
+                return;
+            }
+        }
+
+        if let Some(index) = hit_test_drawing(state, point) {
+            if !state.selected.contains(&index) {
+                state.selected = grouped_indices(state, index);
+            }
+            state.selection = Some(SelectionSession {
+                start: point,
+                current: point,
+                action: SelectionAction::Move { last: point },
+            });
+        } else {
+            state.selected.clear();
+            state.selection = Some(SelectionSession {
+                start: point,
+                current: point,
+                action: SelectionAction::Marquee,
+            });
+        }
+    }
+
+    fn update_selection_at(state: &mut OverlayState, point: Point) {
+        let Some(mut session) = state.selection.take() else {
+            return;
+        };
+        session.current = point;
+        match &mut session.action {
+            SelectionAction::Marquee => {
+                let marquee = rect_from_points(session.start, point);
+                let mut selected: Vec<usize> = state
+                    .drawings
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, drawing)| {
+                        rects_intersect(marquee, drawing_bounds(drawing)).then_some(index)
+                    })
+                    .collect();
+                expand_selected_groups(state, &mut selected);
+                state.selected = selected;
+            }
+            SelectionAction::Move { last } => {
+                let dx = point.x - last.x;
+                let dy = point.y - last.y;
+                if dx != 0 || dy != 0 {
+                    for index in state.selected.iter().copied() {
+                        if let Some(drawing) = state.drawings.get_mut(index) {
+                            translate_drawing(drawing, dx, dy);
+                        }
+                    }
+                    *last = point;
+                }
+            }
+            SelectionAction::Resize { anchor, originals } => {
+                let base_x = (session.start.x - anchor.x) as f64;
+                let base_y = (session.start.y - anchor.y) as f64;
+                let scale_x = safe_scale((point.x - anchor.x) as f64, base_x);
+                let scale_y = safe_scale((point.y - anchor.y) as f64, base_y);
+                let width_scale = ((scale_x.abs() + scale_y.abs()) / 2.0).max(0.05);
+                for (index, original) in originals.iter() {
+                    if let Some(drawing) = state.drawings.get_mut(*index) {
+                        *drawing = scale_drawing(original, *anchor, scale_x, scale_y, width_scale);
+                    }
+                }
+            }
+            SelectionAction::Rotate {
+                center,
+                start_angle,
+                originals,
+            } => {
+                let delta = angle_between(*center, point) - *start_angle;
+                for (index, original) in originals.iter() {
+                    if let Some(drawing) = state.drawings.get_mut(*index) {
+                        *drawing = rotate_drawing(original, *center, delta);
+                    }
+                }
+            }
+        }
+        state.selection = Some(session);
+    }
+
+    fn finish_selection(state: &mut OverlayState) {
+        state.selection = None;
+    }
+
+    fn safe_scale(value: f64, base: f64) -> f64 {
+        if base.abs() < 1.0 {
+            1.0
+        } else {
+            (value / base).max(0.05)
+        }
+    }
+
+    fn rect_from_points(start: Point, end: Point) -> RECT {
+        RECT {
+            left: start.x.min(end.x),
+            top: start.y.min(end.y),
+            right: start.x.max(end.x),
+            bottom: start.y.max(end.y),
+        }
+    }
+
+    fn rects_intersect(left: RECT, right: RECT) -> bool {
+        left.left <= right.right
+            && left.right >= right.left
+            && left.top <= right.bottom
+            && left.bottom >= right.top
+    }
+
+    fn angle_between(center: Point, point: Point) -> f64 {
+        ((point.y - center.y) as f64).atan2((point.x - center.x) as f64)
+    }
+
+    fn transform_point(point: Point, anchor: Point, scale_x: f64, scale_y: f64) -> Point {
+        Point {
+            x: (anchor.x as f64 + (point.x - anchor.x) as f64 * scale_x).round() as i32,
+            y: (anchor.y as f64 + (point.y - anchor.y) as f64 * scale_y).round() as i32,
+        }
+    }
+
+    fn rotate_point(point: Point, center: Point, angle: f64) -> Point {
+        let x = (point.x - center.x) as f64;
+        let y = (point.y - center.y) as f64;
+        let cos = angle.cos();
+        let sin = angle.sin();
+        Point {
+            x: (center.x as f64 + x * cos - y * sin).round() as i32,
+            y: (center.y as f64 + x * sin + y * cos).round() as i32,
+        }
+    }
+
+    fn scale_drawing(
+        original: &DrawingItem,
+        anchor: Point,
+        scale_x: f64,
+        scale_y: f64,
+        width_scale: f64,
+    ) -> DrawingItem {
+        let mut drawing = original.clone();
+        match &mut drawing {
+            DrawingItem::Stroke { points, width, .. } => {
+                for point in points {
+                    *point = transform_point(*point, anchor, scale_x, scale_y);
+                }
+                *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
+            }
+            DrawingItem::Shape {
+                start, end, width, ..
+            } => {
+                *start = transform_point(*start, anchor, scale_x, scale_y);
+                *end = transform_point(*end, anchor, scale_x, scale_y);
+                *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
+            }
+            DrawingItem::Text { start, width, .. } => {
+                *start = transform_point(*start, anchor, scale_x, scale_y);
+                *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
+            }
+        }
+        drawing
+    }
+
+    fn rotate_drawing(original: &DrawingItem, center: Point, angle: f64) -> DrawingItem {
+        let mut drawing = original.clone();
+        match &mut drawing {
+            DrawingItem::Stroke { points, .. } => {
+                for point in points {
+                    *point = rotate_point(*point, center, angle);
+                }
+            }
+            DrawingItem::Shape {
+                tool,
+                start,
+                end,
+                rotation,
+                ..
+            } => {
+                if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                    let old_center = Point {
+                        x: (start.x + end.x) / 2,
+                        y: (start.y + end.y) / 2,
+                    };
+                    let new_center = rotate_point(old_center, center, angle);
+                    translate_point_pair(
+                        start,
+                        end,
+                        new_center.x - old_center.x,
+                        new_center.y - old_center.y,
+                    );
+                    *rotation += angle;
+                } else {
+                    *start = rotate_point(*start, center, angle);
+                    *end = rotate_point(*end, center, angle);
+                }
+            }
+            DrawingItem::Text {
+                start, rotation, ..
+            } => {
+                *start = rotate_point(*start, center, angle);
+                *rotation += angle;
+            }
+        }
+        drawing
+    }
+
+    fn translate_point_pair(start: &mut Point, end: &mut Point, dx: i32, dy: i32) {
+        start.x += dx;
+        start.y += dy;
+        end.x += dx;
+        end.y += dy;
+    }
+
+    fn drawing_hit_test(drawing: &DrawingItem, point: Point) -> bool {
+        let bounds = drawing_bounds(drawing);
+        point.x >= bounds.left - 4
+            && point.x <= bounds.right + 4
+            && point.y >= bounds.top - 4
+            && point.y <= bounds.bottom + 4
     }
 
     fn drawing_bounds(drawing: &DrawingItem) -> RECT {
@@ -1308,40 +1682,150 @@ mod platform {
                 }
             }
             DrawingItem::Shape {
-                start, end, width, ..
+                tool,
+                start,
+                end,
+                width,
+                rotation,
+                ..
             } => {
                 let padding = (*width).max(1) + 5;
+                let points = if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                    rotated_shape_corners(*start, *end, *rotation).to_vec()
+                } else {
+                    vec![*start, *end]
+                };
                 RECT {
-                    left: start.x.min(end.x) - padding,
-                    top: start.y.min(end.y) - padding,
-                    right: start.x.max(end.x) + padding,
-                    bottom: start.y.max(end.y) + padding,
+                    left: points.iter().map(|point| point.x).min().unwrap_or(0) - padding,
+                    top: points.iter().map(|point| point.y).min().unwrap_or(0) - padding,
+                    right: points.iter().map(|point| point.x).max().unwrap_or(0) + padding,
+                    bottom: points.iter().map(|point| point.y).max().unwrap_or(0) + padding,
                 }
             }
             DrawingItem::Text {
-                start, text, width, ..
+                start,
+                text,
+                width,
+                rotation,
+                ..
             } => {
                 let font_size = text_font_size(*width);
                 let units: f64 = text
                     .chars()
                     .map(|character| if character.is_ascii() { 0.62 } else { 1.0 })
                     .sum();
+                let text_width = (units * font_size as f64).ceil() as i32;
+                let corners = [
+                    *start,
+                    Point {
+                        x: start.x + text_width,
+                        y: start.y,
+                    },
+                    Point {
+                        x: start.x + text_width,
+                        y: start.y + font_size,
+                    },
+                    Point {
+                        x: start.x,
+                        y: start.y + font_size,
+                    },
+                ]
+                .map(|point| rotate_point(point, *start, *rotation));
                 RECT {
-                    left: start.x - 5,
-                    top: start.y - 5,
-                    right: start.x + (units * font_size as f64).ceil() as i32 + 5,
-                    bottom: start.y + font_size + 5,
+                    left: corners.iter().map(|point| point.x).min().unwrap_or(start.x) - 5,
+                    top: corners.iter().map(|point| point.y).min().unwrap_or(start.y) - 5,
+                    right: corners.iter().map(|point| point.x).max().unwrap_or(start.x) + 5,
+                    bottom: corners.iter().map(|point| point.y).max().unwrap_or(start.y) + 5,
                 }
             }
         }
     }
 
-    unsafe fn draw_selection(dc: HDC, drawing: &DrawingItem) {
-        let bounds = drawing_bounds(drawing);
+    fn rotated_shape_corners(start: Point, end: Point, rotation: f64) -> [Point; 4] {
+        let center = Point {
+            x: (start.x + end.x) / 2,
+            y: (start.y + end.y) / 2,
+        };
+        [
+            Point {
+                x: start.x,
+                y: start.y,
+            },
+            Point {
+                x: end.x,
+                y: start.y,
+            },
+            Point { x: end.x, y: end.y },
+            Point {
+                x: start.x,
+                y: end.y,
+            },
+        ]
+        .map(|point| rotate_point(point, center, rotation))
+    }
+
+    unsafe fn draw_selection(dc: HDC, state: &OverlayState) {
+        let Some(bounds) = selection_bounds(state) else {
+            return;
+        };
         let pen = CreatePen(PS_DOT, 1, COLORREF(0x0080_8080));
         let old_pen = SelectObject(dc, pen);
         let brush = GetStockObject(HOLLOW_BRUSH);
         let old_brush = SelectObject(dc, brush);
+        Rectangle(dc, bounds.left, bounds.top, bounds.right, bounds.bottom);
+
+        let center_x = (bounds.left + bounds.right) / 2;
+        let rotation = rotation_handle(bounds);
+        MoveToEx(dc, center_x, bounds.top, None);
+        LineTo(dc, rotation.x, rotation.y);
+        Ellipse(
+            dc,
+            rotation.x - SELECTION_HANDLE_SIZE,
+            rotation.y - SELECTION_HANDLE_SIZE,
+            rotation.x + SELECTION_HANDLE_SIZE,
+            rotation.y + SELECTION_HANDLE_SIZE,
+        );
+
+        let handles = [
+            Point {
+                x: bounds.left,
+                y: bounds.top,
+            },
+            Point {
+                x: bounds.right,
+                y: bounds.top,
+            },
+            Point {
+                x: bounds.left,
+                y: bounds.bottom,
+            },
+            Point {
+                x: bounds.right,
+                y: bounds.bottom,
+            },
+        ];
+        let handle_brush = CreateSolidBrush(COLORREF(0x00ff_ffff));
+        SelectObject(dc, handle_brush);
+        for handle in handles {
+            Rectangle(
+                dc,
+                handle.x - SELECTION_HANDLE_SIZE,
+                handle.y - SELECTION_HANDLE_SIZE,
+                handle.x + SELECTION_HANDLE_SIZE,
+                handle.y + SELECTION_HANDLE_SIZE,
+            );
+        }
+        SelectObject(dc, brush);
+        DeleteObject(handle_brush);
+        SelectObject(dc, old_brush);
+        SelectObject(dc, old_pen);
+        DeleteObject(pen);
+    }
+
+    unsafe fn draw_marquee(dc: HDC, bounds: RECT) {
+        let pen = CreatePen(PS_DOT, 1, COLORREF(0x0040_4040));
+        let old_pen = SelectObject(dc, pen);
+        let old_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
         Rectangle(dc, bounds.left, bounds.top, bounds.right, bounds.bottom);
         SelectObject(dc, old_brush);
         SelectObject(dc, old_pen);
@@ -1355,6 +1839,7 @@ mod platform {
                 color,
                 width,
                 erase: _,
+                ..
             } => draw_polyline(dc, points, *color, *width),
             DrawingItem::Shape {
                 tool,
@@ -1362,13 +1847,17 @@ mod platform {
                 end,
                 color,
                 width,
-            } => draw_shape(dc, tool.clone(), *start, *end, *color, *width),
+                rotation,
+                ..
+            } => draw_shape(dc, tool.clone(), *start, *end, *color, *width, *rotation),
             DrawingItem::Text {
                 start,
                 text,
                 color,
                 width,
-            } => draw_text(dc, *start, text, *color, *width),
+                rotation,
+                ..
+            } => draw_text(dc, *start, text, *color, *width, *rotation),
         }
     }
 
@@ -1386,7 +1875,7 @@ mod platform {
                 end,
                 color,
                 width,
-            } => draw_shape(dc, tool.clone(), *start, *end, *color, *width),
+            } => draw_shape(dc, tool.clone(), *start, *end, *color, *width, 0.0),
         }
     }
 
@@ -1395,6 +1884,7 @@ mod platform {
         points: &[Point],
         color: COLORREF,
         width: i32,
+        rotation: f64,
     ) {
         if points.len() < 2 {
             return;
@@ -1429,10 +1919,40 @@ mod platform {
                 draw_tapered_arrow(dc, start, end, color, width.max(1));
             }
             NativeTool::Rectangle => {
-                Rectangle(dc, start.x, start.y, end.x, end.y);
+                if rotation.abs() < f64::EPSILON {
+                    Rectangle(dc, start.x, start.y, end.x, end.y);
+                } else {
+                    let corners =
+                        rotated_shape_corners(start, end, rotation).map(|point| WinPoint {
+                            x: point.x,
+                            y: point.y,
+                        });
+                    let _ = Polygon(dc, &corners);
+                }
             }
             NativeTool::Ellipse => {
-                Ellipse(dc, start.x, start.y, end.x, end.y);
+                if rotation.abs() < f64::EPSILON {
+                    Ellipse(dc, start.x, start.y, end.x, end.y);
+                } else {
+                    let center_x = (start.x + end.x) as f64 / 2.0;
+                    let center_y = (start.y + end.y) as f64 / 2.0;
+                    let radius_x = (end.x - start.x).abs() as f64 / 2.0;
+                    let radius_y = (end.y - start.y).abs() as f64 / 2.0;
+                    let cos = rotation.cos();
+                    let sin = rotation.sin();
+                    let points: Vec<WinPoint> = (0..48)
+                        .map(|index| {
+                            let angle = std::f64::consts::TAU * index as f64 / 48.0;
+                            let x = radius_x * angle.cos();
+                            let y = radius_y * angle.sin();
+                            WinPoint {
+                                x: (center_x + x * cos - y * sin).round() as i32,
+                                y: (center_y + x * sin + y * cos).round() as i32,
+                            }
+                        })
+                        .collect();
+                    let _ = Polygon(dc, &points);
+                }
             }
             _ => {}
         }
@@ -1495,13 +2015,15 @@ mod platform {
         text: &str,
         color: COLORREF,
         width: i32,
+        rotation: f64,
     ) {
         let height = -text_font_size(width);
+        let escapement = (rotation.to_degrees() * 10.0).round() as i32;
         let font = CreateFontW(
             height,
             0,
-            0,
-            0,
+            escapement,
+            escapement,
             400,
             0,
             0,
@@ -1564,6 +2086,8 @@ mod platform {
                 text,
                 color: edit.color,
                 width: edit.width,
+                rotation: 0.0,
+                group: None,
             });
             emit_history(&state.app, true);
         }
@@ -1671,7 +2195,7 @@ mod platform {
         }
 
         let resource = match tool {
-            NativeTool::Pointer => IDC_ARROW,
+            NativeTool::Pointer | NativeTool::Select => IDC_ARROW,
             NativeTool::Text => IDC_IBEAM,
             _ => IDC_CROSS,
         };
@@ -1955,6 +2479,7 @@ mod platform_stub {
     #[derive(Clone)]
     pub enum NativeTool {
         Pointer,
+        Select,
         Pen,
         Eraser,
         Line,
@@ -1983,6 +2508,8 @@ mod platform_stub {
         pub fn set_width(&self, _width: i32) {}
         pub fn clear(&self) {}
         pub fn undo(&self) {}
+        pub fn toggle_group(&self) {}
+        pub fn delete_selection_or_clear(&self) {}
         pub fn set_click_through(&self, _enabled: bool) {}
         pub fn set_toolbar_passthrough(&self, _bounds: Option<(i32, i32, i32, i32)>) {}
         pub fn focus(&self) {}
