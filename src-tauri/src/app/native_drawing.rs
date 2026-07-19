@@ -2580,10 +2580,22 @@ mod platform {
                 *pixel |= 0xff00_0000;
             }
         }
-        SelectObject(memory_dc, old_bitmap);
 
         let mask_stride = ((size as usize + 15) / 16) * 2;
-        let mask_bits = vec![0u8; mask_stride * size as usize];
+        // The AND mask is used when a compositor cannot honor the ARGB cursor.
+        // Keep transparent pixels set to 1 and clear only the visible icon bits;
+        // an all-zero mask makes the cursor's full bitmap appear as a small box.
+        let mut mask_bits = vec![0xffu8; mask_stride * size as usize];
+        for y in 0..size as usize {
+            for x in 0..size as usize {
+                if (pixels[y * size as usize + x] >> 24) != 0 {
+                    let byte = y * mask_stride + x / 8;
+                    mask_bits[byte] &= !(0x80 >> (x % 8));
+                }
+            }
+        }
+        SelectObject(memory_dc, old_bitmap);
+
         let mask_bitmap = CreateBitmap(size, size, 1, 1, Some(mask_bits.as_ptr() as *const c_void));
         let icon_info = ICONINFO {
             fIcon: false.into(),
