@@ -45,6 +45,7 @@ type DrawingCommand =
   | { type: "group" }
   | { type: "undo" };
 type ToolChangedPayload = { tool: Tool };
+type DrawingSelectionPayload = { count: number; grouped: boolean };
 
 const COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
 const WIDTHS = [2, 5, 9, 15];
@@ -185,6 +186,10 @@ export default function ScreenDrawing() {
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(WIDTHS[1]);
   const [canUndo, setCanUndo] = useState(false);
+  const [selectionState, setSelectionState] = useState<DrawingSelectionPayload>({
+    count: 0,
+    grouped: false,
+  });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const isTextEditorOpen = textEditor !== null;
   const drawingUndoShortcut = useKeyEvent((state) => state.drawingUndoShortcut);
@@ -303,6 +308,10 @@ export default function ScreenDrawing() {
       const widthListener = listen<{ width: number }>("drawing-width-changed", (event) => {
         setWidth(event.payload.width);
       });
+      const selectionListener = listen<DrawingSelectionPayload>(
+        "drawing-selection-changed",
+        (event) => setSelectionState(event.payload),
+      );
       const nativeCloseListener = listen("native-drawing-close", () => {
         void invoke("close_screen_drawing");
       });
@@ -311,6 +320,7 @@ export default function ScreenDrawing() {
         void resizeRequestListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
         void widthListener.then((unlisten) => unlisten());
+        void selectionListener.then((unlisten) => unlisten());
         void nativeCloseListener.then((unlisten) => unlisten());
       };
     }
@@ -466,6 +476,15 @@ export default function ScreenDrawing() {
             }
             onKeyDown={onTextEditorKeyDown}
             onPointerDown={(event) => event.stopPropagation()}
+            onWheel={(event) => {
+              event.preventDefault();
+              const nextWidth = Math.min(
+                MAX_WIDTH,
+                Math.max(MIN_WIDTH, textEditor.width + (event.deltaY < 0 ? 1 : -1)),
+              );
+              setWidth(nextWidth);
+              updateTextEditor({ ...textEditor, width: nextWidth });
+            }}
           />
         )}
       </main>
@@ -514,7 +533,13 @@ export default function ScreenDrawing() {
         </button>
       ))}
       {tool === "select" && (
-        <button title={t("Group / Ungroup")} onClick={() => void sendCommand({ type: "group" })}>
+        <button
+          className={selectionState.grouped ? "active" : ""}
+          disabled={selectionState.count < 2}
+          aria-pressed={selectionState.grouped}
+          title={t("Group / Ungroup")}
+          onClick={() => void sendCommand({ type: "group" })}
+        >
           <Group />
         </button>
       )}

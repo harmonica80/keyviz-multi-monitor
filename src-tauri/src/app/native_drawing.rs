@@ -242,6 +242,12 @@ mod platform {
         width: i32,
     }
 
+    #[derive(Clone, Serialize)]
+    struct DrawingSelectionPayload {
+        count: usize,
+        grouped: bool,
+    }
+
     static OVERLAY_STATE: OnceLock<Mutex<Option<OverlayState>>> = OnceLock::new();
 
     fn overlay_state() -> &'static Mutex<Option<OverlayState>> {
@@ -592,6 +598,7 @@ mod platform {
                 state.visible = false;
                 ShowWindow(state.hwnd, SW_HIDE);
                 emit_history(&state.app, false);
+                emit_selection_state(state);
             }
             DrawingCommand::SetTool(tool) => {
                 commit_text_editor(state);
@@ -606,6 +613,7 @@ mod platform {
                     raise_toolbar(&state.app);
                 }
                 refresh_overlay(state);
+                emit_selection_state(state);
             }
             DrawingCommand::SetColor(color) => state.color = parse_color(&color),
             DrawingCommand::SetWidth(width) => {
@@ -622,6 +630,7 @@ mod platform {
                 state.selected.clear();
                 state.selection = None;
                 emit_history(&state.app, false);
+                emit_selection_state(state);
                 refresh_overlay(state);
             }
             DrawingCommand::Undo => {
@@ -630,11 +639,13 @@ mod platform {
                     state.selection = None;
                     state.drawings.pop();
                     emit_history(&state.app, !state.drawings.is_empty());
+                    emit_selection_state(state);
                     refresh_overlay(state);
                 }
             }
             DrawingCommand::ToggleGroup => {
                 toggle_selected_group(state);
+                emit_selection_state(state);
                 refresh_overlay(state);
             }
             DrawingCommand::DeleteSelectionOrClear => {
@@ -647,6 +658,7 @@ mod platform {
                     state.selection = None;
                 }
                 emit_history(&state.app, !state.drawings.is_empty());
+                emit_selection_state(state);
                 refresh_overlay(state);
             }
             DrawingCommand::SetClickThrough(enabled) => {
@@ -965,6 +977,16 @@ mod platform {
             return;
         }
         let step = if delta > 0 { 1 } else { -1 };
+        if matches!(state.tool, NativeTool::Text) && state.edit.is_some() {
+            let width = (state.width + step).clamp(1, 15);
+            state.width = width;
+            if let Some(edit) = state.edit.as_mut() {
+                edit.width = width;
+            }
+            emit_width(&state.app, width);
+            refresh_overlay(state);
+            return;
+        }
         if matches!(state.tool, NativeTool::Eraser) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
@@ -1297,17 +1319,7 @@ mod platform {
         if state.selected.is_empty() {
             return;
         }
-        let common_group = state
-            .selected
-            .first()
-            .and_then(|index| state.drawings.get(*index))
-            .and_then(drawing_group)
-            .filter(|group| {
-                state
-                    .selected
-                    .iter()
-                    .all(|index| state.drawings.get(*index).and_then(drawing_group) == Some(*group))
-            });
+        let common_group = selected_common_group(state);
         if let Some(group) = common_group {
             for drawing in state.drawings.iter_mut() {
                 if drawing_group(drawing) == Some(group) {
@@ -1323,6 +1335,20 @@ mod platform {
                 }
             }
         }
+    }
+
+    fn selected_common_group(state: &OverlayState) -> Option<u64> {
+        state
+            .selected
+            .first()
+            .and_then(|index| state.drawings.get(*index))
+            .and_then(drawing_group)
+            .filter(|group| {
+                state
+                    .selected
+                    .iter()
+                    .all(|index| state.drawings.get(*index).and_then(drawing_group) == Some(*group))
+            })
     }
 
     fn delete_selected(state: &mut OverlayState) {
@@ -1628,6 +1654,7 @@ mod platform {
 
     fn finish_selection(state: &mut OverlayState) {
         state.selection = None;
+        emit_selection_state(state);
     }
 
     fn safe_scale(value: f64, base: f64) -> f64 {
@@ -2662,6 +2689,17 @@ mod platform {
             "drawing-toolbar",
             "drawing-width-changed",
             DrawingWidthPayload { width },
+        );
+    }
+
+    fn emit_selection_state(state: &OverlayState) {
+        let _ = state.app.emit_to(
+            "drawing-toolbar",
+            "drawing-selection-changed",
+            DrawingSelectionPayload {
+                count: state.selected.len(),
+                grouped: selected_common_group(state).is_some(),
+            },
         );
     }
 
