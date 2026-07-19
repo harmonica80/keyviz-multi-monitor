@@ -22,11 +22,10 @@ mod platform {
             },
             Graphics::Gdi::{
                 CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen,
-                CreateSolidBrush, DeleteDC, DeleteObject, DrawTextW, Ellipse, GetDC,
-                GetStockObject, LineTo, MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject,
-                SetBkMode, AC_SRC_ALPHA, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION,
-                DIB_RGB_COLORS, DT_LEFT, DT_SINGLELINE, DT_TOP, HDC, HOLLOW_BRUSH, NULL_PEN,
-                PS_DOT, PS_SOLID, TRANSPARENT,
+                CreateSolidBrush, DeleteDC, DeleteObject, Ellipse, GetDC, GetStockObject, LineTo,
+                MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject, SetBkMode, TextOutW,
+                AC_SRC_ALPHA, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS,
+                HDC, HOLLOW_BRUSH, NULL_PEN, PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -2261,19 +2260,8 @@ mod platform {
         let old_font = SelectObject(dc, font);
         SetBkMode(dc, TRANSPARENT);
         let old_color = windows::Win32::Graphics::Gdi::SetTextColor(dc, color);
-        let mut rect = RECT {
-            left: start.x,
-            top: start.y,
-            right: start.x + 1200,
-            bottom: start.y + 120,
-        };
-        let mut wide_text = wide(text);
-        DrawTextW(
-            dc,
-            &mut wide_text,
-            &mut rect,
-            DT_LEFT | DT_TOP | DT_SINGLELINE,
-        );
+        let wide_text: Vec<u16> = text.encode_utf16().collect();
+        let _ = TextOutW(dc, start.x, start.y, &wide_text);
         windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
         SelectObject(dc, old_font);
         DeleteObject(font);
