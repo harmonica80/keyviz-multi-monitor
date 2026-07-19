@@ -136,6 +136,7 @@ mod platform {
             color: COLORREF,
             width: i32,
             erase: bool,
+            rotation: f64,
             group: Option<u64>,
         },
         Shape {
@@ -188,6 +189,7 @@ mod platform {
         },
         Resize {
             anchor: Point,
+            angle: f64,
             originals: Vec<(usize, DrawingItem)>,
         },
         Rotate {
@@ -201,6 +203,13 @@ mod platform {
         start: Point,
         current: Point,
         action: SelectionAction,
+    }
+
+    #[derive(Clone, Copy)]
+    struct SelectionFrame {
+        corners: [Point; 4],
+        center: Point,
+        angle: f64,
     }
 
     struct OverlayState {
@@ -913,6 +922,7 @@ mod platform {
                     color,
                     width,
                     erase,
+                    rotation: 0.0,
                     group: None,
                 }
             }
@@ -1345,62 +1355,148 @@ mod platform {
         }))
     }
 
+    fn selection_frame(state: &OverlayState) -> Option<SelectionFrame> {
+        let first = state
+            .selected
+            .iter()
+            .find_map(|index| state.drawings.get(*index))?;
+        let angle = drawing_orientation(first);
+        let cos = angle.cos();
+        let sin = angle.sin();
+        let mut min_x = f64::INFINITY;
+        let mut min_y = f64::INFINITY;
+        let mut max_x = f64::NEG_INFINITY;
+        let mut max_y = f64::NEG_INFINITY;
+        let mut padding = 0.0_f64;
+
+        for drawing in state
+            .selected
+            .iter()
+            .filter_map(|index| state.drawings.get(*index))
+        {
+            padding = padding.max(drawing_selection_padding(drawing));
+            for point in drawing_frame_points(drawing) {
+                let local_x = point.x as f64 * cos + point.y as f64 * sin;
+                let local_y = -point.x as f64 * sin + point.y as f64 * cos;
+                min_x = min_x.min(local_x);
+                min_y = min_y.min(local_y);
+                max_x = max_x.max(local_x);
+                max_y = max_y.max(local_y);
+            }
+        }
+        if !min_x.is_finite() {
+            return None;
+        }
+        min_x -= padding;
+        min_y -= padding;
+        max_x += padding;
+        max_y += padding;
+
+        let corners = [
+            selection_local_to_world(min_x, min_y, angle),
+            selection_local_to_world(max_x, min_y, angle),
+            selection_local_to_world(max_x, max_y, angle),
+            selection_local_to_world(min_x, max_y, angle),
+        ];
+        Some(SelectionFrame {
+            corners,
+            center: selection_local_to_world((min_x + max_x) / 2.0, (min_y + max_y) / 2.0, angle),
+            angle,
+        })
+    }
+
+    fn drawing_orientation(drawing: &DrawingItem) -> f64 {
+        match drawing {
+            DrawingItem::Stroke { rotation, .. } | DrawingItem::Text { rotation, .. } => *rotation,
+            DrawingItem::Shape {
+                tool,
+                start,
+                end,
+                rotation,
+                ..
+            } => {
+                if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                    *rotation
+                } else {
+                    angle_between(*start, *end)
+                }
+            }
+        }
+    }
+
+    fn drawing_frame_points(drawing: &DrawingItem) -> Vec<Point> {
+        match drawing {
+            DrawingItem::Stroke { points, .. } => points.clone(),
+            DrawingItem::Shape {
+                tool,
+                start,
+                end,
+                rotation,
+                ..
+            } if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) => {
+                rotated_shape_corners(*start, *end, *rotation).to_vec()
+            }
+            DrawingItem::Shape { start, end, .. } => vec![*start, *end],
+            DrawingItem::Text {
+                start,
+                text,
+                width,
+                rotation,
+                ..
+            } => text_corners(*start, text, *width, *rotation).to_vec(),
+        }
+    }
+
+    fn drawing_selection_padding(drawing: &DrawingItem) -> f64 {
+        match drawing {
+            DrawingItem::Stroke { width, .. } => (*width).max(1) as f64 + 5.0,
+            DrawingItem::Shape { tool, width, .. } => {
+                let padding = (*width).max(1) as f64 + 5.0;
+                if matches!(tool, NativeTool::Arrow) {
+                    padding.max(22.0)
+                } else {
+                    padding
+                }
+            }
+            DrawingItem::Text { .. } => 5.0,
+        }
+    }
+
+    fn selection_local_to_world(x: f64, y: f64, angle: f64) -> Point {
+        let cos = angle.cos();
+        let sin = angle.sin();
+        Point {
+            x: (x * cos - y * sin).round() as i32,
+            y: (x * sin + y * cos).round() as i32,
+        }
+    }
+
     fn point_near(point: Point, target: Point, radius: i32) -> bool {
         (point.x - target.x).abs() <= radius && (point.y - target.y).abs() <= radius
     }
 
-    fn selection_resize_anchor(bounds: RECT, point: Point) -> Option<Point> {
-        let corners = [
-            (
-                Point {
-                    x: bounds.left,
-                    y: bounds.top,
-                },
-                Point {
-                    x: bounds.right,
-                    y: bounds.bottom,
-                },
-            ),
-            (
-                Point {
-                    x: bounds.right,
-                    y: bounds.top,
-                },
-                Point {
-                    x: bounds.left,
-                    y: bounds.bottom,
-                },
-            ),
-            (
-                Point {
-                    x: bounds.left,
-                    y: bounds.bottom,
-                },
-                Point {
-                    x: bounds.right,
-                    y: bounds.top,
-                },
-            ),
-            (
-                Point {
-                    x: bounds.right,
-                    y: bounds.bottom,
-                },
-                Point {
-                    x: bounds.left,
-                    y: bounds.top,
-                },
-            ),
-        ];
-        corners.iter().find_map(|(handle, anchor)| {
-            point_near(point, *handle, SELECTION_HANDLE_SIZE + 3).then_some(*anchor)
-        })
+    fn selection_resize_anchor(frame: SelectionFrame, point: Point) -> Option<Point> {
+        frame
+            .corners
+            .iter()
+            .enumerate()
+            .find_map(|(index, handle)| {
+                point_near(point, *handle, SELECTION_HANDLE_SIZE + 3)
+                    .then_some(frame.corners[(index + 2) % 4])
+            })
     }
 
-    fn rotation_handle(bounds: RECT) -> Point {
+    fn rotation_handle(frame: SelectionFrame) -> Point {
+        let top_center = Point {
+            x: (frame.corners[0].x + frame.corners[1].x) / 2,
+            y: (frame.corners[0].y + frame.corners[1].y) / 2,
+        };
+        let dx = (top_center.x - frame.center.x) as f64;
+        let dy = (top_center.y - frame.center.y) as f64;
+        let length = (dx * dx + dy * dy).sqrt().max(1.0);
         Point {
-            x: (bounds.left + bounds.right) / 2,
-            y: bounds.top - ROTATION_HANDLE_OFFSET,
+            x: (top_center.x as f64 + dx / length * ROTATION_HANDLE_OFFSET as f64).round() as i32,
+            y: (top_center.y as f64 + dy / length * ROTATION_HANDLE_OFFSET as f64).round() as i32,
         }
     }
 
@@ -1419,30 +1515,27 @@ mod platform {
     }
 
     fn begin_selection_at(state: &mut OverlayState, point: Point) {
-        if let Some(bounds) = selection_bounds(state) {
-            let rotate_handle = rotation_handle(bounds);
+        if let Some(frame) = selection_frame(state) {
+            let rotate_handle = rotation_handle(frame);
             if point_near(point, rotate_handle, SELECTION_HANDLE_SIZE + 4) {
-                let center = Point {
-                    x: (bounds.left + bounds.right) / 2,
-                    y: (bounds.top + bounds.bottom) / 2,
-                };
                 state.selection = Some(SelectionSession {
                     start: point,
                     current: point,
                     action: SelectionAction::Rotate {
-                        center,
-                        start_angle: angle_between(center, point),
+                        center: frame.center,
+                        start_angle: angle_between(frame.center, point),
                         originals: selected_originals(state),
                     },
                 });
                 return;
             }
-            if let Some(anchor) = selection_resize_anchor(bounds, point) {
+            if let Some(anchor) = selection_resize_anchor(frame, point) {
                 state.selection = Some(SelectionSession {
                     start: point,
                     current: point,
                     action: SelectionAction::Resize {
                         anchor,
+                        angle: frame.angle,
                         originals: selected_originals(state),
                     },
                 });
@@ -1500,15 +1593,20 @@ mod platform {
                     *last = point;
                 }
             }
-            SelectionAction::Resize { anchor, originals } => {
-                let base_x = (session.start.x - anchor.x) as f64;
-                let base_y = (session.start.y - anchor.y) as f64;
-                let scale_x = safe_scale((point.x - anchor.x) as f64, base_x);
-                let scale_y = safe_scale((point.y - anchor.y) as f64, base_y);
+            SelectionAction::Resize {
+                anchor,
+                angle,
+                originals,
+            } => {
+                let base = point_to_selection_local(session.start, *anchor, *angle);
+                let current = point_to_selection_local(point, *anchor, *angle);
+                let scale_x = safe_scale(current.0, base.0);
+                let scale_y = safe_scale(current.1, base.1);
                 let width_scale = ((scale_x.abs() + scale_y.abs()) / 2.0).max(0.05);
                 for (index, original) in originals.iter() {
                     if let Some(drawing) = state.drawings.get_mut(*index) {
-                        *drawing = scale_drawing(original, *anchor, scale_x, scale_y, width_scale);
+                        *drawing =
+                            scale_drawing(original, *anchor, scale_x, scale_y, width_scale, *angle);
                     }
                 }
             }
@@ -1567,6 +1665,42 @@ mod platform {
         }
     }
 
+    fn point_to_selection_local(point: Point, anchor: Point, angle: f64) -> (f64, f64) {
+        let dx = (point.x - anchor.x) as f64;
+        let dy = (point.y - anchor.y) as f64;
+        let cos = angle.cos();
+        let sin = angle.sin();
+        (dx * cos + dy * sin, -dx * sin + dy * cos)
+    }
+
+    fn transform_point_oriented(
+        point: Point,
+        anchor: Point,
+        scale_x: f64,
+        scale_y: f64,
+        angle: f64,
+    ) -> Point {
+        let (local_x, local_y) = point_to_selection_local(point, anchor, angle);
+        let cos = angle.cos();
+        let sin = angle.sin();
+        Point {
+            x: (anchor.x as f64 + local_x * scale_x * cos - local_y * scale_y * sin).round() as i32,
+            y: (anchor.y as f64 + local_x * scale_x * sin + local_y * scale_y * cos).round() as i32,
+        }
+    }
+
+    fn transformed_angle(rotation: f64, scale_x: f64, scale_y: f64, angle: f64) -> f64 {
+        let vector_x = rotation.cos();
+        let vector_y = rotation.sin();
+        let cos = angle.cos();
+        let sin = angle.sin();
+        let local_x = vector_x * cos + vector_y * sin;
+        let local_y = -vector_x * sin + vector_y * cos;
+        let world_x = local_x * scale_x * cos - local_y * scale_y * sin;
+        let world_y = local_x * scale_x * sin + local_y * scale_y * cos;
+        world_y.atan2(world_x)
+    }
+
     fn rotate_point(point: Point, center: Point, angle: f64) -> Point {
         let x = (point.x - center.x) as f64;
         let y = (point.y - center.y) as f64;
@@ -1584,37 +1718,104 @@ mod platform {
         scale_x: f64,
         scale_y: f64,
         width_scale: f64,
+        angle: f64,
     ) -> DrawingItem {
         let mut drawing = original.clone();
         match &mut drawing {
-            DrawingItem::Stroke { points, width, .. } => {
+            DrawingItem::Stroke {
+                points,
+                width,
+                rotation,
+                ..
+            } => {
                 for point in points {
-                    *point = transform_point(*point, anchor, scale_x, scale_y);
+                    *point = transform_point_oriented(*point, anchor, scale_x, scale_y, angle);
+                }
+                *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
+                *rotation = transformed_angle(*rotation, scale_x, scale_y, angle);
+            }
+            DrawingItem::Shape {
+                tool,
+                start,
+                end,
+                width,
+                rotation,
+                ..
+            } => {
+                if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                    let center = Point {
+                        x: (start.x + end.x) / 2,
+                        y: (start.y + end.y) / 2,
+                    };
+                    let half_width = (end.x - start.x).abs() / 2;
+                    let half_height = (end.y - start.y).abs() / 2;
+                    let x_handle = rotate_point(
+                        Point {
+                            x: center.x + half_width,
+                            y: center.y,
+                        },
+                        center,
+                        *rotation,
+                    );
+                    let y_handle = rotate_point(
+                        Point {
+                            x: center.x,
+                            y: center.y + half_height,
+                        },
+                        center,
+                        *rotation,
+                    );
+                    let new_center =
+                        transform_point_oriented(center, anchor, scale_x, scale_y, angle);
+                    let new_x = transform_point_oriented(x_handle, anchor, scale_x, scale_y, angle);
+                    let new_y = transform_point_oriented(y_handle, anchor, scale_x, scale_y, angle);
+                    let new_half_width = distance_between(new_center, new_x).round() as i32;
+                    let new_half_height = distance_between(new_center, new_y).round() as i32;
+                    *rotation = angle_between(new_center, new_x);
+                    *start = Point {
+                        x: new_center.x - new_half_width,
+                        y: new_center.y - new_half_height,
+                    };
+                    *end = Point {
+                        x: new_center.x + new_half_width,
+                        y: new_center.y + new_half_height,
+                    };
+                } else {
+                    *start = transform_point_oriented(*start, anchor, scale_x, scale_y, angle);
+                    *end = transform_point_oriented(*end, anchor, scale_x, scale_y, angle);
                 }
                 *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
             }
-            DrawingItem::Shape {
-                start, end, width, ..
+            DrawingItem::Text {
+                start,
+                width,
+                rotation,
+                ..
             } => {
-                *start = transform_point(*start, anchor, scale_x, scale_y);
-                *end = transform_point(*end, anchor, scale_x, scale_y);
+                *start = transform_point_oriented(*start, anchor, scale_x, scale_y, angle);
                 *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
-            }
-            DrawingItem::Text { start, width, .. } => {
-                *start = transform_point(*start, anchor, scale_x, scale_y);
-                *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
+                *rotation = transformed_angle(*rotation, scale_x, scale_y, angle);
             }
         }
         drawing
     }
 
+    fn distance_between(left: Point, right: Point) -> f64 {
+        let dx = (right.x - left.x) as f64;
+        let dy = (right.y - left.y) as f64;
+        (dx * dx + dy * dy).sqrt()
+    }
+
     fn rotate_drawing(original: &DrawingItem, center: Point, angle: f64) -> DrawingItem {
         let mut drawing = original.clone();
         match &mut drawing {
-            DrawingItem::Stroke { points, .. } => {
+            DrawingItem::Stroke {
+                points, rotation, ..
+            } => {
                 for point in points {
                     *point = rotate_point(*point, center, angle);
                 }
+                *rotation += angle;
             }
             DrawingItem::Shape {
                 tool,
@@ -1709,28 +1910,7 @@ mod platform {
                 rotation,
                 ..
             } => {
-                let font_size = text_font_size(*width);
-                let units: f64 = text
-                    .chars()
-                    .map(|character| if character.is_ascii() { 0.62 } else { 1.0 })
-                    .sum();
-                let text_width = (units * font_size as f64).ceil() as i32;
-                let corners = [
-                    *start,
-                    Point {
-                        x: start.x + text_width,
-                        y: start.y,
-                    },
-                    Point {
-                        x: start.x + text_width,
-                        y: start.y + font_size,
-                    },
-                    Point {
-                        x: start.x,
-                        y: start.y + font_size,
-                    },
-                ]
-                .map(|point| rotate_point(point, *start, *rotation));
+                let corners = text_corners(*start, text, *width, *rotation);
                 RECT {
                     left: corners.iter().map(|point| point.x).min().unwrap_or(start.x) - 5,
                     top: corners.iter().map(|point| point.y).min().unwrap_or(start.y) - 5,
@@ -1739,6 +1919,31 @@ mod platform {
                 }
             }
         }
+    }
+
+    fn text_corners(start: Point, text: &str, width: i32, rotation: f64) -> [Point; 4] {
+        let font_size = text_font_size(width);
+        let units: f64 = text
+            .chars()
+            .map(|character| if character.is_ascii() { 0.62 } else { 1.0 })
+            .sum();
+        let text_width = (units * font_size as f64).ceil() as i32;
+        [
+            start,
+            Point {
+                x: start.x + text_width,
+                y: start.y,
+            },
+            Point {
+                x: start.x + text_width,
+                y: start.y + font_size,
+            },
+            Point {
+                x: start.x,
+                y: start.y + font_size,
+            },
+        ]
+        .map(|point| rotate_point(point, start, rotation))
     }
 
     fn rotated_shape_corners(start: Point, end: Point, rotation: f64) -> [Point; 4] {
@@ -1765,18 +1970,25 @@ mod platform {
     }
 
     unsafe fn draw_selection(dc: HDC, state: &OverlayState) {
-        let Some(bounds) = selection_bounds(state) else {
+        let Some(frame) = selection_frame(state) else {
             return;
         };
         let pen = CreatePen(PS_DOT, 1, COLORREF(0x0080_8080));
         let old_pen = SelectObject(dc, pen);
         let brush = GetStockObject(HOLLOW_BRUSH);
         let old_brush = SelectObject(dc, brush);
-        Rectangle(dc, bounds.left, bounds.top, bounds.right, bounds.bottom);
+        MoveToEx(dc, frame.corners[0].x, frame.corners[0].y, None);
+        for corner in frame.corners.iter().skip(1) {
+            LineTo(dc, corner.x, corner.y);
+        }
+        LineTo(dc, frame.corners[0].x, frame.corners[0].y);
 
-        let center_x = (bounds.left + bounds.right) / 2;
-        let rotation = rotation_handle(bounds);
-        MoveToEx(dc, center_x, bounds.top, None);
+        let top_center = Point {
+            x: (frame.corners[0].x + frame.corners[1].x) / 2,
+            y: (frame.corners[0].y + frame.corners[1].y) / 2,
+        };
+        let rotation = rotation_handle(frame);
+        MoveToEx(dc, top_center.x, top_center.y, None);
         LineTo(dc, rotation.x, rotation.y);
         Ellipse(
             dc,
@@ -1786,27 +1998,9 @@ mod platform {
             rotation.y + SELECTION_HANDLE_SIZE,
         );
 
-        let handles = [
-            Point {
-                x: bounds.left,
-                y: bounds.top,
-            },
-            Point {
-                x: bounds.right,
-                y: bounds.top,
-            },
-            Point {
-                x: bounds.left,
-                y: bounds.bottom,
-            },
-            Point {
-                x: bounds.right,
-                y: bounds.bottom,
-            },
-        ];
         let handle_brush = CreateSolidBrush(COLORREF(0x00ff_ffff));
         SelectObject(dc, handle_brush);
-        for handle in handles {
+        for handle in frame.corners {
             Rectangle(
                 dc,
                 handle.x - SELECTION_HANDLE_SIZE,
