@@ -2239,7 +2239,9 @@ mod platform {
         rotation: f64,
     ) {
         let height = -text_font_size(width);
-        let escapement = (rotation.to_degrees() * 10.0).round() as i32;
+        // GDI font escapement uses the opposite rotation direction from our
+        // screen-coordinate geometry (where positive Y points downward).
+        let escapement = (-rotation.to_degrees() * 10.0).round() as i32;
         let font = CreateFontW(
             height,
             0,
