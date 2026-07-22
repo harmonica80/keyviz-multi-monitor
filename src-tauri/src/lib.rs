@@ -636,7 +636,7 @@ pub fn run() {
                         .unwrap_or(HWND(0));
                     let choice = unsafe {
                         MessageBoxW(
-                            Some(hwnd),
+                            hwnd,
                             w!("您要結束 Keyviz 程式，還是僅關閉設定視窗？\n\n選擇「是」：結束程式\n選擇「否」：僅關閉視窗（程式仍在系統匣執行）"),
                             w!("關閉 Keyviz"),
                             MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2,
