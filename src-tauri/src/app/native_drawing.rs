@@ -23,10 +23,11 @@ mod platform {
             },
             Graphics::Gdi::{
                 CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen,
-                CreateSolidBrush, DeleteDC, DeleteObject, Ellipse, GetDC, GetStockObject, LineTo,
-                MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject, SetBkMode, TextOutW,
-                AC_SRC_ALPHA, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS,
-                HBITMAP, HDC, HGDIOBJ, HOLLOW_BRUSH, NULL_PEN, PS_DOT, PS_SOLID, TRANSPARENT,
+                CreateSolidBrush, CreatedHDC, DeleteDC, DeleteObject, Ellipse, GetDC,
+                GetStockObject, LineTo, MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject,
+                SetBkMode, TextOutW, AC_SRC_ALPHA, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
+                BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ, HOLLOW_BRUSH, NULL_PEN,
+                PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -212,7 +213,7 @@ mod platform {
     }
 
     struct OverlayCanvas {
-        memory_dc: HDC,
+        memory_dc: CreatedHDC,
         bitmap: HBITMAP,
         old_bitmap: HGDIOBJ,
         bits: usize,
@@ -1214,7 +1215,7 @@ mod platform {
         if pixel_count == 0 {
             return;
         }
-        let drawing_dc = canvas.memory_dc;
+        let drawing_dc = HDC(canvas.memory_dc.0);
         let pixels = std::slice::from_raw_parts_mut(canvas.bits as *mut u32, pixel_count);
         pixels.fill(TRANSPARENT_PIXEL);
 
