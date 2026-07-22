@@ -1,6 +1,7 @@
 #[cfg(target_os = "windows")]
 mod platform {
     use std::{
+        collections::VecDeque,
         ffi::c_void,
         iter::once,
         mem::size_of,
@@ -25,7 +26,7 @@ mod platform {
                 CreateSolidBrush, DeleteDC, DeleteObject, Ellipse, GetDC, GetStockObject, LineTo,
                 MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject, SetBkMode, TextOutW,
                 AC_SRC_ALPHA, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS,
-                HDC, HOLLOW_BRUSH, NULL_PEN, PS_DOT, PS_SOLID, TRANSPARENT,
+                HBITMAP, HDC, HGDIOBJ, HOLLOW_BRUSH, NULL_PEN, PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -34,17 +35,16 @@ mod platform {
                 },
                 WindowsAndMessaging::{
                     CreateIconIndirect, CreateWindowExW, DefWindowProcW, DestroyCursor,
-                    DestroyWindow, DispatchMessageW, GetAncestor, GetWindowLongPtrW, LoadCursorW,
-                    PeekMessageW, RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos,
-                    ShowWindow, TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW, CS_HREDRAW,
-                    CS_VREDRAW, GA_ROOT, GWLP_USERDATA, GWL_EXSTYLE, HCURSOR, HTCLIENT,
-                    HTTRANSPARENT, HWND_TOPMOST, ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM, MSG,
-                    PM_REMOVE, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-                    SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE,
-                    WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
-                    WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST, WM_PAINT, WM_SETCURSOR, WNDCLASSW,
-                    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
-                    WS_EX_TRANSPARENT, WS_POPUP,
+                    DestroyWindow, DispatchMessageW, GetAncestor, LoadCursorW, PeekMessageW,
+                    RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+                    TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
+                    GA_ROOT, GWLP_USERDATA, HCURSOR, HTCLIENT, HTTRANSPARENT, HWND_TOPMOST,
+                    ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM, MSG, PM_NOREMOVE, PM_REMOVE,
+                    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA,
+                    WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
+                    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
+                    WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
+                    WS_EX_TOPMOST, WS_POPUP,
                 },
             },
         },
@@ -211,6 +211,15 @@ mod platform {
         angle: f64,
     }
 
+    struct OverlayCanvas {
+        memory_dc: HDC,
+        bitmap: HBITMAP,
+        old_bitmap: HGDIOBJ,
+        bits: usize,
+        width: i32,
+        height: i32,
+    }
+
     struct OverlayState {
         app: AppHandle,
         hwnd: HWND,
@@ -229,6 +238,7 @@ mod platform {
         next_group_id: u64,
         cursor: HCURSOR,
         cursor_owned: bool,
+        canvas: Option<OverlayCanvas>,
     }
 
     #[derive(Clone, Serialize)]
@@ -494,14 +504,18 @@ mod platform {
                     next_group_id: 1,
                     cursor,
                     cursor_owned,
+                    canvas: None,
                 });
             }
 
             ShowWindow(hwnd, SW_HIDE);
             message_loop(receiver);
 
-            if let Ok(mut state) = overlay_state().lock() {
-                *state = None;
+            if let Ok(mut state_guard) = overlay_state().lock() {
+                if let Some(state) = state_guard.as_mut() {
+                    release_overlay_canvas(&mut state.canvas);
+                }
+                *state_guard = None;
             }
             DestroyWindow(hwnd);
         }
@@ -511,19 +525,50 @@ mod platform {
 
     unsafe fn message_loop(receiver: Receiver<DrawingCommand>) {
         let mut message = MSG::default();
+        let mut commands = VecDeque::new();
 
         loop {
-            match receiver.recv_timeout(Duration::from_millis(16)) {
-                Ok(command) => apply_command(command),
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
+            if commands.is_empty() {
+                match receiver.recv_timeout(Duration::from_millis(16)) {
+                    Ok(command) => queue_drawing_command(&mut commands, command),
+                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                }
+            }
+            while let Ok(command) = receiver.try_recv() {
+                queue_drawing_command(&mut commands, command);
+            }
+            while let Some(command) = commands.pop_front() {
+                apply_command(command);
             }
 
             while PeekMessageW(&mut message, HWND(0), 0, 0, PM_REMOVE).as_bool() {
+                if message.message == WM_MOUSEMOVE {
+                    loop {
+                        let mut next = MSG::default();
+                        if !PeekMessageW(&mut next, HWND(0), 0, 0, PM_NOREMOVE).as_bool()
+                            || next.message != WM_MOUSEMOVE
+                        {
+                            break;
+                        }
+                        if PeekMessageW(&mut next, HWND(0), 0, 0, PM_REMOVE).as_bool() {
+                            message = next;
+                        }
+                    }
+                }
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
         }
+    }
+
+    fn queue_drawing_command(queue: &mut VecDeque<DrawingCommand>, command: DrawingCommand) {
+        if matches!(&command, DrawingCommand::PointerMove { .. })
+            && matches!(queue.back(), Some(DrawingCommand::PointerMove { .. }))
+        {
+            queue.pop_back();
+        }
+        queue.push_back(command);
     }
 
     unsafe fn apply_command(command: DrawingCommand) {
@@ -543,23 +588,35 @@ mod platform {
                 toolbar_passthrough,
             } => {
                 state.toolbar_passthrough = toolbar_passthrough;
+                let was_visible = state.visible;
                 state.visible = true;
-                state.bounds = RECT {
-                    left,
-                    top,
-                    right: left + width,
-                    bottom: top + height,
-                };
-                let _ = SetWindowPos(
-                    state.hwnd,
-                    HWND_TOPMOST,
-                    left,
-                    top,
-                    width,
-                    height,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                );
-                apply_click_through(state.hwnd, state.click_through);
+                if !was_visible {
+                    state.bounds = RECT {
+                        left,
+                        top,
+                        right: left + width,
+                        bottom: top + height,
+                    };
+                    let _ = SetWindowPos(
+                        state.hwnd,
+                        HWND_TOPMOST,
+                        left,
+                        top,
+                        width,
+                        height,
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                    );
+                } else {
+                    let _ = SetWindowPos(
+                        state.hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    );
+                }
                 emit_history(&state.app, !state.drawings.is_empty());
                 refresh_overlay(state);
             }
@@ -569,24 +626,15 @@ mod platform {
                 width,
                 height,
             } => {
+                if state.visible {
+                    return;
+                }
                 state.bounds = RECT {
                     left,
                     top,
                     right: left + width,
                     bottom: top + height,
                 };
-                let _ = SetWindowPos(
-                    state.hwnd,
-                    HWND_TOPMOST,
-                    left,
-                    top,
-                    width,
-                    height,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                );
-                apply_click_through(state.hwnd, state.click_through);
-                emit_history(&state.app, !state.drawings.is_empty());
-                refresh_overlay(state);
             }
             DrawingCommand::Hide => {
                 cancel_text_editor(state);
@@ -606,7 +654,6 @@ mod platform {
                 state.selected.clear();
                 state.selection = None;
                 state.click_through = click_through;
-                apply_click_through(state.hwnd, click_through);
                 replace_tool_cursor(state, false);
                 if state.visible {
                     raise_toolbar(&state.app);
@@ -662,7 +709,6 @@ mod platform {
             }
             DrawingCommand::SetClickThrough(enabled) => {
                 state.click_through = enabled;
-                apply_click_through(state.hwnd, enabled);
                 if state.visible {
                     raise_toolbar(&state.app);
                 }
@@ -1077,22 +1123,27 @@ mod platform {
         cancel_text_editor(state);
     }
 
-    unsafe fn refresh_overlay(state: &OverlayState) {
+    unsafe fn ensure_overlay_canvas(state: &mut OverlayState) -> bool {
         let width = (state.bounds.right - state.bounds.left).max(1);
         let height = (state.bounds.bottom - state.bounds.top).max(1);
-        let pixel_count = (width as usize).saturating_mul(height as usize);
-        if pixel_count == 0 {
-            return;
+        if state
+            .canvas
+            .as_ref()
+            .is_some_and(|canvas| canvas.width == width && canvas.height == height)
+        {
+            return true;
         }
+
+        release_overlay_canvas(&mut state.canvas);
 
         let screen_dc = GetDC(HWND(0));
         if screen_dc.0 == 0 {
-            return;
+            return false;
         }
         let memory_dc = CreateCompatibleDC(screen_dc);
         if memory_dc.0 == 0 {
             ReleaseDC(HWND(0), screen_dc);
-            return;
+            return false;
         }
 
         let mut bitmap_info = BITMAPINFO {
@@ -1118,20 +1169,55 @@ mod platform {
         ) else {
             DeleteDC(memory_dc);
             ReleaseDC(HWND(0), screen_dc);
-            return;
+            return false;
         };
         if bits.is_null() {
             DeleteObject(bitmap);
             DeleteDC(memory_dc);
             ReleaseDC(HWND(0), screen_dc);
-            return;
+            return false;
         }
 
         let old_bitmap = SelectObject(memory_dc, bitmap);
-        let pixels = std::slice::from_raw_parts_mut(bits as *mut u32, pixel_count);
+        ReleaseDC(HWND(0), screen_dc);
+        state.canvas = Some(OverlayCanvas {
+            memory_dc,
+            bitmap,
+            old_bitmap,
+            bits: bits as usize,
+            width,
+            height,
+        });
+        true
+    }
+
+    unsafe fn release_overlay_canvas(canvas: &mut Option<OverlayCanvas>) {
+        let Some(canvas) = canvas.take() else {
+            return;
+        };
+        SelectObject(canvas.memory_dc, canvas.old_bitmap);
+        DeleteObject(canvas.bitmap);
+        DeleteDC(canvas.memory_dc);
+    }
+
+    unsafe fn refresh_overlay(state: &mut OverlayState) {
+        if !state.visible || !ensure_overlay_canvas(state) {
+            return;
+        }
+
+        let Some(canvas) = state.canvas.as_ref() else {
+            return;
+        };
+        let width = canvas.width;
+        let height = canvas.height;
+        let pixel_count = (width as usize).saturating_mul(height as usize);
+        if pixel_count == 0 {
+            return;
+        }
+        let drawing_dc = canvas.memory_dc;
+        let pixels = std::slice::from_raw_parts_mut(canvas.bits as *mut u32, pixel_count);
         pixels.fill(TRANSPARENT_PIXEL);
 
-        let drawing_dc = HDC(memory_dc.0);
         SetBkMode(drawing_dc, TRANSPARENT);
         for drawing in state.drawings.iter() {
             draw_item(drawing_dc, drawing);
@@ -1202,6 +1288,10 @@ mod platform {
             SourceConstantAlpha: 255,
             AlphaFormat: AC_SRC_ALPHA as u8,
         };
+        let screen_dc = GetDC(HWND(0));
+        if screen_dc.0 == 0 {
+            return;
+        }
         let _ = UpdateLayeredWindow(
             state.hwnd,
             screen_dc,
@@ -1213,10 +1303,6 @@ mod platform {
             Some(&blend),
             ULW_ALPHA,
         );
-
-        SelectObject(memory_dc, old_bitmap);
-        DeleteObject(bitmap);
-        DeleteDC(memory_dc);
         ReleaseDC(HWND(0), screen_dc);
     }
 
@@ -2630,27 +2716,6 @@ mod platform {
         DeleteDC(memory_dc);
         ReleaseDC(HWND(0), screen_dc);
         cursor
-    }
-
-    unsafe fn apply_click_through(hwnd: HWND, enabled: bool) {
-        let mut style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32;
-        if enabled {
-            style |= WS_EX_TRANSPARENT.0;
-            style |= WS_EX_NOACTIVATE.0;
-        } else {
-            style &= !WS_EX_TRANSPARENT.0;
-            style &= !WS_EX_NOACTIVATE.0;
-        }
-        let _ = SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style as isize);
-        let _ = SetWindowPos(
-            hwnd,
-            HWND_TOPMOST,
-            0,
-            0,
-            0,
-            0,
-            SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
-        );
     }
 
     fn parse_color(value: &str) -> COLORREF {
