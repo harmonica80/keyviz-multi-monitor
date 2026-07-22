@@ -1041,6 +1041,31 @@ mod platform {
             refresh_overlay(state);
             return;
         }
+        if matches!(
+            state.tool,
+            NativeTool::Pen
+                | NativeTool::Line
+                | NativeTool::Arrow
+                | NativeTool::Rectangle
+                | NativeTool::Ellipse
+        ) {
+            let width = (state.width + step).clamp(1, 15);
+            state.width = width;
+            match state.active.as_mut() {
+                Some(ActiveDrawing::Stroke {
+                    width: active_width,
+                    ..
+                })
+                | Some(ActiveDrawing::Shape {
+                    width: active_width,
+                    ..
+                }) => *active_width = width,
+                None => {}
+            }
+            emit_width(&state.app, width);
+            refresh_overlay(state);
+            return;
+        }
         // Object editing is intentionally limited to the selection tool.
     }
 
