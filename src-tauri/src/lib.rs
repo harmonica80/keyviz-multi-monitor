@@ -617,14 +617,49 @@ pub fn run() {
             if window.label() != "settings" {
                 return;
             }
-            match event {
-                tauri::WindowEvent::CloseRequested { .. } => {
-                    window
-                        .app_handle()
-                        .emit_to("main", "settings-window", false)
-                        .unwrap();
+
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                // Keep the tray application alive until the user explicitly chooses to quit.
+                api.prevent_close();
+
+                #[cfg(target_os = "windows")]
+                {
+                    use windows::core::w;
+                    use windows::Win32::Foundation::HWND;
+                    use windows::Win32::UI::WindowsAndMessaging::{
+                        MessageBoxW, IDNO, IDYES, MB_DEFBUTTON2, MB_ICONQUESTION, MB_YESNOCANCEL,
+                    };
+
+                    let hwnd = window
+                        .hwnd()
+                        .map(|handle| HWND(handle.0 as isize))
+                        .unwrap_or(HWND(0));
+                    let choice = unsafe {
+                        MessageBoxW(
+                            Some(hwnd),
+                            w!("您要結束 Keyviz 程式，還是僅關閉設定視窗？\n\n選擇「是」：結束程式\n選擇「否」：僅關閉視窗（程式仍在系統匣執行）"),
+                            w!("關閉 Keyviz"),
+                            MB_YESNOCANCEL | MB_ICONQUESTION | MB_DEFBUTTON2,
+                        )
+                    };
+
+                    if choice == IDYES {
+                        window.app_handle().exit(0);
+                    } else if choice == IDNO {
+                        let _ = window.hide();
+                        let _ = window
+                            .app_handle()
+                            .emit_to("main", "settings-window", false);
+                    }
                 }
-                _ => {}
+
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let _ = window.hide();
+                    let _ = window
+                        .app_handle()
+                        .emit_to("main", "settings-window", false);
+                }
             }
         })
         .invoke_handler(tauri::generate_handler![
