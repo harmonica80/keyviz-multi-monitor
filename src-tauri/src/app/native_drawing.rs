@@ -239,6 +239,7 @@ mod platform {
         next_group_id: u64,
         cursor: HCURSOR,
         cursor_owned: bool,
+        retired_cursors: Vec<HCURSOR>,
         canvas: Option<OverlayCanvas>,
     }
 
@@ -505,6 +506,7 @@ mod platform {
                     next_group_id: 1,
                     cursor,
                     cursor_owned,
+                    retired_cursors: Vec::new(),
                     canvas: None,
                 });
             }
@@ -514,6 +516,12 @@ mod platform {
 
             if let Ok(mut state_guard) = overlay_state().lock() {
                 if let Some(state) = state_guard.as_mut() {
+                    if restore_system_cursor() {
+                        destroy_retired_cursors(state);
+                        if state.cursor_owned && state.cursor.0 != 0 {
+                            let _ = DestroyCursor(state.cursor);
+                        }
+                    }
                     release_overlay_canvas(&mut state.canvas);
                 }
                 *state_guard = None;
@@ -618,6 +626,10 @@ mod platform {
                         SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                     );
                 }
+                if state.cursor.0 != 0 {
+                    SetCursor(state.cursor);
+                    destroy_retired_cursors(state);
+                }
                 emit_history(&state.app, !state.drawings.is_empty());
                 refresh_overlay(state);
             }
@@ -643,6 +655,9 @@ mod platform {
                 state.active = None;
                 state.selected.clear();
                 state.selection = None;
+                if restore_system_cursor() {
+                    destroy_retired_cursors(state);
+                }
                 state.visible = false;
                 ShowWindow(state.hwnd, SW_HIDE);
                 emit_history(&state.app, false);
@@ -2534,11 +2549,32 @@ mod platform {
         let previous_owned = state.cursor_owned;
         state.cursor = cursor;
         state.cursor_owned = owned;
-        if apply_now {
+        let cursor_replaced = apply_now || state.visible;
+        if cursor_replaced {
             SetCursor(cursor);
         }
         if previous_owned && previous.0 != 0 && previous != cursor {
-            let _ = DestroyCursor(previous);
+            state.retired_cursors.push(previous);
+        }
+        if cursor_replaced {
+            destroy_retired_cursors(state);
+        }
+    }
+
+    unsafe fn restore_system_cursor() -> bool {
+        if let Ok(cursor) = LoadCursorW(None, IDC_ARROW) {
+            SetCursor(cursor);
+            true
+        } else {
+            false
+        }
+    }
+
+    unsafe fn destroy_retired_cursors(state: &mut OverlayState) {
+        for cursor in state.retired_cursors.drain(..) {
+            if cursor.0 != 0 && cursor != state.cursor {
+                let _ = DestroyCursor(cursor);
+            }
         }
     }
 
