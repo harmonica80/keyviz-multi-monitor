@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import {
   CSSProperties,
+  ComponentType,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent,
   useCallback,
@@ -32,11 +33,12 @@ import {
 
 type Point = { x: number; y: number };
 type TextEditor = { start: Point; value: string; color: string; width: number };
-type Tool = "pointer" | "select" | "pen" | "eraser" | "line" | "arrow" | "rectangle" | "ellipse" | "text";
+type Tool = "pointer" | "select" | "pen" | "eraser" | "line" | "arrow" | "rectangle" | "ellipse" | "text" | "number";
 type Drawing =
   | { tool: "pen" | "eraser"; points: Point[]; color: string; width: number }
   | { tool: "line" | "arrow" | "rectangle" | "ellipse"; start: Point; end: Point; color: string; width: number }
-  | { tool: "text"; start: Point; text: string; color: string; width: number };
+  | { tool: "text"; start: Point; text: string; color: string; width: number }
+  | { tool: "number"; center: Point; value: number; color: string; width: number };
 type DrawingCommand =
   | { type: "tool"; value: Tool }
   | { type: "color"; value: string }
@@ -73,6 +75,15 @@ const shortcutMatchesEvent = (event: KeyboardEvent, shortcut: string[]) => {
 
 const formatShortcut = (shortcut: string[]) =>
   shortcut.map((key) => keymaps[key]?.label ?? key).join(" + ");
+
+const NumberMarkerIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
+    <text x="12" y="12.5" fill="currentColor" fontSize="10" textAnchor="middle" dominantBaseline="middle">
+      1
+    </text>
+  </svg>
+);
 
 const drawTaperedArrow = (
   context: CanvasRenderingContext2D,
@@ -144,6 +155,20 @@ const renderDrawing = (context: CanvasRenderingContext2D, drawing: Drawing) => {
     return;
   }
 
+  if (drawing.tool === "number") {
+    const radius = 14 + drawing.width * 2;
+    context.beginPath();
+    context.arc(drawing.center.x, drawing.center.y, radius, 0, Math.PI * 2);
+    context.fill();
+    context.fillStyle = "#ffffff";
+    context.font = `${drawing.value >= 100 ? radius : Math.max(16, radius * 1.2)}px "Microsoft JhengHei", sans-serif`;
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(String(drawing.value), drawing.center.x, drawing.center.y);
+    context.restore();
+    return;
+  }
+
   const shapeWidth = drawing.end.x - drawing.start.x;
   const shapeHeight = drawing.end.y - drawing.start.y;
   if (drawing.tool === "arrow") {
@@ -182,6 +207,7 @@ export default function ScreenDrawing() {
   const activeRef = useRef<Drawing | null>(null);
   const textEditorRef = useRef<TextEditor | null>(null);
   const textInputRef = useRef<HTMLInputElement>(null);
+  const nextNumberRef = useRef(1);
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(WIDTHS[1]);
@@ -339,6 +365,7 @@ export default function ScreenDrawing() {
         updateTextEditor(null);
         drawingsRef.current = [];
         activeRef.current = null;
+        nextNumberRef.current = 1;
         redraw();
         notifyHistory();
       }
@@ -408,6 +435,20 @@ export default function ScreenDrawing() {
     if (tool === "text") {
       finishTextEditor(true);
       updateTextEditor({ start, value: "", color, width });
+      return;
+    }
+    if (tool === "number") {
+      drawingsRef.current.push({
+        tool: "number",
+        center: start,
+        value: nextNumberRef.current,
+        color,
+        width,
+      });
+      nextNumberRef.current += 1;
+      redraw();
+      notifyHistory();
+      void invoke("activate_drawing_toolbar");
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -491,7 +532,7 @@ export default function ScreenDrawing() {
     );
   }
 
-  const toolButtons: Array<{ value: Tool; label: string; icon: typeof Pencil }> = [
+  const toolButtons: Array<{ value: Tool; label: string; icon: ComponentType }> = [
     { value: "pointer", label: t("Pointer"), icon: MousePointer2 },
     { value: "select", label: t("Select Objects"), icon: SquareDashedMousePointer },
     { value: "pen", label: t("Pen"), icon: Pencil },
@@ -501,6 +542,7 @@ export default function ScreenDrawing() {
     { value: "rectangle", label: t("Rectangle"), icon: Square },
     { value: "ellipse", label: t("Ellipse"), icon: Circle },
     { value: "text", label: t("Text"), icon: Type },
+    { value: "number", label: t("Number Marker"), icon: NumberMarkerIcon },
   ];
 
   return (

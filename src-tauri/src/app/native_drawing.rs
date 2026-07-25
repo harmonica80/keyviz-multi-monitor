@@ -24,10 +24,10 @@ mod platform {
             Graphics::Gdi::{
                 CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen,
                 CreateSolidBrush, CreatedHDC, DeleteDC, DeleteObject, Ellipse, GetDC,
-                GetStockObject, LineTo, MoveToEx, Polygon, Rectangle, ReleaseDC, SelectObject,
-                SetBkMode, TextOutW, AC_SRC_ALPHA, BITMAPINFO, BITMAPINFOHEADER, BI_RGB,
-                BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ, HOLLOW_BRUSH, NULL_PEN,
-                PS_DOT, PS_SOLID, TRANSPARENT,
+                GetStockObject, GetTextExtentPoint32W, LineTo, MoveToEx, Polygon, Rectangle,
+                ReleaseDC, SelectObject, SetBkMode, TextOutW, AC_SRC_ALPHA, BITMAPINFO,
+                BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ,
+                HOLLOW_BRUSH, NULL_PEN, PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -81,6 +81,7 @@ mod platform {
         Rectangle,
         Ellipse,
         Text,
+        Number,
     }
 
     enum DrawingCommand {
@@ -151,6 +152,14 @@ mod platform {
         Text {
             start: Point,
             text: String,
+            color: COLORREF,
+            width: i32,
+            rotation: f64,
+            group: Option<u64>,
+        },
+        Number {
+            center: Point,
+            value: u32,
             color: COLORREF,
             width: i32,
             rotation: f64,
@@ -237,6 +246,7 @@ mod platform {
         selected: Vec<usize>,
         selection: Option<SelectionSession>,
         next_group_id: u64,
+        next_number: u32,
         cursor: HCURSOR,
         cursor_owned: bool,
         retired_cursors: Vec<HCURSOR>,
@@ -446,6 +456,7 @@ mod platform {
             "rectangle" => Some(NativeTool::Rectangle),
             "ellipse" => Some(NativeTool::Ellipse),
             "text" => Some(NativeTool::Text),
+            "number" => Some(NativeTool::Number),
             _ => None,
         }
     }
@@ -504,6 +515,7 @@ mod platform {
                     selected: Vec::new(),
                     selection: None,
                     next_group_id: 1,
+                    next_number: 1,
                     cursor,
                     cursor_owned,
                     retired_cursors: Vec::new(),
@@ -655,6 +667,7 @@ mod platform {
                 state.active = None;
                 state.selected.clear();
                 state.selection = None;
+                state.next_number = 1;
                 if restore_system_cursor() {
                     destroy_retired_cursors(state);
                 }
@@ -691,6 +704,7 @@ mod platform {
                 state.active = None;
                 state.selected.clear();
                 state.selection = None;
+                state.next_number = 1;
                 emit_history(&state.app, false);
                 emit_selection_state(state);
                 refresh_overlay(state);
@@ -700,6 +714,7 @@ mod platform {
                     state.selected.clear();
                     state.selection = None;
                     state.drawings.pop();
+                    sync_next_number(state);
                     emit_history(&state.app, !state.drawings.is_empty());
                     emit_selection_state(state);
                     refresh_overlay(state);
@@ -713,11 +728,13 @@ mod platform {
             DrawingCommand::DeleteSelectionOrClear => {
                 if matches!(state.tool, NativeTool::Select) {
                     delete_selected(state);
+                    sync_next_number(state);
                 } else {
                     state.drawings.clear();
                     state.active = None;
                     state.selected.clear();
                     state.selection = None;
+                    state.next_number = 1;
                 }
                 emit_history(&state.app, !state.drawings.is_empty());
                 emit_selection_state(state);
@@ -879,6 +896,20 @@ mod platform {
             NativeTool::Pointer | NativeTool::Select => {}
             NativeTool::Text => {
                 create_text_editor(state, point);
+            }
+            NativeTool::Number => {
+                let value = state.next_number;
+                state.next_number = state.next_number.saturating_add(1).max(1);
+                state.drawings.push(DrawingItem::Number {
+                    center: point,
+                    value,
+                    color: state.color,
+                    width: state.width.max(1),
+                    rotation: 0.0,
+                    group: None,
+                });
+                emit_history(&state.app, true);
+                raise_toolbar(&state.app);
             }
             NativeTool::Pen => {
                 state.active = Some(ActiveDrawing::Stroke {
@@ -1063,6 +1094,7 @@ mod platform {
                 | NativeTool::Arrow
                 | NativeTool::Rectangle
                 | NativeTool::Ellipse
+                | NativeTool::Number
         ) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
@@ -1351,7 +1383,8 @@ mod platform {
         match drawing {
             DrawingItem::Stroke { group, .. }
             | DrawingItem::Shape { group, .. }
-            | DrawingItem::Text { group, .. } => *group,
+            | DrawingItem::Text { group, .. }
+            | DrawingItem::Number { group, .. } => *group,
         }
     }
 
@@ -1359,7 +1392,8 @@ mod platform {
         match drawing {
             DrawingItem::Stroke { group, .. }
             | DrawingItem::Shape { group, .. }
-            | DrawingItem::Text { group, .. } => *group = value,
+            | DrawingItem::Text { group, .. }
+            | DrawingItem::Number { group, .. } => *group = value,
         }
     }
 
@@ -1367,7 +1401,8 @@ mod platform {
         match drawing {
             DrawingItem::Stroke { width, .. }
             | DrawingItem::Shape { width, .. }
-            | DrawingItem::Text { width, .. } => *width,
+            | DrawingItem::Text { width, .. }
+            | DrawingItem::Number { width, .. } => *width,
         }
     }
 
@@ -1376,7 +1411,8 @@ mod platform {
         match drawing {
             DrawingItem::Stroke { width, .. }
             | DrawingItem::Shape { width, .. }
-            | DrawingItem::Text { width, .. } => *width = value,
+            | DrawingItem::Text { width, .. }
+            | DrawingItem::Number { width, .. } => *width = value,
         }
     }
 
@@ -1398,7 +1434,25 @@ mod platform {
                 start.x += dx;
                 start.y += dy;
             }
+            DrawingItem::Number { center, .. } => {
+                center.x += dx;
+                center.y += dy;
+            }
         }
+    }
+
+    fn sync_next_number(state: &mut OverlayState) {
+        state.next_number = state
+            .drawings
+            .iter()
+            .filter_map(|drawing| match drawing {
+                DrawingItem::Number { value, .. } => Some(*value),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(0)
+            .saturating_add(1)
+            .max(1);
     }
 
     fn hit_test_drawing(state: &OverlayState, point: Point) -> Option<usize> {
@@ -1559,7 +1613,9 @@ mod platform {
 
     fn drawing_orientation(drawing: &DrawingItem) -> f64 {
         match drawing {
-            DrawingItem::Stroke { rotation, .. } | DrawingItem::Text { rotation, .. } => *rotation,
+            DrawingItem::Stroke { rotation, .. }
+            | DrawingItem::Text { rotation, .. }
+            | DrawingItem::Number { rotation, .. } => *rotation,
             DrawingItem::Shape {
                 tool,
                 start,
@@ -1596,6 +1652,12 @@ mod platform {
                 rotation,
                 ..
             } => text_corners(*start, text, *width, *rotation).to_vec(),
+            DrawingItem::Number {
+                center,
+                width,
+                rotation,
+                ..
+            } => number_corners(*center, *width, *rotation).to_vec(),
         }
     }
 
@@ -1610,7 +1672,7 @@ mod platform {
                     padding
                 }
             }
-            DrawingItem::Text { .. } => 5.0,
+            DrawingItem::Text { .. } | DrawingItem::Number { .. } => 5.0,
         }
     }
 
@@ -1949,6 +2011,16 @@ mod platform {
                 *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
                 *rotation = transformed_angle(*rotation, scale_x, scale_y, angle);
             }
+            DrawingItem::Number {
+                center,
+                width,
+                rotation,
+                ..
+            } => {
+                *center = transform_point_oriented(*center, anchor, scale_x, scale_y, angle);
+                *width = ((*width as f64 * width_scale).round() as i32).clamp(1, 100);
+                *rotation = transformed_angle(*rotation, scale_x, scale_y, angle);
+            }
         }
         drawing
     }
@@ -1999,6 +2071,14 @@ mod platform {
                 start, rotation, ..
             } => {
                 *start = rotate_point(*start, center, angle);
+                *rotation += angle;
+            }
+            DrawingItem::Number {
+                center: marker_center,
+                rotation,
+                ..
+            } => {
+                *marker_center = rotate_point(*marker_center, center, angle);
                 *rotation += angle;
             }
         }
@@ -2071,7 +2151,68 @@ mod platform {
                     bottom: corners.iter().map(|point| point.y).max().unwrap_or(start.y) + 5,
                 }
             }
+            DrawingItem::Number {
+                center,
+                width,
+                rotation,
+                ..
+            } => {
+                let corners = number_corners(*center, *width, *rotation);
+                RECT {
+                    left: corners
+                        .iter()
+                        .map(|point| point.x)
+                        .min()
+                        .unwrap_or(center.x)
+                        - 5,
+                    top: corners
+                        .iter()
+                        .map(|point| point.y)
+                        .min()
+                        .unwrap_or(center.y)
+                        - 5,
+                    right: corners
+                        .iter()
+                        .map(|point| point.x)
+                        .max()
+                        .unwrap_or(center.x)
+                        + 5,
+                    bottom: corners
+                        .iter()
+                        .map(|point| point.y)
+                        .max()
+                        .unwrap_or(center.y)
+                        + 5,
+                }
+            }
         }
+    }
+
+    fn number_radius(width: i32) -> i32 {
+        14 + width.clamp(1, 100) * 2
+    }
+
+    fn number_corners(center: Point, width: i32, rotation: f64) -> [Point; 4] {
+        let radius = number_radius(width);
+        [
+            Point {
+                x: center.x - radius,
+                y: center.y - radius,
+            },
+            Point {
+                x: center.x + radius,
+                y: center.y - radius,
+            },
+            Point {
+                x: center.x + radius,
+                y: center.y + radius,
+            },
+            Point {
+                x: center.x - radius,
+                y: center.y + radius,
+            },
+        ]
+        .map(|point| rotate_point(point, center, rotation))
     }
 
     fn text_corners(start: Point, text: &str, width: i32, rotation: f64) -> [Point; 4] {
@@ -2205,6 +2346,14 @@ mod platform {
                 rotation,
                 ..
             } => draw_text(dc, *start, text, *color, *width, *rotation),
+            DrawingItem::Number {
+                center,
+                value,
+                color,
+                width,
+                rotation,
+                ..
+            } => draw_number_marker(dc, *center, *value, *color, *width, *rotation),
         }
     }
 
@@ -2398,6 +2547,73 @@ mod platform {
         18.max(width * 4)
     }
 
+    unsafe fn draw_number_marker(
+        dc: HDC,
+        center: Point,
+        value: u32,
+        color: COLORREF,
+        width: i32,
+        rotation: f64,
+    ) {
+        let radius = number_radius(width);
+        let brush = CreateSolidBrush(color);
+        let old_brush = SelectObject(dc, brush);
+        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+        Ellipse(
+            dc,
+            center.x - radius,
+            center.y - radius,
+            center.x + radius,
+            center.y + radius,
+        );
+        SelectObject(dc, old_pen);
+        SelectObject(dc, old_brush);
+        DeleteObject(brush);
+
+        let text = value.to_string();
+        let digit_count = text.chars().count() as i32;
+        let font_size = if digit_count >= 3 {
+            radius.max(16)
+        } else {
+            (radius * 6 / 5).max(16)
+        };
+        let escapement = (-rotation.to_degrees() * 10.0).round() as i32;
+        let font = CreateFontW(
+            -font_size,
+            0,
+            escapement,
+            escapement,
+            400,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            NON_ANTIALIASED_FONT_QUALITY,
+            0,
+            PCWSTR(wide("Microsoft JhengHei").as_ptr()),
+        );
+        let old_font = SelectObject(dc, font);
+        SetBkMode(dc, TRANSPARENT);
+        let old_color = windows::Win32::Graphics::Gdi::SetTextColor(dc, COLORREF(0x00ff_ffff));
+        let wide_text: Vec<u16> = text.encode_utf16().collect();
+        let mut text_size = SIZE::default();
+        let _ = GetTextExtentPoint32W(dc, &wide_text, &mut text_size);
+        let origin = rotate_point(
+            Point {
+                x: center.x - text_size.cx / 2,
+                y: center.y - text_size.cy / 2,
+            },
+            center,
+            rotation,
+        );
+        let _ = TextOutW(dc, origin.x, origin.y, &wide_text);
+        windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
+        SelectObject(dc, old_font);
+        DeleteObject(font);
+    }
+
     unsafe fn create_text_editor(state: &mut OverlayState, point: Point) {
         cancel_text_editor(state);
         state.edit = Some(EditSession {
@@ -2535,6 +2751,7 @@ mod platform {
         let resource = match tool {
             NativeTool::Pointer | NativeTool::Select => IDC_ARROW,
             NativeTool::Text => IDC_IBEAM,
+            NativeTool::Number => IDC_CROSS,
             _ => IDC_CROSS,
         };
         (LoadCursorW(None, resource).unwrap_or(HCURSOR(0)), false)
@@ -2848,6 +3065,7 @@ mod platform_stub {
         Rectangle,
         Ellipse,
         Text,
+        Number,
     }
 
     impl NativeDrawingOverlay {
