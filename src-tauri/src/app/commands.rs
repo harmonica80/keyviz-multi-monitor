@@ -127,17 +127,23 @@ pub fn update_overlay_window(
     width: f64,
     height: f64,
     visible: bool,
+    update_sequence: u64,
     alignment: OverlayAlignment,
     margin_x: f64,
     margin_y: f64,
 ) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
-    let app_state = state.lock().map_err(|error| error.to_string())?;
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "Visualization window is unavailable".to_string())?;
 
-    if !visible {
+    if update_sequence <= app_state.key_overlay_update_sequence {
+        return Ok(());
+    }
+    app_state.key_overlay_update_sequence = update_sequence;
+
+    if !app_state.listening || !visible {
         return window.hide().map_err(|error| error.to_string());
     }
 

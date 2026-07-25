@@ -13,6 +13,8 @@ const fadeVariants: Variants = {
     hidden: { opacity: 0 },
 }
 
+let overlayUpdateSequence = 0;
+
 export const KeyOverlay = () => {
     const containerRef = useRef<HTMLDivElement>(null);
     const pressedKeys = useKeyEvent(state => state.pressedKeys);
@@ -81,10 +83,12 @@ export const KeyOverlay = () => {
             cancelAnimationFrame(animationFrame);
             animationFrame = requestAnimationFrame(() => {
                 const rect = container.getBoundingClientRect();
+                const updateSequence = ++overlayUpdateSequence;
                 invoke("update_overlay_window", {
                     width: Math.ceil(rect.width),
                     height: Math.ceil(rect.height),
                     visible: groups.length > 0,
+                    updateSequence,
                     alignment: appearance.alignment,
                     marginX: appearance.marginX,
                     marginY: appearance.marginY,
