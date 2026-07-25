@@ -2,7 +2,7 @@ import { keymaps } from "@/lib/keymaps";
 import { useKeyEvent } from "@/stores/key_event";
 import { useKeyStyle } from "@/stores/key_style";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 let overlayUpdateSequence = 0;
 
@@ -13,6 +13,7 @@ const transformLabel = (label: string, caps: "uppercase" | "capitalize" | "lower
 };
 
 export const KeyOverlay = () => {
+  const [monitorRevision, setMonitorRevision] = useState(0);
   const pressedKeys = useKeyEvent((state) => state.pressedKeys);
   const groups = useKeyEvent((state) => state.groups);
   const appearance = useKeyStyle((state) => state.appearance);
@@ -41,6 +42,12 @@ export const KeyOverlay = () => {
   );
 
   useEffect(() => {
+    const handleMonitorChanged = () => setMonitorRevision((revision) => revision + 1);
+    window.addEventListener("keyviz-monitor-changed", handleMonitorChanged);
+    return () => window.removeEventListener("keyviz-monitor-changed", handleMonitorChanged);
+  }, []);
+
+  useEffect(() => {
     const updateSequence = ++overlayUpdateSequence;
     void invoke("update_native_key_overlay", {
       visual: {
@@ -67,6 +74,7 @@ export const KeyOverlay = () => {
     background.color,
     background.enabled,
     nativeGroups,
+    monitorRevision,
     text.size,
   ]);
 

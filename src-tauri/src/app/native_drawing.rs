@@ -53,9 +53,9 @@ mod platform {
 
     const TRANSPARENT_KEY: COLORREF = COLORREF(1 | (2 << 8) | (3 << 16));
     const TRANSPARENT_PIXEL: u32 = 0x0001_0203;
-    // Use the same RGB as the transparent key with minimal alpha so the layered
-    // window can receive mouse input without showing dark artifacts on video.
-    const INPUT_CAPTURE_PIXEL: u32 = 0x0101_0203;
+    // Keep a minimal alpha for hit testing, but no RGB payload that a screen
+    // capture path could accidentally expose or amplify.
+    const INPUT_CAPTURE_PIXEL: u32 = 0x0100_0000;
     const WM_APP_COMMIT_TEXT: u32 = WM_APP + 1;
     const WM_APP_CANCEL_TEXT: u32 = WM_APP + 2;
     const NON_ANTIALIASED_FONT_QUALITY: u32 = 3;
@@ -64,6 +64,95 @@ mod platform {
     const ERASER_WIDTH_MULTIPLIER: i32 = 12;
     const SELECTION_HANDLE_SIZE: i32 = 7;
     const ROTATION_HANDLE_OFFSET: i32 = 24;
+
+    #[repr(C)]
+    struct GdiplusStartupInput {
+        version: u32,
+        debug_event_callback: *mut c_void,
+        suppress_background_thread: i32,
+        suppress_external_codecs: i32,
+    }
+
+    #[link(name = "gdiplus")]
+    extern "system" {
+        fn GdiplusStartup(
+            token: *mut usize,
+            input: *const GdiplusStartupInput,
+            output: *mut c_void,
+        ) -> i32;
+        fn GdipCreateFromHDC(hdc: HDC, graphics: *mut *mut c_void) -> i32;
+        fn GdipDeleteGraphics(graphics: *mut c_void) -> i32;
+        fn GdipSetSmoothingMode(graphics: *mut c_void, mode: i32) -> i32;
+        fn GdipSetPixelOffsetMode(graphics: *mut c_void, mode: i32) -> i32;
+        fn GdipSetCompositingMode(graphics: *mut c_void, mode: i32) -> i32;
+        fn GdipCreatePen1(color: u32, width: f32, unit: i32, pen: *mut *mut c_void) -> i32;
+        fn GdipDeletePen(pen: *mut c_void) -> i32;
+        fn GdipSetPenStartCap(pen: *mut c_void, cap: i32) -> i32;
+        fn GdipSetPenEndCap(pen: *mut c_void, cap: i32) -> i32;
+        fn GdipSetPenLineJoin(pen: *mut c_void, join: i32) -> i32;
+        fn GdipDrawLineI(
+            graphics: *mut c_void,
+            pen: *mut c_void,
+            x1: i32,
+            y1: i32,
+            x2: i32,
+            y2: i32,
+        ) -> i32;
+        fn GdipDrawRectangleI(
+            graphics: *mut c_void,
+            pen: *mut c_void,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+        ) -> i32;
+        fn GdipDrawEllipseI(
+            graphics: *mut c_void,
+            pen: *mut c_void,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+        ) -> i32;
+        fn GdipDrawPolygonI(
+            graphics: *mut c_void,
+            pen: *mut c_void,
+            points: *const WinPoint,
+            count: i32,
+        ) -> i32;
+        fn GdipCreatePath(fill_mode: i32, path: *mut *mut c_void) -> i32;
+        fn GdipAddPathLineI(path: *mut c_void, x1: i32, y1: i32, x2: i32, y2: i32) -> i32;
+        fn GdipAddPathBezier(
+            path: *mut c_void,
+            x1: f32,
+            y1: f32,
+            x2: f32,
+            y2: f32,
+            x3: f32,
+            y3: f32,
+            x4: f32,
+            y4: f32,
+        ) -> i32;
+        fn GdipDrawPath(graphics: *mut c_void, pen: *mut c_void, path: *mut c_void) -> i32;
+        fn GdipDeletePath(path: *mut c_void) -> i32;
+        fn GdipCreateSolidFill(color: u32, brush: *mut *mut c_void) -> i32;
+        fn GdipDeleteBrush(brush: *mut c_void) -> i32;
+        fn GdipFillEllipseI(
+            graphics: *mut c_void,
+            brush: *mut c_void,
+            x: i32,
+            y: i32,
+            width: i32,
+            height: i32,
+        ) -> i32;
+        fn GdipFillPolygonI(
+            graphics: *mut c_void,
+            brush: *mut c_void,
+            points: *const WinPoint,
+            count: i32,
+            fill_mode: i32,
+        ) -> i32;
+    }
 
     #[derive(Clone)]
     pub struct NativeDrawingOverlay {
@@ -1315,7 +1404,7 @@ mod platform {
         }
         let drawing_dc = HDC(canvas.memory_dc.0);
         let pixels = std::slice::from_raw_parts_mut(canvas.bits as *mut u32, pixel_count);
-        pixels.fill(TRANSPARENT_PIXEL);
+        pixels.fill(0);
 
         SetBkMode(drawing_dc, TRANSPARENT);
         for drawing in state.drawings.iter() {
@@ -1361,13 +1450,15 @@ mod platform {
                 *pixel = 0;
                 continue;
             }
-            if (*pixel & 0x00ff_ffff) == TRANSPARENT_PIXEL {
+            let rgb = *pixel & 0x00ff_ffff;
+            let alpha = *pixel >> 24;
+            if rgb == TRANSPARENT_PIXEL || (rgb == 0 && alpha == 0) {
                 *pixel = if state.click_through {
                     0
                 } else {
                     INPUT_CAPTURE_PIXEL
                 };
-            } else {
+            } else if alpha == 0 {
                 *pixel |= 0xff00_0000;
             }
         }
@@ -2352,9 +2443,9 @@ mod platform {
                 points,
                 color,
                 width,
-                erase: _,
+                erase,
                 ..
-            } => draw_polyline(dc, points, *color, *width),
+            } => draw_polyline(dc, points, *color, *width, *erase),
             DrawingItem::Shape {
                 tool,
                 start,
@@ -2389,8 +2480,8 @@ mod platform {
                 points,
                 color,
                 width,
-                erase: _,
-            } => draw_polyline(dc, points, *color, *width),
+                erase,
+            } => draw_polyline(dc, points, *color, *width, *erase),
             ActiveDrawing::Shape {
                 tool,
                 start,
@@ -2401,13 +2492,193 @@ mod platform {
         }
     }
 
+    fn ensure_gdiplus() -> bool {
+        static TOKEN: OnceLock<Option<usize>> = OnceLock::new();
+        TOKEN
+            .get_or_init(|| unsafe {
+                let input = GdiplusStartupInput {
+                    version: 1,
+                    debug_event_callback: std::ptr::null_mut(),
+                    suppress_background_thread: 0,
+                    suppress_external_codecs: 0,
+                };
+                let mut token = 0usize;
+                if GdiplusStartup(&mut token, &input, std::ptr::null_mut()) == 0 {
+                    Some(token)
+                } else {
+                    None
+                }
+            })
+            .is_some()
+    }
+
+    unsafe fn with_gdiplus_graphics<T>(
+        dc: HDC,
+        source_copy: bool,
+        draw: impl FnOnce(*mut c_void) -> T,
+    ) -> Option<T> {
+        if !ensure_gdiplus() {
+            return None;
+        }
+        let mut graphics = std::ptr::null_mut();
+        if GdipCreateFromHDC(dc, &mut graphics) != 0 || graphics.is_null() {
+            return None;
+        }
+        let _ = GdipSetSmoothingMode(graphics, 4);
+        let _ = GdipSetPixelOffsetMode(graphics, 4);
+        let _ = GdipSetCompositingMode(graphics, if source_copy { 1 } else { 0 });
+        let result = draw(graphics);
+        GdipDeleteGraphics(graphics);
+        Some(result)
+    }
+
+    unsafe fn create_gdiplus_pen(color: u32, width: i32) -> Option<*mut c_void> {
+        let mut pen = std::ptr::null_mut();
+        if GdipCreatePen1(color, width.max(1) as f32, 2, &mut pen) != 0 || pen.is_null() {
+            return None;
+        }
+        let _ = GdipSetPenStartCap(pen, 2);
+        let _ = GdipSetPenEndCap(pen, 2);
+        let _ = GdipSetPenLineJoin(pen, 2);
+        Some(pen)
+    }
+
+    unsafe fn draw_smooth_path(
+        dc: HDC,
+        points: &[Point],
+        color: COLORREF,
+        width: i32,
+        erase: bool,
+    ) -> bool {
+        with_gdiplus_graphics(dc, erase, |graphics| {
+            let Some(pen) =
+                create_gdiplus_pen(if erase { 0 } else { argb_from_color(color) }, width)
+            else {
+                return false;
+            };
+            let mut path = std::ptr::null_mut();
+            if GdipCreatePath(0, &mut path) != 0 || path.is_null() {
+                GdipDeletePen(pen);
+                return false;
+            }
+
+            let status = if points.len() == 2 {
+                GdipAddPathLineI(path, points[0].x, points[0].y, points[1].x, points[1].y)
+            } else {
+                let mut status = 0;
+                for index in 0..points.len() - 1 {
+                    let p0 = points[index.saturating_sub(1)];
+                    let p1 = points[index];
+                    let p2 = points[index + 1];
+                    let p3 = points[(index + 2).min(points.len() - 1)];
+                    let c1x = p1.x as f32 + (p2.x - p0.x) as f32 / 6.0;
+                    let c1y = p1.y as f32 + (p2.y - p0.y) as f32 / 6.0;
+                    let c2x = p2.x as f32 - (p3.x - p1.x) as f32 / 6.0;
+                    let c2y = p2.y as f32 - (p3.y - p1.y) as f32 / 6.0;
+                    status = GdipAddPathBezier(
+                        path,
+                        p1.x as f32,
+                        p1.y as f32,
+                        c1x,
+                        c1y,
+                        c2x,
+                        c2y,
+                        p2.x as f32,
+                        p2.y as f32,
+                    );
+                    if status != 0 {
+                        break;
+                    }
+                }
+                status
+            };
+            let drawn = status == 0 && GdipDrawPath(graphics, pen, path) == 0;
+            GdipDeletePath(path);
+            GdipDeletePen(pen);
+            drawn
+        })
+        .unwrap_or(false)
+    }
+
+    unsafe fn draw_antialiased_shape(
+        dc: HDC,
+        tool: &NativeTool,
+        start: Point,
+        end: Point,
+        color: COLORREF,
+        width: i32,
+        rotation: f64,
+    ) -> bool {
+        with_gdiplus_graphics(dc, false, |graphics| {
+            let Some(pen) = create_gdiplus_pen(argb_from_color(color), width) else {
+                return false;
+            };
+            let left = start.x.min(end.x);
+            let top = start.y.min(end.y);
+            let shape_width = (end.x - start.x).abs().max(1);
+            let shape_height = (end.y - start.y).abs().max(1);
+            let status = match tool {
+                NativeTool::Line => GdipDrawLineI(graphics, pen, start.x, start.y, end.x, end.y),
+                NativeTool::Rectangle if rotation.abs() < f64::EPSILON => {
+                    GdipDrawRectangleI(graphics, pen, left, top, shape_width, shape_height)
+                }
+                NativeTool::Ellipse if rotation.abs() < f64::EPSILON => {
+                    GdipDrawEllipseI(graphics, pen, left, top, shape_width, shape_height)
+                }
+                NativeTool::Rectangle => {
+                    let points =
+                        rotated_shape_corners(start, end, rotation).map(|point| WinPoint {
+                            x: point.x,
+                            y: point.y,
+                        });
+                    GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32)
+                }
+                NativeTool::Ellipse => {
+                    let center_x = (start.x + end.x) as f64 / 2.0;
+                    let center_y = (start.y + end.y) as f64 / 2.0;
+                    let radius_x = shape_width as f64 / 2.0;
+                    let radius_y = shape_height as f64 / 2.0;
+                    let cos = rotation.cos();
+                    let sin = rotation.sin();
+                    let points: Vec<WinPoint> = (0..96)
+                        .map(|index| {
+                            let angle = std::f64::consts::TAU * index as f64 / 96.0;
+                            let x = radius_x * angle.cos();
+                            let y = radius_y * angle.sin();
+                            WinPoint {
+                                x: (center_x + x * cos - y * sin).round() as i32,
+                                y: (center_y + x * sin + y * cos).round() as i32,
+                            }
+                        })
+                        .collect();
+                    GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32)
+                }
+                _ => 1,
+            };
+            GdipDeletePen(pen);
+            status == 0
+        })
+        .unwrap_or(false)
+    }
+
+    fn argb_from_color(color: COLORREF) -> u32 {
+        let red = color.0 & 0xff;
+        let green = (color.0 >> 8) & 0xff;
+        let blue = (color.0 >> 16) & 0xff;
+        0xff00_0000 | (red << 16) | (green << 8) | blue
+    }
+
     unsafe fn draw_polyline(
         dc: windows::Win32::Graphics::Gdi::HDC,
         points: &[Point],
         color: COLORREF,
         width: i32,
+        erase: bool,
     ) {
         if points.len() < 2 {
+            return;
+        }
+        if draw_smooth_path(dc, points, color, width, erase) {
             return;
         }
         let pen = CreatePen(PS_SOLID, width.max(1), color);
@@ -2429,6 +2700,13 @@ mod platform {
         width: i32,
         rotation: f64,
     ) {
+        if matches!(tool, NativeTool::Arrow) {
+            draw_tapered_arrow(dc, start, end, color, width.max(1));
+            return;
+        }
+        if draw_antialiased_shape(dc, &tool, start, end, color, width, rotation) {
+            return;
+        }
         let pen = CreatePen(PS_SOLID, width.max(1), color);
         let old_pen = SelectObject(dc, pen);
         let old_brush = SelectObject(dc, GetStockObject(HOLLOW_BRUSH));
@@ -2436,9 +2714,6 @@ mod platform {
             NativeTool::Line => {
                 MoveToEx(dc, start.x, start.y, None);
                 LineTo(dc, end.x, end.y);
-            }
-            NativeTool::Arrow => {
-                draw_tapered_arrow(dc, start, end, color, width.max(1));
             }
             NativeTool::Rectangle => {
                 if rotation.abs() < f64::EPSILON {
@@ -2522,6 +2797,19 @@ mod platform {
             point(head_base, -shaft_half),
             point(0.0, -start_half),
         ];
+        if with_gdiplus_graphics(dc, false, |graphics| {
+            let mut brush = std::ptr::null_mut();
+            if GdipCreateSolidFill(argb_from_color(color), &mut brush) != 0 || brush.is_null() {
+                return false;
+            }
+            let status = GdipFillPolygonI(graphics, brush, points.as_ptr(), points.len() as i32, 0);
+            GdipDeleteBrush(brush);
+            status == 0
+        })
+        .unwrap_or(false)
+        {
+            return;
+        }
         let brush = CreateSolidBrush(color);
         let old_brush = SelectObject(dc, brush);
         let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
@@ -2561,7 +2849,7 @@ mod platform {
         );
         let old_font = SelectObject(dc, font);
         SetBkMode(dc, TRANSPARENT);
-        let old_color = windows::Win32::Graphics::Gdi::SetTextColor(dc, color);
+        let old_color = windows::Win32::Graphics::Gdi::SetTextColor(dc, gdi_visible_color(color));
         let wide_text: Vec<u16> = text.encode_utf16().collect();
         let _ = TextOutW(dc, start.x, start.y, &wide_text);
         windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
@@ -2573,6 +2861,14 @@ mod platform {
         18.max(width * 4)
     }
 
+    fn gdi_visible_color(color: COLORREF) -> COLORREF {
+        if color.0 & 0x00ff_ffff == 0 {
+            COLORREF(0x0001_0101)
+        } else {
+            color
+        }
+    }
+
     unsafe fn draw_number_marker(
         dc: HDC,
         center: Point,
@@ -2582,19 +2878,38 @@ mod platform {
         rotation: f64,
     ) {
         let radius = number_radius(width);
-        let brush = CreateSolidBrush(color);
-        let old_brush = SelectObject(dc, brush);
-        let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
-        Ellipse(
-            dc,
-            center.x - radius,
-            center.y - radius,
-            center.x + radius,
-            center.y + radius,
-        );
-        SelectObject(dc, old_pen);
-        SelectObject(dc, old_brush);
-        DeleteObject(brush);
+        let smooth_circle = with_gdiplus_graphics(dc, false, |graphics| {
+            let mut brush = std::ptr::null_mut();
+            if GdipCreateSolidFill(argb_from_color(color), &mut brush) != 0 || brush.is_null() {
+                return false;
+            }
+            let status = GdipFillEllipseI(
+                graphics,
+                brush,
+                center.x - radius,
+                center.y - radius,
+                radius * 2,
+                radius * 2,
+            );
+            GdipDeleteBrush(brush);
+            status == 0
+        })
+        .unwrap_or(false);
+        if !smooth_circle {
+            let brush = CreateSolidBrush(color);
+            let old_brush = SelectObject(dc, brush);
+            let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+            Ellipse(
+                dc,
+                center.x - radius,
+                center.y - radius,
+                center.x + radius,
+                center.y + radius,
+            );
+            SelectObject(dc, old_pen);
+            SelectObject(dc, old_brush);
+            DeleteObject(brush);
+        }
 
         let text = value.to_string();
         let digit_count = text.chars().count() as i32;
