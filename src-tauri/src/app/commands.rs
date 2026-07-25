@@ -7,7 +7,8 @@ use tauri_plugin_store::StoreExt;
 use crate::app::native_drawing::{parse_tool, NativeTool};
 use crate::app::state::{AppState, TrayMenuItems};
 use crate::app::window::{
-    monitor_identifier, position_overlay_window, set_window_monitor, OverlayAlignment,
+    monitor_identifier, park_overlay_window, position_overlay_window, set_window_monitor,
+    OverlayAlignment,
 };
 
 #[tauri::command]
@@ -144,7 +145,7 @@ pub fn update_overlay_window(
     app_state.key_overlay_update_sequence = update_sequence;
 
     if !app_state.listening || !visible {
-        return window.hide().map_err(|error| error.to_string());
+        return park_overlay_window(&window);
     }
 
     position_overlay_window(

@@ -4,6 +4,7 @@ use tauri_plugin_store::StoreExt;
 
 use crate::app::native_cursor::NativeCursorOverlay;
 use crate::app::native_drawing::NativeDrawingOverlay;
+use crate::app::window::park_overlay_window;
 
 #[derive(Default)]
 pub struct AppState {
@@ -178,7 +179,7 @@ impl AppState {
                 let _ = tray.set_icon(Some(Image::from(include_image!("icons/tray-disabled.png"))));
             }
             if let Some(window) = app.get_webview_window("main") {
-                let _ = window.hide();
+                let _ = park_overlay_window(&window);
             }
         }
 

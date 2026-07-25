@@ -235,4 +235,53 @@ pub fn config_window(window: &tauri::WebviewWindow, app_state: &mut AppState) {
             );
         }
     }
+
+    park_overlay_window(window).expect("Failed to park visualization window");
+}
+
+pub fn park_overlay_window(window: &tauri::WebviewWindow) -> Result<(), String> {
+    const PARKED_POSITION: i32 = -32_000;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+        };
+
+        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let result = unsafe {
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                PARKED_POSITION,
+                PARKED_POSITION,
+                1,
+                1,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            )
+        };
+        if !result.as_bool() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_position(tauri::PhysicalPosition {
+                x: PARKED_POSITION,
+                y: PARKED_POSITION,
+            })
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(tauri::PhysicalSize {
+                width: 1,
+                height: 1,
+            })
+            .map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
 }
