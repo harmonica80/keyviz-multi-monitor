@@ -10,8 +10,9 @@ use tauri::{
 mod app;
 use app::commands::{
     drawing_clear, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
-    drawing_undo, get_cursor_settings, log, set_cursor_settings, set_drawing_shortcuts,
-    set_main_window_monitor, set_toggle_shortcut, set_tray_locale, update_overlay_window,
+    drawing_undo, get_cursor_settings, hide_native_key_overlay, log, set_cursor_settings,
+    set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut, set_tray_locale,
+    update_native_key_overlay, update_overlay_window,
 };
 use app::event::start_listener;
 use app::native_drawing::NativeTool;
@@ -731,6 +732,8 @@ pub fn run() {
             set_main_window_monitor,
             set_tray_locale,
             update_overlay_window,
+            update_native_key_overlay,
+            hide_native_key_overlay,
             set_cursor_settings,
             get_cursor_settings,
             open_screen_drawing,

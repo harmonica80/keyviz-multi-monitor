@@ -5,6 +5,7 @@ use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
 use crate::app::native_drawing::{parse_tool, NativeTool};
+use crate::app::native_keys::NativeKeyVisual;
 use crate::app::state::{AppState, TrayMenuItems};
 use crate::app::window::{
     monitor_identifier, park_overlay_window, position_overlay_window, set_window_monitor,
@@ -159,6 +160,42 @@ pub fn update_overlay_window(
         app_state.key_overlay_window_visible = true;
     }
     result
+}
+
+#[tauri::command]
+pub fn update_native_key_overlay(
+    app: tauri::AppHandle,
+    visual: NativeKeyVisual,
+) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    if visual.update_sequence <= app_state.key_overlay_update_sequence {
+        return Ok(());
+    }
+    app_state.key_overlay_update_sequence = visual.update_sequence;
+    let visible = app_state.listening && visual.visible && !visual.groups.is_empty();
+    let overlay = app_state.key_overlay.clone();
+    let monitor_position = app_state.monitor_position;
+    let monitor_size = app_state.monitor_size;
+    let scale = app_state.monitor_scale;
+    app_state.key_overlay_window_visible = visible;
+    drop(app_state);
+
+    if visible {
+        overlay.update(visual, monitor_position, monitor_size, scale);
+    } else {
+        overlay.hide();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn hide_native_key_overlay(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.key_overlay_window_visible = false;
+    app_state.key_overlay.hide();
+    Ok(())
 }
 
 #[tauri::command]

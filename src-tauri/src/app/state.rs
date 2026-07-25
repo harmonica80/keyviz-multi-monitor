@@ -4,6 +4,7 @@ use tauri_plugin_store::StoreExt;
 
 use crate::app::native_cursor::NativeCursorOverlay;
 use crate::app::native_drawing::NativeDrawingOverlay;
+use crate::app::native_keys::NativeKeyOverlay;
 use crate::app::window::park_overlay_window;
 
 #[derive(Default)]
@@ -34,6 +35,7 @@ pub struct AppState {
     pub cursor_update_pending: bool,
     pub cursor_window_visible: bool,
     pub cursor_overlay: NativeCursorOverlay,
+    pub key_overlay: NativeKeyOverlay,
     pub drawing_overlay: NativeDrawingOverlay,
     pub drawing_visible: bool,
     pub drawing_session_id: u64,
@@ -149,6 +151,7 @@ impl AppState {
             cursor_update_pending: false,
             cursor_window_visible: false,
             cursor_overlay: NativeCursorOverlay::new(),
+            key_overlay: NativeKeyOverlay::new(),
             drawing_overlay: NativeDrawingOverlay::new(app),
             drawing_visible: false,
             drawing_session_id: 0,
@@ -184,6 +187,7 @@ impl AppState {
                 let _ = park_overlay_window(&window);
             }
             self.key_overlay_window_visible = false;
+            self.key_overlay.hide();
         }
 
         let _ = app.emit_to("main", "listening-toggle", self.listening);
