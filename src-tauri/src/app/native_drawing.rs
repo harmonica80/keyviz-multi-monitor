@@ -1106,6 +1106,14 @@ mod platform {
             refresh_overlay(state);
             return;
         }
+        if matches!(state.tool, NativeTool::Number) {
+            let width = (state.width + step).clamp(1, 15);
+            state.width = width;
+            replace_tool_cursor(state, true);
+            emit_width(&state.app, width);
+            refresh_overlay(state);
+            return;
+        }
         if matches!(
             state.tool,
             NativeTool::Pen
@@ -1113,7 +1121,6 @@ mod platform {
                 | NativeTool::Arrow
                 | NativeTool::Rectangle
                 | NativeTool::Ellipse
-                | NativeTool::Number
         ) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
@@ -2766,7 +2773,7 @@ mod platform {
         let custom = match tool {
             NativeTool::Pen => create_pen_cursor(),
             NativeTool::Eraser => create_eraser_cursor(width),
-            NativeTool::Number => create_number_cursor(next_number, color),
+            NativeTool::Number => create_number_cursor(next_number, color, width),
             _ => None,
         };
         if let Some(cursor) = custom {
@@ -2926,12 +2933,12 @@ mod platform {
         })
     }
 
-    unsafe fn create_number_cursor(value: u32, color: COLORREF) -> Option<HCURSOR> {
-        const CURSOR_SIZE: i32 = 48;
-        const CENTER: i32 = CURSOR_SIZE / 2;
-        const RADIUS: i32 = 20;
+    unsafe fn create_number_cursor(value: u32, color: COLORREF, width: i32) -> Option<HCURSOR> {
+        let radius = number_radius(width).clamp(16, 44);
+        let cursor_size = radius * 2 + 8;
+        let center = cursor_size / 2;
 
-        create_argb_cursor(CURSOR_SIZE, CENTER as u32, CENTER as u32, |dc| {
+        create_argb_cursor(cursor_size, center as u32, center as u32, |dc| {
             // Pure black has zero RGB bits and would be treated as transparent
             // by the ARGB cursor conversion below, so use a visually black value.
             let fill_color = if color.0 & 0x00ff_ffff == 0 {
@@ -2944,10 +2951,10 @@ mod platform {
             let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
             Ellipse(
                 dc,
-                CENTER - RADIUS,
-                CENTER - RADIUS,
-                CENTER + RADIUS,
-                CENTER + RADIUS,
+                center - radius,
+                center - radius,
+                center + radius,
+                center + radius,
             );
             SelectObject(dc, old_pen);
             SelectObject(dc, old_brush);
@@ -2955,7 +2962,11 @@ mod platform {
 
             let text = value.to_string();
             let digit_count = text.chars().count();
-            let font_size = if digit_count >= 3 { 17 } else { 22 };
+            let font_size = if digit_count >= 3 {
+                radius.max(16)
+            } else {
+                (radius * 6 / 5).max(16)
+            };
             let font = CreateFontW(
                 -font_size,
                 0,
@@ -2980,8 +2991,8 @@ mod platform {
             let _ = GetTextExtentPoint32W(dc, &wide_text, &mut text_size);
             let _ = TextOutW(
                 dc,
-                CENTER - text_size.cx / 2,
-                CENTER - text_size.cy / 2,
+                center - text_size.cx / 2,
+                center - text_size.cy / 2,
                 &wide_text,
             );
             windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
