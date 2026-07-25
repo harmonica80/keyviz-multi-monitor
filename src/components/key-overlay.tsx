@@ -84,6 +84,7 @@ export const KeyOverlay = () => {
                 invoke("update_overlay_window", {
                     width: Math.ceil(rect.width),
                     height: Math.ceil(rect.height),
+                    visible: groups.length > 0,
                     alignment: appearance.alignment,
                     marginX: appearance.marginX,
                     marginY: appearance.marginY,

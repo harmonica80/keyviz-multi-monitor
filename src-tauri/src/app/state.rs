@@ -165,9 +165,6 @@ impl AppState {
             if let Some(tray) = app.tray_by_id("keyviz-tray") {
                 let _ = tray.set_icon(Some(Image::from(include_image!("icons/tray.png"))));
             }
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = window.show();
-            }
         } else {
             println!("Listening disabled");
             let _ = toggle.set_text(if self.locale == "zh-TW" {

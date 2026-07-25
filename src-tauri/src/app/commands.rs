@@ -126,6 +126,7 @@ pub fn update_overlay_window(
     app: tauri::AppHandle,
     width: f64,
     height: f64,
+    visible: bool,
     alignment: OverlayAlignment,
     margin_x: f64,
     margin_y: f64,
@@ -135,6 +136,10 @@ pub fn update_overlay_window(
     let window = app
         .get_webview_window("main")
         .ok_or_else(|| "Visualization window is unavailable".to_string())?;
+
+    if !visible {
+        return window.hide().map_err(|error| error.to_string());
+    }
 
     position_overlay_window(
         &window, &app_state, width, height, alignment, margin_x, margin_y,

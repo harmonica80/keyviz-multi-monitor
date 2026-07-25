@@ -36,7 +36,7 @@ pub fn set_window_monitor(
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE, SWP_SHOWWINDOW,
+            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE,
         };
 
         window
@@ -54,7 +54,7 @@ pub fn set_window_monitor(
                 position.y,
                 0,
                 0,
-                SWP_NOACTIVATE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                SWP_NOACTIVATE | SWP_NOSIZE,
             );
 
             if !result.as_bool() {
@@ -235,6 +235,4 @@ pub fn config_window(window: &tauri::WebviewWindow, app_state: &mut AppState) {
             );
         }
     }
-
-    window.show().expect("Failed to show window");
 }
