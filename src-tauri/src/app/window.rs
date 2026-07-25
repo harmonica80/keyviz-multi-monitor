@@ -240,48 +240,44 @@ pub fn config_window(window: &tauri::WebviewWindow, app_state: &mut AppState) {
 }
 
 pub fn park_overlay_window(window: &tauri::WebviewWindow) -> Result<(), String> {
-    const PARKED_POSITION: i32 = -32_000;
+    // Keep the WebView running for input events without leaving it on a captured monitor.
+    let monitors = window
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
+    let parked_x = monitors
+        .iter()
+        .map(|monitor| {
+            monitor
+                .position()
+                .x
+                .saturating_add(monitor.size().width as i32)
+        })
+        .max()
+        .unwrap_or(0)
+        .saturating_add(64);
+    let parked_y = monitors
+        .iter()
+        .map(|monitor| {
+            monitor
+                .position()
+                .y
+                .saturating_add(monitor.size().height as i32)
+        })
+        .max()
+        .unwrap_or(0)
+        .saturating_add(64);
 
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-        };
-
-        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
-        let result = unsafe {
-            SetWindowPos(
-                hwnd,
-                HWND_TOPMOST,
-                PARKED_POSITION,
-                PARKED_POSITION,
-                1,
-                1,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            )
-        };
-        if !result.as_bool() {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        window
-            .set_position(tauri::PhysicalPosition {
-                x: PARKED_POSITION,
-                y: PARKED_POSITION,
-            })
-            .map_err(|error| error.to_string())?;
-        window
-            .set_size(tauri::PhysicalSize {
-                width: 1,
-                height: 1,
-            })
-            .map_err(|error| error.to_string())?;
-        window.show().map_err(|error| error.to_string())?;
-    }
-
-    Ok(())
+    window
+        .set_position(tauri::PhysicalPosition {
+            x: parked_x,
+            y: parked_y,
+        })
+        .map_err(|error| error.to_string())?;
+    window
+        .set_size(tauri::PhysicalSize {
+            width: 1,
+            height: 1,
+        })
+        .map_err(|error| error.to_string())?;
+    window.show().map_err(|error| error.to_string())
 }

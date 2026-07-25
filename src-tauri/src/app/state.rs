@@ -22,6 +22,7 @@ pub struct AppState {
     pub monitor_position: (i32, i32),
     pub monitor_size: (u32, u32),
     pub key_overlay_update_sequence: u64,
+    pub key_overlay_window_visible: bool,
     pub locale: String,
     pub cursor_keep_highlight: bool,
     pub cursor_size: f64,
@@ -136,6 +137,7 @@ impl AppState {
             monitor_position: (0, 0),
             monitor_size: (1, 1),
             key_overlay_update_sequence: 0,
+            key_overlay_window_visible: false,
             locale,
             cursor_keep_highlight,
             cursor_size,
@@ -181,6 +183,7 @@ impl AppState {
             if let Some(window) = app.get_webview_window("main") {
                 let _ = park_overlay_window(&window);
             }
+            self.key_overlay_window_visible = false;
         }
 
         let _ = app.emit_to("main", "listening-toggle", self.listening);

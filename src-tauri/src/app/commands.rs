@@ -145,12 +145,20 @@ pub fn update_overlay_window(
     app_state.key_overlay_update_sequence = update_sequence;
 
     if !app_state.listening || !visible {
+        if !app_state.key_overlay_window_visible {
+            return Ok(());
+        }
+        app_state.key_overlay_window_visible = false;
         return park_overlay_window(&window);
     }
 
-    position_overlay_window(
+    let result = position_overlay_window(
         &window, &app_state, width, height, alignment, margin_x, margin_y,
-    )
+    );
+    if result.is_ok() {
+        app_state.key_overlay_window_visible = true;
+    }
+    result
 }
 
 #[tauri::command]
@@ -193,7 +201,7 @@ pub fn set_main_window_monitor(
     monitor_selector: String,
 ) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
-    let mut app_state = state.lock().unwrap();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
 
     let window = app
         .get_webview_window("main")
@@ -210,7 +218,11 @@ pub fn set_main_window_monitor(
         .or_else(|| monitors.into_iter().next())
         .ok_or_else(|| "No monitor is available".to_string())?;
 
-    set_window_monitor(&window, &target_monitor, &mut app_state)
+    set_window_monitor(&window, &target_monitor, &mut app_state)?;
+    if !app_state.key_overlay_window_visible {
+        park_overlay_window(&window)?;
+    }
+    Ok(())
 }
 
 #[tauri::command]

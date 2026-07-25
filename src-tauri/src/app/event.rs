@@ -110,7 +110,10 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
         if let Err(err) = listen(move |event| {
             // get app state
             let state = app_handle.state::<Mutex<AppState>>();
-            let mut app_state = state.lock().unwrap();
+            let Ok(mut app_state) = state.lock() else {
+                eprintln!("Input state is unavailable");
+                return;
+            };
 
             // track pressed keys
             if let EventType::KeyPress(key) = event.event_type {
@@ -189,16 +192,16 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     if !app_state.listening {
                         // emit key releases for all pressed keys
                         for key_name in &app_state.pressed_keys {
-                            app_handle
-                                .emit_to(
-                                    "main",
-                                    "input-event",
-                                    InputEvent::KeyEvent {
-                                        pressed: false,
-                                        name: key_name.clone(),
-                                    },
-                                )
-                                .unwrap()
+                            if let Err(error) = app_handle.emit_to(
+                                "main",
+                                "input-event",
+                                InputEvent::KeyEvent {
+                                    pressed: false,
+                                    name: key_name.clone(),
+                                },
+                            ) {
+                                eprintln!("Failed to emit key release: {error}");
+                            }
                         }
                     }
                 }
@@ -262,6 +265,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
             if !app_state.listening {
                 return;
             }
+
             let input_event = match event.event_type {
                 EventType::KeyPress(key) => Some(InputEvent::KeyEvent {
                     pressed: true,
@@ -285,7 +289,9 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 }
             };
 
-            app_handle.emit("input-event", input_event).unwrap();
+            if let Err(error) = app_handle.emit("input-event", input_event) {
+                eprintln!("Failed to emit input event: {error}");
+            }
         }) {
             eprintln!("rdev listen failed: {:?}", err);
         }
