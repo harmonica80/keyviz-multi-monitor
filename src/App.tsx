@@ -51,7 +51,7 @@ function App() {
   return (
     <AppErrorBoundary>
       <HashRouter>
-        <Suspense fallback={<div>Loading...</div>}>
+        <Suspense fallback={null}>
           <Routes>
             <Route path="/" element={<Visualization />} />
             <Route path="/settings" element={

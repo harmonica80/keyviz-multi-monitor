@@ -130,15 +130,9 @@ pub fn position_overlay_window(
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE, SWP_SHOWWINDOW,
+            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_SHOWWINDOW,
         };
 
-        window
-            .set_size(tauri::PhysicalSize {
-                width: width as u32,
-                height: height as u32,
-            })
-            .map_err(|error| error.to_string())?;
         let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
         unsafe {
             let result = SetWindowPos(
@@ -146,9 +140,9 @@ pub fn position_overlay_window(
                 HWND_TOPMOST,
                 x,
                 y,
-                0,
-                0,
-                SWP_NOACTIVATE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                width,
+                height,
+                SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_SHOWWINDOW,
             );
             if !result.as_bool() {
                 return Err(std::io::Error::last_os_error().to_string());
@@ -267,17 +261,46 @@ pub fn park_overlay_window(window: &tauri::WebviewWindow) -> Result<(), String> 
         .unwrap_or(0)
         .saturating_add(64);
 
-    window
-        .set_position(tauri::PhysicalPosition {
-            x: parked_x,
-            y: parked_y,
-        })
-        .map_err(|error| error.to_string())?;
-    window
-        .set_size(tauri::PhysicalSize {
-            width: 1,
-            height: 1,
-        })
-        .map_err(|error| error.to_string())?;
-    window.show().map_err(|error| error.to_string())
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_SHOWWINDOW,
+        };
+
+        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let result = unsafe {
+            SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                parked_x,
+                parked_y,
+                1,
+                1,
+                SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_SHOWWINDOW,
+            )
+        };
+        if !result.as_bool() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        window
+            .set_position(tauri::PhysicalPosition {
+                x: parked_x,
+                y: parked_y,
+            })
+            .map_err(|error| error.to_string())?;
+        window
+            .set_size(tauri::PhysicalSize {
+                width: 1,
+                height: 1,
+            })
+            .map_err(|error| error.to_string())?;
+        window.show().map_err(|error| error.to_string())?;
+    }
+
+    Ok(())
 }
