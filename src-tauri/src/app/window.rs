@@ -1,6 +1,11 @@
 use crate::app::state::AppState;
 use serde::Deserialize;
 
+// Keep one painted transparent WebView surface alive. Repeatedly expanding a
+// 1x1 window can expose an unpainted frame to Windows screen-capture APIs.
+const MIN_OVERLAY_SURFACE_WIDTH: u32 = 640;
+const MIN_OVERLAY_SURFACE_HEIGHT: u32 = 256;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum OverlayAlignment {
@@ -39,10 +44,14 @@ pub fn set_window_monitor(
             SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE,
         };
 
+        let current_size = window.outer_size().unwrap_or(tauri::PhysicalSize {
+            width: MIN_OVERLAY_SURFACE_WIDTH,
+            height: MIN_OVERLAY_SURFACE_HEIGHT,
+        });
         window
             .set_size(tauri::PhysicalSize {
-                width: 1,
-                height: 1,
+                width: current_size.width.max(MIN_OVERLAY_SURFACE_WIDTH),
+                height: current_size.height.max(MIN_OVERLAY_SURFACE_HEIGHT),
             })
             .map_err(|error| error.to_string())?;
         let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
@@ -71,10 +80,14 @@ pub fn set_window_monitor(
                 y: position.y,
             })
             .map_err(|error| error.to_string())?;
+        let current_size = window.outer_size().unwrap_or(tauri::PhysicalSize {
+            width: MIN_OVERLAY_SURFACE_WIDTH,
+            height: MIN_OVERLAY_SURFACE_HEIGHT,
+        });
         window
             .set_size(tauri::PhysicalSize {
-                width: 1,
-                height: 1,
+                width: current_size.width.max(MIN_OVERLAY_SURFACE_WIDTH),
+                height: current_size.height.max(MIN_OVERLAY_SURFACE_HEIGHT),
             })
             .map_err(|error| error.to_string())?;
     }
@@ -125,12 +138,24 @@ pub fn position_overlay_window(
 
     let x = app_state.monitor_position.0 + relative_x.max(0);
     let y = app_state.monitor_position.1 + relative_y.max(0);
+    let current_size = window.outer_size().unwrap_or(tauri::PhysicalSize {
+        width: MIN_OVERLAY_SURFACE_WIDTH,
+        height: MIN_OVERLAY_SURFACE_HEIGHT,
+    });
+    let surface_width = current_size
+        .width
+        .max(width as u32)
+        .max(MIN_OVERLAY_SURFACE_WIDTH);
+    let surface_height = current_size
+        .height
+        .max(height as u32)
+        .max(MIN_OVERLAY_SURFACE_HEIGHT);
 
     #[cfg(target_os = "windows")]
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOCOPYBITS, SWP_SHOWWINDOW,
+            SetWindowPos, HWND_TOPMOST, SWP_NOACTIVATE, SWP_SHOWWINDOW,
         };
 
         let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
@@ -140,9 +165,9 @@ pub fn position_overlay_window(
                 HWND_TOPMOST,
                 x,
                 y,
-                width,
-                height,
-                SWP_NOACTIVATE | SWP_NOCOPYBITS | SWP_SHOWWINDOW,
+                surface_width as i32,
+                surface_height as i32,
+                SWP_NOACTIVATE | SWP_SHOWWINDOW,
             );
             if !result.as_bool() {
                 return Err(std::io::Error::last_os_error().to_string());
@@ -157,8 +182,8 @@ pub fn position_overlay_window(
             .map_err(|error| error.to_string())?;
         window
             .set_size(tauri::PhysicalSize {
-                width: width as u32,
-                height: height as u32,
+                width: surface_width,
+                height: surface_height,
             })
             .map_err(|error| error.to_string())?;
     }
@@ -267,10 +292,14 @@ pub fn park_overlay_window(window: &tauri::WebviewWindow) -> Result<(), String> 
             y: parked_y,
         })
         .map_err(|error| error.to_string())?;
+    let current_size = window.outer_size().unwrap_or(tauri::PhysicalSize {
+        width: MIN_OVERLAY_SURFACE_WIDTH,
+        height: MIN_OVERLAY_SURFACE_HEIGHT,
+    });
     window
         .set_size(tauri::PhysicalSize {
-            width: 1,
-            height: 1,
+            width: current_size.width.max(MIN_OVERLAY_SURFACE_WIDTH),
+            height: current_size.height.max(MIN_OVERLAY_SURFACE_HEIGHT),
         })
         .map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())

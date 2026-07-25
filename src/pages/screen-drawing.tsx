@@ -534,15 +534,15 @@ export default function ScreenDrawing() {
 
   const toolButtons: Array<{ value: Tool; label: string; icon: ComponentType }> = [
     { value: "pointer", label: t("Pointer"), icon: MousePointer2 },
-    { value: "select", label: t("Select Objects"), icon: SquareDashedMousePointer },
     { value: "pen", label: t("Pen"), icon: Pencil },
-    { value: "eraser", label: t("Eraser"), icon: Eraser },
-    { value: "line", label: t("Line"), icon: Minus },
     { value: "arrow", label: t("Arrow"), icon: ArrowUpRight },
+    { value: "number", label: t("Number Marker"), icon: NumberMarkerIcon },
     { value: "rectangle", label: t("Rectangle"), icon: Square },
     { value: "ellipse", label: t("Ellipse"), icon: Circle },
+    { value: "eraser", label: t("Eraser"), icon: Eraser },
+    { value: "select", label: t("Select Objects"), icon: SquareDashedMousePointer },
     { value: "text", label: t("Text"), icon: Type },
-    { value: "number", label: t("Number Marker"), icon: NumberMarkerIcon },
+    { value: "line", label: t("Line"), icon: Minus },
   ];
 
   return (
@@ -560,9 +560,6 @@ export default function ScreenDrawing() {
         onClick={() => void invoke("close_screen_drawing")}
       >
         <X />
-      </button>
-      <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
-        <Trash2 />
       </button>
       {toolButtons.map(({ value, label, icon: Icon }) => (
         <button
@@ -620,6 +617,9 @@ export default function ScreenDrawing() {
         onClick={() => void sendCommand({ type: "undo" })}
       >
         <Redo2 className="drawing-undo" />
+      </button>
+      <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
+        <Trash2 />
       </button>
     </aside>
   );
