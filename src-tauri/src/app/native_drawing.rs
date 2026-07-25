@@ -496,14 +496,15 @@ mod platform {
             if hwnd.0 == 0 {
                 return Err(std::io::Error::last_os_error().to_string());
             }
-            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5);
+            let default_color = parse_color("#ef2b2d");
+            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color);
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
                     app,
                     hwnd,
                     tool: NativeTool::Pen,
-                    color: parse_color("#ef2b2d"),
+                    color: default_color,
                     width: 5,
                     drawings: Vec::new(),
                     active: None,
@@ -638,6 +639,9 @@ mod platform {
                         SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                     );
                 }
+                if matches!(state.tool, NativeTool::Number) {
+                    replace_tool_cursor(state, true);
+                }
                 if state.cursor.0 != 0 {
                     SetCursor(state.cursor);
                     destroy_retired_cursors(state);
@@ -690,7 +694,12 @@ mod platform {
                 refresh_overlay(state);
                 emit_selection_state(state);
             }
-            DrawingCommand::SetColor(color) => state.color = parse_color(&color),
+            DrawingCommand::SetColor(color) => {
+                state.color = parse_color(&color);
+                if matches!(state.tool, NativeTool::Number) {
+                    replace_tool_cursor(state, false);
+                }
+            }
             DrawingCommand::SetWidth(width) => {
                 let width = width.clamp(1, 15);
                 state.width = width;
@@ -705,6 +714,9 @@ mod platform {
                 state.selected.clear();
                 state.selection = None;
                 state.next_number = 1;
+                if matches!(state.tool, NativeTool::Number) {
+                    replace_tool_cursor(state, false);
+                }
                 emit_history(&state.app, false);
                 emit_selection_state(state);
                 refresh_overlay(state);
@@ -715,6 +727,9 @@ mod platform {
                     state.selection = None;
                     state.drawings.pop();
                     sync_next_number(state);
+                    if matches!(state.tool, NativeTool::Number) {
+                        replace_tool_cursor(state, false);
+                    }
                     emit_history(&state.app, !state.drawings.is_empty());
                     emit_selection_state(state);
                     refresh_overlay(state);
@@ -735,6 +750,9 @@ mod platform {
                     state.selected.clear();
                     state.selection = None;
                     state.next_number = 1;
+                    if matches!(state.tool, NativeTool::Number) {
+                        replace_tool_cursor(state, false);
+                    }
                 }
                 emit_history(&state.app, !state.drawings.is_empty());
                 emit_selection_state(state);
@@ -908,6 +926,7 @@ mod platform {
                     rotation: 0.0,
                     group: None,
                 });
+                replace_tool_cursor(state, false);
                 emit_history(&state.app, true);
                 raise_toolbar(&state.app);
             }
@@ -2738,10 +2757,16 @@ mod platform {
             .unwrap_or(false)
     }
 
-    unsafe fn create_tool_cursor(tool: NativeTool, width: i32) -> (HCURSOR, bool) {
+    unsafe fn create_tool_cursor(
+        tool: NativeTool,
+        width: i32,
+        next_number: u32,
+        color: COLORREF,
+    ) -> (HCURSOR, bool) {
         let custom = match tool {
             NativeTool::Pen => create_pen_cursor(),
             NativeTool::Eraser => create_eraser_cursor(width),
+            NativeTool::Number => create_number_cursor(next_number, color),
             _ => None,
         };
         if let Some(cursor) = custom {
@@ -2751,14 +2776,14 @@ mod platform {
         let resource = match tool {
             NativeTool::Pointer | NativeTool::Select => IDC_ARROW,
             NativeTool::Text => IDC_IBEAM,
-            NativeTool::Number => IDC_CROSS,
             _ => IDC_CROSS,
         };
         (LoadCursorW(None, resource).unwrap_or(HCURSOR(0)), false)
     }
 
     unsafe fn replace_tool_cursor(state: &mut OverlayState, apply_now: bool) {
-        let (cursor, owned) = create_tool_cursor(state.tool, state.width);
+        let (cursor, owned) =
+            create_tool_cursor(state.tool, state.width, state.next_number, state.color);
         if cursor.0 == 0 {
             return;
         }
@@ -2898,6 +2923,70 @@ mod platform {
             SelectObject(dc, old_eraser_pen);
             DeleteObject(eraser_brush);
             DeleteObject(eraser_pen);
+        })
+    }
+
+    unsafe fn create_number_cursor(value: u32, color: COLORREF) -> Option<HCURSOR> {
+        const CURSOR_SIZE: i32 = 48;
+        const CENTER: i32 = CURSOR_SIZE / 2;
+        const RADIUS: i32 = 20;
+
+        create_argb_cursor(CURSOR_SIZE, CENTER as u32, CENTER as u32, |dc| {
+            // Pure black has zero RGB bits and would be treated as transparent
+            // by the ARGB cursor conversion below, so use a visually black value.
+            let fill_color = if color.0 & 0x00ff_ffff == 0 {
+                COLORREF(0x0001_0101)
+            } else {
+                color
+            };
+            let brush = CreateSolidBrush(fill_color);
+            let old_brush = SelectObject(dc, brush);
+            let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+            Ellipse(
+                dc,
+                CENTER - RADIUS,
+                CENTER - RADIUS,
+                CENTER + RADIUS,
+                CENTER + RADIUS,
+            );
+            SelectObject(dc, old_pen);
+            SelectObject(dc, old_brush);
+            DeleteObject(brush);
+
+            let text = value.to_string();
+            let digit_count = text.chars().count();
+            let font_size = if digit_count >= 3 { 17 } else { 22 };
+            let font = CreateFontW(
+                -font_size,
+                0,
+                0,
+                0,
+                400,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                NON_ANTIALIASED_FONT_QUALITY,
+                0,
+                PCWSTR(wide("Microsoft JhengHei").as_ptr()),
+            );
+            let old_font = SelectObject(dc, font);
+            SetBkMode(dc, TRANSPARENT);
+            let old_color = windows::Win32::Graphics::Gdi::SetTextColor(dc, COLORREF(0x00ff_ffff));
+            let wide_text: Vec<u16> = text.encode_utf16().collect();
+            let mut text_size = SIZE::default();
+            let _ = GetTextExtentPoint32W(dc, &wide_text, &mut text_size);
+            let _ = TextOutW(
+                dc,
+                CENTER - text_size.cx / 2,
+                CENTER - text_size.cy / 2,
+                &wide_text,
+            );
+            windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
+            SelectObject(dc, old_font);
+            DeleteObject(font);
         })
     }
 
