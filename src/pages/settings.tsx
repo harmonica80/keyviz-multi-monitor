@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { AboutPage, AppearanceSettings, GeneralSettings, KeycapSettings, MouseSettings } from "@/components/settings";
+import { AboutPage, AppearanceSettings, DrawingToolbarSettings, GeneralSettings, KeycapSettings, MouseSettings } from "@/components/settings";
 import { VERSION } from "@/components/settings/about";
 import { ThemeModeToggle } from "@/components/theme-mode-toggle";
 import { LocaleToggle } from "@/components/locale-toggle";
@@ -9,12 +9,13 @@ import { invoke } from "@tauri-apps/api/core";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { SidebarItem } from "@/components/ui/sidebar-item";
-import { ComputerIcon, InformationSquareIcon, KeyboardIcon, Mouse09Icon, Settings03Icon } from "@hugeicons/core-free-icons";
+import { ComputerIcon, InformationSquareIcon, KeyboardIcon, Mouse09Icon, PaintBoardIcon, Settings03Icon } from "@hugeicons/core-free-icons";
 
 const sideBar = [
     { id: "General", icon: Settings03Icon },
     { id: "Appearance", icon: ComputerIcon },
     { id: "Keycap", icon: KeyboardIcon },
+    { id: "Drawing Toolbar", icon: PaintBoardIcon },
     { id: "Mouse", icon: Mouse09Icon },
 ]
 
@@ -59,6 +60,7 @@ const Settings = () => {
                 {activeTab === "General" && <GeneralSettings />}
                 {activeTab === "Appearance" && <AppearanceSettings />}
                 {activeTab === "Keycap" && <KeycapSettings />}
+                {activeTab === "Drawing Toolbar" && <DrawingToolbarSettings />}
                 {activeTab === "Mouse" && <MouseSettings />}
                 {activeTab === "About" && <AboutPage />}
             </ScrollArea>

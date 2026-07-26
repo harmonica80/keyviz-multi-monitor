@@ -1,28 +1,28 @@
 import { useTranslation } from "@/lib/i18n";
 import { keymaps } from "@/lib/keymaps";
+import {
+  DRAWING_TOOL_BY_ID,
+  type DrawingTool,
+} from "@/lib/drawing-tools";
+import {
+  DRAWING_TOOLBAR_STORE,
+  type DrawingToolbarStore,
+  useDrawingToolbar,
+} from "@/stores/drawing_toolbar";
 import { useKeyEvent } from "@/stores/key_event";
+import { listenForUpdates } from "@/stores/sync";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
-  ArrowUpRight,
   Check,
-  Circle,
-  Eraser,
   GripHorizontal,
   Group,
-  Minus,
-  MousePointer2,
-  Pencil,
   Redo2,
-  Square,
-  SquareDashedMousePointer,
   Trash2,
-  Type,
   X,
 } from "lucide-react";
 import {
   CSSProperties,
-  ComponentType,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent,
   useCallback,
@@ -33,7 +33,7 @@ import {
 
 type Point = { x: number; y: number };
 type TextEditor = { start: Point; value: string; color: string; width: number };
-type Tool = "pointer" | "select" | "pen" | "eraser" | "line" | "arrow" | "rectangle" | "ellipse" | "text" | "number";
+type Tool = DrawingTool;
 type Drawing =
   | { tool: "pen" | "eraser"; points: Point[]; color: string; width: number }
   | { tool: "line" | "arrow" | "rectangle" | "ellipse"; start: Point; end: Point; color: string; width: number }
@@ -75,15 +75,6 @@ const shortcutMatchesEvent = (event: KeyboardEvent, shortcut: string[]) => {
 
 const formatShortcut = (shortcut: string[]) =>
   shortcut.map((key) => keymaps[key]?.label ?? key).join(" + ");
-
-const NumberMarkerIcon = () => (
-  <svg viewBox="0 0 24 24" aria-hidden="true">
-    <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    <text x="12" y="12.5" fill="currentColor" fontSize="10" textAnchor="middle" dominantBaseline="middle">
-      1
-    </text>
-  </svg>
-);
 
 const drawTaperedArrow = (
   context: CanvasRenderingContext2D,
@@ -217,6 +208,7 @@ export default function ScreenDrawing() {
     grouped: false,
   });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
+  const toolbarItems = useDrawingToolbar((state) => state.items);
   const isTextEditorOpen = textEditor !== null;
   const drawingUndoShortcut = useKeyEvent((state) => state.drawingUndoShortcut);
   const drawingCloseShortcut = useKeyEvent((state) => state.drawingCloseShortcut);
@@ -341,6 +333,10 @@ export default function ScreenDrawing() {
       const nativeCloseListener = listen("native-drawing-close", () => {
         void invoke("close_screen_drawing");
       });
+      const toolbarSettingsListener = listenForUpdates<DrawingToolbarStore>(
+        DRAWING_TOOLBAR_STORE,
+        useDrawingToolbar.setState,
+      );
       return () => {
         observer.disconnect();
         void resizeRequestListener.then((unlisten) => unlisten());
@@ -348,6 +344,7 @@ export default function ScreenDrawing() {
         void widthListener.then((unlisten) => unlisten());
         void selectionListener.then((unlisten) => unlisten());
         void nativeCloseListener.then((unlisten) => unlisten());
+        void toolbarSettingsListener.then((unlisten) => unlisten());
       };
     }
 
@@ -428,6 +425,14 @@ export default function ScreenDrawing() {
       await invoke("drawing_toggle_group");
     }
   };
+
+  useEffect(() => {
+    if (!isToolbar || tool === "pointer") return;
+    const activeTool = toolbarItems.find((item) => item.id === tool);
+    if (activeTool?.visible !== false) return;
+    setTool("pointer");
+    void invoke("drawing_set_tool", { tool: "pointer" });
+  }, [isToolbar, tool, toolbarItems]);
 
   const onPointerDown = (event: PointerEvent<HTMLCanvasElement>) => {
     if (tool === "pointer" || tool === "select") return;
@@ -532,18 +537,9 @@ export default function ScreenDrawing() {
     );
   }
 
-  const toolButtons: Array<{ value: Tool; label: string; icon: ComponentType }> = [
-    { value: "pointer", label: t("Pointer"), icon: MousePointer2 },
-    { value: "pen", label: t("Pen"), icon: Pencil },
-    { value: "arrow", label: t("Arrow"), icon: ArrowUpRight },
-    { value: "number", label: t("Number Marker"), icon: NumberMarkerIcon },
-    { value: "rectangle", label: t("Rectangle"), icon: Square },
-    { value: "ellipse", label: t("Ellipse"), icon: Circle },
-    { value: "eraser", label: t("Eraser"), icon: Eraser },
-    { value: "select", label: t("Select Objects"), icon: SquareDashedMousePointer },
-    { value: "text", label: t("Text"), icon: Type },
-    { value: "line", label: t("Line"), icon: Minus },
-  ];
+  const toolButtons = toolbarItems
+    .filter((item) => item.visible)
+    .map((item) => DRAWING_TOOL_BY_ID[item.id]);
 
   return (
     <aside ref={toolbarRef} className="drawing-toolbar" aria-label={t("Screen Drawing")}>
@@ -561,12 +557,12 @@ export default function ScreenDrawing() {
       >
         <X />
       </button>
-      {toolButtons.map(({ value, label, icon: Icon }) => (
+      {toolButtons.map(({ id, label, icon: Icon }) => (
         <button
-          key={value}
-          className={tool === value ? "active" : ""}
-          title={label}
-          onClick={() => void sendCommand({ type: "tool", value })}
+          key={id}
+          className={tool === id ? "active" : ""}
+          title={t(label)}
+          onClick={() => void sendCommand({ type: "tool", value: id })}
         >
           <Icon />
         </button>
