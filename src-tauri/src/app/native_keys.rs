@@ -31,7 +31,7 @@ pub struct NativeKeyItem {
     pub pressed: bool,
 }
 
-#[cfg(target_os = "windows")]
+#[cfg(any())]
 mod platform {
     use std::{
         sync::mpsc::{self, Receiver, Sender},
@@ -668,6 +668,10 @@ mod platform {
     }
 }
 
+#[cfg(target_os = "windows")]
+#[path = "native_keys_software.rs"]
+mod software_platform;
+
 #[cfg(not(target_os = "windows"))]
 mod platform {
     use super::NativeKeyVisual;
@@ -693,4 +697,8 @@ mod platform {
     }
 }
 
+#[cfg(target_os = "windows")]
+pub use software_platform::NativeKeyOverlay;
+
+#[cfg(not(target_os = "windows"))]
 pub use platform::NativeKeyOverlay;
