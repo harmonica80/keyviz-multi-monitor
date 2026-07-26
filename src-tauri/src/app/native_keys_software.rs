@@ -36,8 +36,8 @@ use windows::{
                 DIB_RGB_COLORS, HDC,
             },
             Imaging::{
-                CLSID_WICImagingFactory, GUID_WICPixelFormat32bppPBGRA, IWICBitmap,
-                IWICImagingFactory, WICBitmapCacheOnLoad,
+                CLSID_WICImagingFactory, GUID_WICPixelFormat32bppPBGRA, IWICImagingFactory,
+                WICBitmapCacheOnLoad,
             },
         },
         System::{
