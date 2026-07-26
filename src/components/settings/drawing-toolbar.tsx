@@ -20,7 +20,13 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { type ButtonHTMLAttributes, type DragEvent, useState } from "react";
+import { type ButtonHTMLAttributes, useRef, useState } from "react";
+
+interface ToolbarDragSession {
+  pointerId: number;
+  sourceId: DrawingTool;
+  targetId: DrawingTool;
+}
 
 export const DrawingToolbarSettings = () => {
   const { t } = useTranslation();
@@ -30,15 +36,17 @@ export const DrawingToolbarSettings = () => {
   const resetToolbar = useDrawingToolbar((state) => state.resetToolbar);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
+  const dragSession = useRef<ToolbarDragSession | null>(null);
 
   const reorder = (sourceId: DrawingTool, targetId: DrawingTool) => {
     if (sourceId === targetId) return;
     const next = items.map((item) => ({ ...item }));
     const sourceIndex = next.findIndex((item) => item.id === sourceId);
-    if (sourceIndex < 0) return;
+    const originalTargetIndex = next.findIndex((item) => item.id === targetId);
+    if (sourceIndex < 0 || originalTargetIndex < 0) return;
     const [moved] = next.splice(sourceIndex, 1);
-    const targetIndex = next.findIndex((item) => item.id === targetId);
-    if (targetIndex < 0) return;
+    let targetIndex = next.findIndex((item) => item.id === targetId);
+    if (sourceIndex < originalTargetIndex) targetIndex += 1;
     next.splice(targetIndex, 0, moved);
     setItems(next);
   };
@@ -52,11 +60,16 @@ export const DrawingToolbarSettings = () => {
     setItems(next);
   };
 
-  const handleDrop = (event: DragEvent<HTMLDivElement>, targetId: DrawingTool) => {
-    event.preventDefault();
-    const transferredTool = event.dataTransfer.getData("text/plain") as DrawingTool;
-    const sourceId = draggedTool ?? transferredTool;
-    if (DRAWING_TOOL_BY_ID[sourceId]) reorder(sourceId, targetId);
+  const finishDrag = () => {
+    const session = dragSession.current;
+    if (session) reorder(session.sourceId, session.targetId);
+    dragSession.current = null;
+    setDraggedTool(null);
+    setDropTarget(null);
+  };
+
+  const cancelDrag = () => {
+    dragSession.current = null;
     setDraggedTool(null);
     setDropTarget(null);
   };
@@ -93,33 +106,51 @@ export const DrawingToolbarSettings = () => {
             return (
               <div
                 key={item.id}
+                data-toolbar-tool={item.id}
                 className={`flex items-center gap-3 rounded-xl border bg-card p-3 transition ${
                   dropTarget === item.id ? "border-primary ring-2 ring-primary/20" : ""
-                } ${item.visible ? "" : "opacity-55"}`}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  event.dataTransfer.dropEffect = "move";
-                  setDropTarget(item.id);
-                }}
-                onDragLeave={() => setDropTarget((current) => current === item.id ? null : current)}
-                onDrop={(event) => handleDrop(event, item.id)}
-                onDragEnd={() => {
-                  setDraggedTool(null);
-                  setDropTarget(null);
-                }}
+                } ${item.visible ? "" : "opacity-55"} ${
+                  draggedTool === item.id ? "scale-[0.99] opacity-70" : ""
+                }`}
               >
-                <span
-                  draggable
+                <button
+                  type="button"
                   title={t("Drag to reorder")}
-                  className="grid size-7 shrink-0 cursor-grab place-items-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing"
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", item.id);
+                  aria-label={`${t("Drag to reorder")}: ${t(definition.label)}`}
+                  className="grid size-7 shrink-0 touch-none select-none place-items-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing"
+                  style={{ cursor: draggedTool === item.id ? "grabbing" : "grab" }}
+                  onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    dragSession.current = {
+                      pointerId: event.pointerId,
+                      sourceId: item.id,
+                      targetId: item.id,
+                    };
                     setDraggedTool(item.id);
+                    setDropTarget(item.id);
                   }}
+                  onPointerMove={(event) => {
+                    const session = dragSession.current;
+                    if (!session || session.pointerId !== event.pointerId) return;
+                    const target = document
+                      .elementFromPoint(event.clientX, event.clientY)
+                      ?.closest<HTMLElement>("[data-toolbar-tool]");
+                    const targetId = target?.dataset.toolbarTool as DrawingTool | undefined;
+                    if (!targetId || !DRAWING_TOOL_BY_ID[targetId]) return;
+                    session.targetId = targetId;
+                    setDropTarget(targetId);
+                  }}
+                  onPointerUp={(event) => {
+                    const session = dragSession.current;
+                    if (!session || session.pointerId !== event.pointerId) return;
+                    finishDrag();
+                  }}
+                  onPointerCancel={cancelDrag}
                 >
                   <GripVertical className="size-5" />
-                </span>
+                </button>
                 <div className="grid size-10 shrink-0 place-items-center rounded-lg border bg-background">
                   <Icon />
                 </div>
