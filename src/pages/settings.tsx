@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { AboutPage, AppearanceSettings, DrawingToolbarSettings, GeneralSettings, KeycapSettings, MouseSettings } from "@/components/settings";
-import { VERSION } from "@/components/settings/about";
 import { ThemeModeToggle } from "@/components/theme-mode-toggle";
 import { LocaleToggle } from "@/components/locale-toggle";
+import { useAppVersion } from "@/lib/app-version";
 import { useTranslation } from "@/lib/i18n";
 import { invoke } from "@tauri-apps/api/core";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -22,6 +22,7 @@ const sideBar = [
 const Settings = () => {
     const [activeTab, setActiveTab] = useState(sideBar[0].id);
     const { locale, t } = useTranslation();
+    const version = useAppVersion();
 
     useEffect(() => {
         document.documentElement.lang = locale;
@@ -37,7 +38,7 @@ const Settings = () => {
                     <img src="./logo.svg" alt="logo" className="w-8 h-8" />
                     <div className="flex flex-col gap-y-0.5">
                         <h1 className="text-sm font-semibold">Keyviz</h1>
-                        <p className="text-xs text-gray-400">v{VERSION}</p>
+                        <p className="text-xs text-gray-400">v{version}</p>
                     </div>
                 </div>
                 {

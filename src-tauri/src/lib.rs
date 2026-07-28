@@ -19,8 +19,15 @@ use app::native_drawing::NativeTool;
 use app::state::{AppState, TrayMenuItems};
 use app::window::config_window;
 
+const APP_DISPLAY_NAME: &str = "Keyviz 鍵盤按鍵顯示器與螢幕繪圖";
+
+fn app_window_title(app: &AppHandle) -> String {
+    format!("{APP_DISPLAY_NAME} v{}", app.package_info().version)
+}
+
 fn show_settings_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("settings") {
+        let _ = window.set_title(&app_window_title(app));
         let _ = window.show();
         let _ = window.set_focus();
         return;
@@ -28,7 +35,7 @@ fn show_settings_window(app: &AppHandle) {
 
     let webview_url = tauri::WebviewUrl::App("index.html#/settings".into());
     if WebviewWindowBuilder::new(app, "settings", webview_url)
-        .title("Keyviz 鍵盤按鍵顯示器與螢幕繪圖")
+        .title(app_window_title(app))
         .inner_size(800.0, 640.0)
         .min_inner_size(640.0, 480.0)
         .max_inner_size(1000.0, 800.0)
@@ -616,6 +623,7 @@ pub fn run() {
 
             // prepare window
             if let Some(window) = app.get_webview_window("main") {
+                let _ = window.set_title(&app_window_title(app_handle));
                 config_window(&window, &mut app_state);
             }
             // manage app state
