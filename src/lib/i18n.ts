@@ -167,6 +167,8 @@ const zhTW: Record<string, string> = {
   "Ellipse": "圓形",
   "Enter text": "輸入文字",
   "Number Marker": "序號標記",
+  "Check Mark": "勾選記號",
+  "Cross Mark": "叉號記號",
   "Undo": "復原",
   "Draw and annotate directly across all displays.": "直接在所有螢幕上繪圖與加註。",
   "Start Drawing": "開始繪圖",

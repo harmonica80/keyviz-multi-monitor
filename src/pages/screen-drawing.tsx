@@ -36,7 +36,7 @@ type TextEditor = { start: Point; value: string; color: string; width: number };
 type Tool = DrawingTool;
 type Drawing =
   | { tool: "pen" | "eraser"; points: Point[]; color: string; width: number }
-  | { tool: "line" | "arrow" | "rectangle" | "ellipse"; start: Point; end: Point; color: string; width: number }
+  | { tool: "line" | "arrow" | "rectangle" | "ellipse" | "check-mark" | "cross-mark"; start: Point; end: Point; color: string; width: number }
   | { tool: "text"; start: Point; text: string; color: string; width: number }
   | { tool: "number"; center: Point; value: number; color: string; width: number };
 type DrawingCommand =
@@ -164,6 +164,25 @@ const renderDrawing = (context: CanvasRenderingContext2D, drawing: Drawing) => {
   const shapeHeight = drawing.end.y - drawing.start.y;
   if (drawing.tool === "arrow") {
     drawTaperedArrow(context, drawing.start, drawing.end, drawing.width);
+    context.restore();
+    return;
+  }
+  if (drawing.tool === "check-mark") {
+    context.beginPath();
+    context.moveTo(drawing.start.x, drawing.start.y + shapeHeight * 0.52);
+    context.lineTo(drawing.start.x + shapeWidth * 0.38, drawing.end.y);
+    context.lineTo(drawing.end.x, drawing.start.y);
+    context.stroke();
+    context.restore();
+    return;
+  }
+  if (drawing.tool === "cross-mark") {
+    context.beginPath();
+    context.moveTo(drawing.start.x, drawing.start.y);
+    context.lineTo(drawing.end.x, drawing.end.y);
+    context.moveTo(drawing.end.x, drawing.start.y);
+    context.lineTo(drawing.start.x, drawing.end.y);
+    context.stroke();
     context.restore();
     return;
   }

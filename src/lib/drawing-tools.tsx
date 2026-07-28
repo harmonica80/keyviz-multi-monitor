@@ -21,7 +21,9 @@ export type DrawingTool =
   | "rectangle"
   | "ellipse"
   | "text"
-  | "number";
+  | "number"
+  | "check-mark"
+  | "cross-mark";
 
 export interface DrawingToolDefinition {
   id: DrawingTool;
@@ -46,11 +48,32 @@ export const NumberMarkerIcon = () => (
   </svg>
 );
 
+const SymbolToolIcon = ({ symbol }: { symbol: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden="true">
+    <text
+      x="12"
+      y="12.5"
+      fill="currentColor"
+      fontSize="19"
+      fontWeight="600"
+      textAnchor="middle"
+      dominantBaseline="middle"
+    >
+      {symbol}
+    </text>
+  </svg>
+);
+
+export const CheckMarkIcon = () => <SymbolToolIcon symbol="✓" />;
+export const CrossMarkIcon = () => <SymbolToolIcon symbol="✕" />;
+
 export const DRAWING_TOOLS: DrawingToolDefinition[] = [
   { id: "pointer", label: "Pointer", icon: MousePointer2, canHide: false },
   { id: "pen", label: "Pen", icon: Pencil, canHide: true },
   { id: "arrow", label: "Arrow", icon: ArrowUpRight, canHide: true },
   { id: "number", label: "Number Marker", icon: NumberMarkerIcon, canHide: true },
+  { id: "check-mark", label: "Check Mark", icon: CheckMarkIcon, canHide: true },
+  { id: "cross-mark", label: "Cross Mark", icon: CrossMarkIcon, canHide: true },
   { id: "rectangle", label: "Rectangle", icon: Square, canHide: true },
   { id: "ellipse", label: "Ellipse", icon: Circle, canHide: true },
   { id: "eraser", label: "Eraser", icon: Eraser, canHide: true },

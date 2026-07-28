@@ -171,6 +171,8 @@ mod platform {
         Ellipse,
         Text,
         Number,
+        CheckMark,
+        CrossMark,
     }
 
     enum DrawingCommand {
@@ -546,6 +548,8 @@ mod platform {
             "ellipse" => Some(NativeTool::Ellipse),
             "text" => Some(NativeTool::Text),
             "number" => Some(NativeTool::Number),
+            "check-mark" => Some(NativeTool::CheckMark),
+            "cross-mark" => Some(NativeTool::CrossMark),
             _ => None,
         }
     }
@@ -1210,6 +1214,8 @@ mod platform {
                 | NativeTool::Arrow
                 | NativeTool::Rectangle
                 | NativeTool::Ellipse
+                | NativeTool::CheckMark
+                | NativeTool::CrossMark
         ) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
@@ -1740,7 +1746,13 @@ mod platform {
                 rotation,
                 ..
             } => {
-                if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                if matches!(
+                    tool,
+                    NativeTool::Rectangle
+                        | NativeTool::Ellipse
+                        | NativeTool::CheckMark
+                        | NativeTool::CrossMark
+                ) {
                     *rotation
                 } else {
                     angle_between(*start, *end)
@@ -1758,7 +1770,14 @@ mod platform {
                 end,
                 rotation,
                 ..
-            } if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) => {
+            } if matches!(
+                tool,
+                NativeTool::Rectangle
+                    | NativeTool::Ellipse
+                    | NativeTool::CheckMark
+                    | NativeTool::CrossMark
+            ) =>
+            {
                 rotated_shape_corners(*start, *end, *rotation).to_vec()
             }
             DrawingItem::Shape { start, end, .. } => vec![*start, *end],
@@ -2074,7 +2093,13 @@ mod platform {
                 rotation,
                 ..
             } => {
-                if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                if matches!(
+                    tool,
+                    NativeTool::Rectangle
+                        | NativeTool::Ellipse
+                        | NativeTool::CheckMark
+                        | NativeTool::CrossMark
+                ) {
                     let center = Point {
                         x: (start.x + end.x) / 2,
                         y: (start.y + end.y) / 2,
@@ -2166,7 +2191,13 @@ mod platform {
                 rotation,
                 ..
             } => {
-                if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                if matches!(
+                    tool,
+                    NativeTool::Rectangle
+                        | NativeTool::Ellipse
+                        | NativeTool::CheckMark
+                        | NativeTool::CrossMark
+                ) {
                     let old_center = Point {
                         x: (start.x + end.x) / 2,
                         y: (start.y + end.y) / 2,
@@ -2241,7 +2272,13 @@ mod platform {
                 ..
             } => {
                 let padding = (*width).max(1) + 5;
-                let points = if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                let points = if matches!(
+                    tool,
+                    NativeTool::Rectangle
+                        | NativeTool::Ellipse
+                        | NativeTool::CheckMark
+                        | NativeTool::CrossMark
+                ) {
                     rotated_shape_corners(*start, *end, *rotation).to_vec()
                 } else {
                     vec![*start, *end]
@@ -2653,6 +2690,91 @@ mod platform {
                         .collect();
                     GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32)
                 }
+                NativeTool::CheckMark => {
+                    let center = Point {
+                        x: (start.x + end.x) / 2,
+                        y: (start.y + end.y) / 2,
+                    };
+                    let points = [
+                        Point {
+                            x: left,
+                            y: top + shape_height * 52 / 100,
+                        },
+                        Point {
+                            x: left + shape_width * 38 / 100,
+                            y: top + shape_height,
+                        },
+                        Point {
+                            x: left + shape_width,
+                            y: top,
+                        },
+                    ]
+                    .map(|point| rotate_point(point, center, rotation));
+                    let first = GdipDrawLineI(
+                        graphics,
+                        pen,
+                        points[0].x,
+                        points[0].y,
+                        points[1].x,
+                        points[1].y,
+                    );
+                    let second = GdipDrawLineI(
+                        graphics,
+                        pen,
+                        points[1].x,
+                        points[1].y,
+                        points[2].x,
+                        points[2].y,
+                    );
+                    if first == 0 {
+                        second
+                    } else {
+                        first
+                    }
+                }
+                NativeTool::CrossMark => {
+                    let center = Point {
+                        x: (start.x + end.x) / 2,
+                        y: (start.y + end.y) / 2,
+                    };
+                    let points = [
+                        Point { x: left, y: top },
+                        Point {
+                            x: left + shape_width,
+                            y: top + shape_height,
+                        },
+                        Point {
+                            x: left + shape_width,
+                            y: top,
+                        },
+                        Point {
+                            x: left,
+                            y: top + shape_height,
+                        },
+                    ]
+                    .map(|point| rotate_point(point, center, rotation));
+                    let first = GdipDrawLineI(
+                        graphics,
+                        pen,
+                        points[0].x,
+                        points[0].y,
+                        points[1].x,
+                        points[1].y,
+                    );
+                    let second = GdipDrawLineI(
+                        graphics,
+                        pen,
+                        points[2].x,
+                        points[2].y,
+                        points[3].x,
+                        points[3].y,
+                    );
+                    if first == 0 {
+                        second
+                    } else {
+                        first
+                    }
+                }
                 _ => 1,
             };
             GdipDeletePen(pen);
@@ -2750,6 +2872,45 @@ mod platform {
                         .collect();
                     let _ = Polygon(dc, &points);
                 }
+            }
+            NativeTool::CheckMark => {
+                let center = Point {
+                    x: (start.x + end.x) / 2,
+                    y: (start.y + end.y) / 2,
+                };
+                let left = start.x.min(end.x);
+                let top = start.y.min(end.y);
+                let shape_width = (end.x - start.x).abs().max(1);
+                let shape_height = (end.y - start.y).abs().max(1);
+                let points = [
+                    Point {
+                        x: left,
+                        y: top + shape_height * 52 / 100,
+                    },
+                    Point {
+                        x: left + shape_width * 38 / 100,
+                        y: top + shape_height,
+                    },
+                    Point {
+                        x: left + shape_width,
+                        y: top,
+                    },
+                ]
+                .map(|point| rotate_point(point, center, rotation));
+                MoveToEx(dc, points[0].x, points[0].y, None);
+                LineTo(dc, points[1].x, points[1].y);
+                LineTo(dc, points[2].x, points[2].y);
+            }
+            NativeTool::CrossMark => {
+                let center = Point {
+                    x: (start.x + end.x) / 2,
+                    y: (start.y + end.y) / 2,
+                };
+                let corners = rotated_shape_corners(start, end, rotation);
+                MoveToEx(dc, corners[0].x, corners[0].y, None);
+                LineTo(dc, corners[2].x, corners[2].y);
+                MoveToEx(dc, corners[1].x, corners[1].y, None);
+                LineTo(dc, corners[3].x, corners[3].y);
             }
             _ => {}
         }
@@ -3481,6 +3642,8 @@ mod platform_stub {
         Ellipse,
         Text,
         Number,
+        CheckMark,
+        CrossMark,
     }
 
     impl NativeDrawingOverlay {
