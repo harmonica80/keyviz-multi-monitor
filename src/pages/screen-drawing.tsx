@@ -475,6 +475,20 @@ export default function ScreenDrawing() {
       void invoke("activate_drawing_toolbar");
       return;
     }
+    if (tool === "check-mark" || tool === "cross-mark") {
+      const radius = 14 + width * 2;
+      drawingsRef.current.push({
+        tool,
+        start: { x: start.x - radius, y: start.y - radius },
+        end: { x: start.x + radius, y: start.y + radius },
+        color,
+        width,
+      });
+      redraw();
+      notifyHistory();
+      void invoke("activate_drawing_toolbar");
+      return;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     activeRef.current =
       tool === "pen" || tool === "eraser"

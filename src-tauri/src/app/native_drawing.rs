@@ -345,6 +345,7 @@ mod platform {
     }
 
     #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
     struct DrawingHistoryPayload {
         can_undo: bool,
     }
@@ -789,14 +790,23 @@ mod platform {
             }
             DrawingCommand::SetColor(color) => {
                 state.color = parse_color(&color);
-                if matches!(state.tool, NativeTool::Number) {
+                if matches!(
+                    state.tool,
+                    NativeTool::Number | NativeTool::CheckMark | NativeTool::CrossMark
+                ) {
                     replace_tool_cursor(state, false);
                 }
             }
             DrawingCommand::SetWidth(width) => {
                 let width = width.clamp(1, 15);
                 state.width = width;
-                if matches!(state.tool, NativeTool::Eraser) {
+                if matches!(
+                    state.tool,
+                    NativeTool::Eraser
+                        | NativeTool::Number
+                        | NativeTool::CheckMark
+                        | NativeTool::CrossMark
+                ) {
                     replace_tool_cursor(state, false);
                 }
             }
@@ -1023,6 +1033,26 @@ mod platform {
                 emit_history(&state.app, true);
                 raise_toolbar(&state.app);
             }
+            tool @ (NativeTool::CheckMark | NativeTool::CrossMark) => {
+                let radius = stamp_radius(state.width);
+                state.drawings.push(DrawingItem::Shape {
+                    tool,
+                    start: Point {
+                        x: point.x - radius,
+                        y: point.y - radius,
+                    },
+                    end: Point {
+                        x: point.x + radius,
+                        y: point.y + radius,
+                    },
+                    color: state.color,
+                    width: state.width.max(1),
+                    rotation: 0.0,
+                    group: None,
+                });
+                emit_history(&state.app, true);
+                raise_toolbar(&state.app);
+            }
             NativeTool::Pen => {
                 state.active = Some(ActiveDrawing::Stroke {
                     points: vec![point],
@@ -1199,7 +1229,10 @@ mod platform {
             refresh_overlay(state);
             return;
         }
-        if matches!(state.tool, NativeTool::Number) {
+        if matches!(
+            state.tool,
+            NativeTool::Number | NativeTool::CheckMark | NativeTool::CrossMark
+        ) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
             replace_tool_cursor(state, true);
@@ -1214,8 +1247,6 @@ mod platform {
                 | NativeTool::Arrow
                 | NativeTool::Rectangle
                 | NativeTool::Ellipse
-                | NativeTool::CheckMark
-                | NativeTool::CrossMark
         ) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
@@ -2346,6 +2377,10 @@ mod platform {
         14 + width.clamp(1, 100) * 2
     }
 
+    fn stamp_radius(width: i32) -> i32 {
+        number_radius(width)
+    }
+
     fn number_corners(center: Point, width: i32, rotation: f64) -> [Point; 4] {
         let radius = number_radius(width);
         [
@@ -3250,6 +3285,9 @@ mod platform {
             NativeTool::Pen => create_pen_cursor(),
             NativeTool::Eraser => create_eraser_cursor(width),
             NativeTool::Number => create_number_cursor(next_number, color, width),
+            NativeTool::CheckMark | NativeTool::CrossMark => {
+                create_stamp_cursor(tool, color, width)
+            }
             _ => None,
         };
         if let Some(cursor) = custom {
@@ -3474,6 +3512,46 @@ mod platform {
             windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
             SelectObject(dc, old_font);
             DeleteObject(font);
+        })
+    }
+
+    unsafe fn create_stamp_cursor(
+        tool: NativeTool,
+        color: COLORREF,
+        width: i32,
+    ) -> Option<HCURSOR> {
+        let radius = stamp_radius(width).clamp(16, 44);
+        let cursor_size = radius * 2 + 8;
+        let center = cursor_size / 2;
+        let line_color = if color.0 & 0x00ff_ffff == 0 {
+            COLORREF(0x0001_0101)
+        } else {
+            color
+        };
+
+        create_argb_cursor(cursor_size, center as u32, center as u32, |dc| {
+            let pen = CreatePen(PS_SOLID, width.clamp(2, 15), line_color);
+            let old_pen = SelectObject(dc, pen);
+            let left = center - radius;
+            let top = center - radius;
+            let right = center + radius;
+            let bottom = center + radius;
+            match tool {
+                NativeTool::CheckMark => {
+                    MoveToEx(dc, left, top + radius, None);
+                    LineTo(dc, left + radius * 3 / 4, bottom);
+                    LineTo(dc, right, top);
+                }
+                NativeTool::CrossMark => {
+                    MoveToEx(dc, left, top, None);
+                    LineTo(dc, right, bottom);
+                    MoveToEx(dc, right, top, None);
+                    LineTo(dc, left, bottom);
+                }
+                _ => {}
+            }
+            SelectObject(dc, old_pen);
+            DeleteObject(pen);
         })
     }
 
