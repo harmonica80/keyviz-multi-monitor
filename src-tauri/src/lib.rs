@@ -193,6 +193,27 @@ fn create_drawing_toolbar(
     Ok(())
 }
 
+fn drawing_toolbar_open_position(app: &AppHandle, side: &str) -> Result<(i32, i32, u32), String> {
+    let monitors = app
+        .available_monitors()
+        .map_err(|error| error.to_string())?;
+    let primary = app
+        .primary_monitor()
+        .map_err(|error| error.to_string())?
+        .or_else(|| monitors.first().cloned())
+        .ok_or_else(|| "No primary monitor is available".to_string())?;
+    let margin = 8;
+    let toolbar_width = (48.0 * primary.scale_factor()).round().max(1.0) as i32;
+    let toolbar_x = if side == "left" {
+        primary.position().x + margin
+    } else {
+        primary.position().x + primary.size().width as i32 - toolbar_width - margin
+    };
+    let toolbar_y = primary.position().y + margin;
+    let toolbar_height = (primary.size().height.saturating_sub(16)).min(820);
+    Ok((toolbar_x, toolbar_y, toolbar_height))
+}
+
 fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
     let toolbar = app
         .get_webview_window("drawing-toolbar")
@@ -329,17 +350,16 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
         .map(|monitor| monitor.position().y + monitor.size().height as i32)
         .max()
         .unwrap_or(1);
-    let primary = app
-        .primary_monitor()
-        .map_err(|error| error.to_string())?
-        .or_else(|| monitors.first().cloned())
-        .ok_or_else(|| "No primary monitor is available".to_string())?;
     let drawing_width = right - left;
     let drawing_height = bottom - top;
-    let toolbar_height = (primary.size().height.saturating_sub(16)).min(820);
-    let toolbar_width = 64;
-    let toolbar_x = primary.position().x + primary.size().width as i32 - toolbar_width - 8;
-    let toolbar_y = primary.position().y + 8;
+    let drawing_toolbar_side = app
+        .state::<Mutex<AppState>>()
+        .lock()
+        .map_err(|error| error.to_string())?
+        .drawing_toolbar_side
+        .clone();
+    let (toolbar_x, toolbar_y, toolbar_height) =
+        drawing_toolbar_open_position(app, &drawing_toolbar_side)?;
 
     create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height)?;
     let state = app.state::<Mutex<AppState>>();
@@ -409,6 +429,26 @@ fn open_screen_drawing(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn close_screen_drawing(app: AppHandle) -> Result<(), String> {
     close_screen_drawing_impl(app)
+}
+
+#[tauri::command]
+fn set_drawing_toolbar_side(app: AppHandle, side: String) -> Result<(), String> {
+    let normalized_side = if side == "left" { "left" } else { "right" }.to_string();
+    let drawing_visible = {
+        let state = app.state::<Mutex<AppState>>();
+        let mut app_state = state.lock().map_err(|error| error.to_string())?;
+        app_state.drawing_toolbar_side.clone_from(&normalized_side);
+        app_state.drawing_visible
+    };
+
+    if drawing_visible {
+        let (toolbar_x, toolbar_y, toolbar_height) =
+            drawing_toolbar_open_position(&app, &normalized_side)?;
+        create_drawing_toolbar(&app, toolbar_x, toolbar_y, toolbar_height)?;
+        keep_drawing_toolbar_above_canvas(&app)?;
+    }
+
+    Ok(())
 }
 
 pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
@@ -780,6 +820,7 @@ pub fn run() {
             set_cursor_settings,
             get_cursor_settings,
             open_screen_drawing,
+            set_drawing_toolbar_side,
             close_screen_drawing,
             set_drawing_click_through,
             activate_drawing_toolbar,

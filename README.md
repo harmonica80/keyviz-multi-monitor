@@ -18,7 +18,7 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 - 內建螢幕繪圖工具，可直接在影片、網頁、簡報或任何視窗上標註。
 - 螢幕繪圖採用原生 Windows 透明繪圖視窗，不會抓取靜態畫面，影片可持續播放。
 - 繪圖工具包含游標模式、畫筆、橡皮擦、直線、箭頭、矩形、圓形、文字、顏色、筆刷粗細、復原與清空。
-- 繪圖工具列可移動，預設顯示於畫面右側。
+- 繪圖工具列可移動，並可在設定中選擇開啟於主要螢幕的左側或右側（預設右側）。
 - 繪圖色塊會在目前選取顏色上顯示勾選標記，並保留原本顏色。
 - 快速鍵 `F8` 可開啟或關閉螢幕繪圖。
 - 在螢幕繪圖模式下按 `F7` 可切回游標/滑鼠模式。
@@ -38,7 +38,7 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 - Built-in screen drawing tools for annotating videos, webpages, slides, or any application window.
 - Native Windows transparent drawing overlay, so videos keep playing while you draw on top.
 - Drawing tools include pointer mode, pen, eraser, line, arrow, rectangle, ellipse, text, colors, brush sizes, undo, and clear.
-- Movable drawing toolbar, shown on the right side by default.
+- Movable drawing toolbar with a setting to open it on the left or right side of the primary display (right by default).
 - Selected drawing color is marked with a check while keeping the original color visible.
 - Press `F8` to toggle screen drawing.
 - Press `F7` while screen drawing is active to return to pointer/mouse mode.

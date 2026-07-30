@@ -17,6 +17,7 @@ pub struct AppState {
     pub drawing_clear_shortcut: Vec<String>,
     pub drawing_undo_shortcut: Vec<String>,
     pub drawing_close_shortcut: Vec<String>,
+    pub drawing_toolbar_side: String,
 
     pub monitor_name: Option<String>,
     pub monitor_scale: f64,
@@ -59,6 +60,7 @@ impl AppState {
         let mut drawing_clear_shortcut = default_drawing_clear_shortcut();
         let mut drawing_undo_shortcut = default_drawing_undo_shortcut();
         let mut drawing_close_shortcut = default_drawing_close_shortcut();
+        let mut drawing_toolbar_side = default_drawing_toolbar_side();
         let mut locale = "zh-TW".to_string();
         let mut cursor_keep_highlight = true;
         let mut cursor_size = 80.0;
@@ -104,6 +106,16 @@ impl AppState {
         }
 
         if let Ok(store) = app.store("store.json") {
+            if let Some(value) = store.get("drawing_toolbar_store") {
+                if let Some(json_str) = value.as_str() {
+                    if let Ok(parsed) = serde_json::from_str::<DrawingToolbarStore>(json_str) {
+                        drawing_toolbar_side = normalize_drawing_toolbar_side(&parsed.state.side);
+                    }
+                }
+            }
+        }
+
+        if let Ok(store) = app.store("store.json") {
             if let Some(value) = store.get("key_style_store") {
                 if let Some(json_str) = value.as_str() {
                     if let Ok(parsed) = serde_json::from_str::<KeyStyleStore>(json_str) {
@@ -134,6 +146,7 @@ impl AppState {
             drawing_clear_shortcut,
             drawing_undo_shortcut,
             drawing_close_shortcut,
+            drawing_toolbar_side,
             monitor_name: None,
             monitor_scale: 1.0,
             monitor_position: (0, 0),
@@ -255,6 +268,29 @@ fn default_drawing_undo_shortcut() -> Vec<String> {
 
 fn default_drawing_close_shortcut() -> Vec<String> {
     vec!["Escape".to_string()]
+}
+
+fn default_drawing_toolbar_side() -> String {
+    "right".to_string()
+}
+
+fn normalize_drawing_toolbar_side(side: &str) -> String {
+    if side == "left" {
+        "left".to_string()
+    } else {
+        default_drawing_toolbar_side()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct DrawingToolbarStore {
+    state: DrawingToolbarState,
+}
+
+#[derive(Debug, Deserialize)]
+struct DrawingToolbarState {
+    #[serde(default = "default_drawing_toolbar_side")]
+    side: String,
 }
 
 #[derive(Debug, Deserialize)]

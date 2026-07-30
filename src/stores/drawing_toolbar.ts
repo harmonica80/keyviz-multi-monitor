@@ -15,13 +15,17 @@ export interface DrawingToolbarItem {
   visible: boolean;
 }
 
+export type DrawingToolbarSide = "left" | "right";
+
 interface DrawingToolbarState {
   items: DrawingToolbarItem[];
+  side: DrawingToolbarSide;
 }
 
 interface DrawingToolbarActions {
   setItems: (items: DrawingToolbarItem[]) => void;
   setToolVisible: (id: DrawingTool, visible: boolean) => void;
+  setSide: (side: DrawingToolbarSide) => void;
   resetToolbar: () => void;
 }
 
@@ -30,6 +34,7 @@ export type DrawingToolbarStore = DrawingToolbarState & DrawingToolbarActions;
 export const DEFAULT_DRAWING_TOOLBAR_ITEMS: DrawingToolbarItem[] = DRAWING_TOOLS.map(
   ({ id }) => ({ id, visible: true }),
 );
+export const DEFAULT_DRAWING_TOOLBAR_SIDE: DrawingToolbarSide = "right";
 
 const validToolIds = new Set<DrawingTool>(DRAWING_TOOLS.map(({ id }) => id));
 
@@ -55,10 +60,14 @@ export const normalizeDrawingToolbarItems = (
   return normalized;
 };
 
+const normalizeDrawingToolbarSide = (side: unknown): DrawingToolbarSide =>
+  side === "left" ? "left" : DEFAULT_DRAWING_TOOLBAR_SIDE;
+
 const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
   DRAWING_TOOLBAR_STORE,
   (set) => ({
     items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
+    side: DEFAULT_DRAWING_TOOLBAR_SIDE,
     setItems: (items) => set({ items: normalizeDrawingToolbarItems(items) }),
     setToolVisible: (id, visible) =>
       set((state) => ({
@@ -68,23 +77,31 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           ),
         ),
       })),
+    setSide: (side) => set({ side: normalizeDrawingToolbarSide(side) }),
     resetToolbar: () =>
-      set({ items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })) }),
+      set({
+        items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
+        side: DEFAULT_DRAWING_TOOLBAR_SIDE,
+      }),
   }),
   (config) =>
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 1,
+      version: 2,
       migrate: (persistedState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
-        return { items: normalizeDrawingToolbarItems(state.items) };
+        return {
+          items: normalizeDrawingToolbarItems(state.items),
+          side: normalizeDrawingToolbarSide(state.side),
+        };
       },
       merge: (persistedState, currentState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
           ...currentState,
           items: normalizeDrawingToolbarItems(state.items),
+          side: normalizeDrawingToolbarSide(state.side),
         };
       },
     }),

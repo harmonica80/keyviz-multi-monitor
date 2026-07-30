@@ -7,20 +7,24 @@ import {
   useDrawingToolbar,
 } from "@/stores/drawing_toolbar";
 import { Button } from "@/components/ui/button";
-import { Item, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Switch } from "@/components/ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Check,
   ChevronDown,
   ChevronUp,
   GripHorizontal,
   GripVertical,
+  PanelLeft,
+  PanelRight,
   Redo2,
   RotateCcw,
   Trash2,
   X,
 } from "lucide-react";
-import { type ButtonHTMLAttributes, useRef, useState } from "react";
+import { type ButtonHTMLAttributes, useEffect, useRef, useState } from "react";
 
 interface ToolbarDragSession {
   pointerId: number;
@@ -31,12 +35,20 @@ interface ToolbarDragSession {
 export const DrawingToolbarSettings = () => {
   const { t } = useTranslation();
   const items = useDrawingToolbar((state) => state.items);
+  const side = useDrawingToolbar((state) => state.side);
   const setItems = useDrawingToolbar((state) => state.setItems);
   const setToolVisible = useDrawingToolbar((state) => state.setToolVisible);
+  const setSide = useDrawingToolbar((state) => state.setSide);
   const resetToolbar = useDrawingToolbar((state) => state.resetToolbar);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
   const dragSession = useRef<ToolbarDragSession | null>(null);
+
+  useEffect(() => {
+    void invoke("set_drawing_toolbar_side", { side }).catch((error) => {
+      console.error("Failed to update drawing toolbar side:", error);
+    });
+  }, [side]);
 
   const reorder = (sourceId: DrawingTool, targetId: DrawingTool) => {
     if (sourceId === targetId) return;
@@ -88,6 +100,33 @@ export const DrawingToolbarSettings = () => {
           {t("Restore Default Toolbar")}
         </Button>
       </div>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Toolbar Opening Side")}</ItemTitle>
+          <ItemDescription>
+            {t("Choose which side of the primary display the drawing toolbar opens on.")}
+          </ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={side}
+            onValueChange={(value) => setSide(value as "left" | "right")}
+          >
+            <ToggleGroupItem value="left" aria-label={t("Left Side")}>
+              <PanelLeft />
+              {t("Left Side")}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="right" aria-label={t("Right Side")}>
+              <PanelRight />
+              {t("Right Side")}
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </ItemActions>
+      </Item>
 
       <Item variant="muted">
         <ItemContent>
