@@ -402,7 +402,6 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
                     false
                 } else {
                     app_state.drawing_overlay.raise();
-                    app_state.cursor_overlay.raise();
                     true
                 }
             } else {
@@ -430,7 +429,6 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
                 } else {
                     if !settings_visible {
                         app_state.drawing_overlay.raise();
-                        app_state.cursor_overlay.raise();
                     }
                     true
                 }
@@ -441,12 +439,8 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
                 break;
             }
             if settings_visible {
-                if let Some(settings) = app_handle.get_webview_window("settings") {
-                    let _ = settings.set_always_on_top(true);
-                }
                 continue;
             }
-            let _ = keep_drawing_toolbar_above_canvas(&app_handle);
         }
     });
 
@@ -492,8 +486,9 @@ fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 fn open_settings_window(app: AppHandle) -> Result<(), String> {
-    show_settings_window(&app);
-    Ok(())
+    let app_handle = app.clone();
+    app.run_on_main_thread(move || show_settings_window(&app_handle))
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
