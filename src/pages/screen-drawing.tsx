@@ -17,7 +17,10 @@ import {
   Check,
   GripHorizontal,
   Group,
+  Keyboard,
+  KeyboardOff,
   Redo2,
+  Settings,
   Trash2,
   X,
 } from "lucide-react";
@@ -222,6 +225,7 @@ export default function ScreenDrawing() {
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(WIDTHS[1]);
   const [canUndo, setCanUndo] = useState(false);
+  const [keyDisplayEnabled, setKeyDisplayEnabled] = useState(true);
   const [selectionState, setSelectionState] = useState<DrawingSelectionPayload>({
     count: 0,
     grouped: false,
@@ -235,6 +239,19 @@ export default function ScreenDrawing() {
   const undoShortcutLabel = formatShortcut(drawingUndoShortcut);
 
   const notifyHistory = useCallback(() => {}, []);
+
+  useEffect(() => {
+    if (!isToolbar) return;
+    void invoke<boolean>("get_key_display_enabled")
+      .then(setKeyDisplayEnabled)
+      .catch((error) => console.error("Failed to read key display state:", error));
+    const listeningListener = listen<boolean>("listening-toggle", (event) => {
+      setKeyDisplayEnabled(event.payload);
+    });
+    return () => {
+      void listeningListener.then((unlisten) => unlisten());
+    };
+  }, [isToolbar]);
 
   useEffect(() => {
     const toolListener = listen<ToolChangedPayload>("drawing-tool-changed", (event) => {
@@ -650,6 +667,27 @@ export default function ScreenDrawing() {
       <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
         <Trash2 />
       </button>
+      <div className="drawing-divider" />
+      <div className="drawing-footer-actions">
+        <button
+          className={!keyDisplayEnabled ? "active" : ""}
+          aria-pressed={!keyDisplayEnabled}
+          title={t(keyDisplayEnabled ? "Stop Key Display" : "Show Key Display")}
+          onClick={() => {
+            void invoke<boolean>("toggle_key_display")
+              .then(setKeyDisplayEnabled)
+              .catch((error) => console.error("Failed to toggle key display:", error));
+          }}
+        >
+          {keyDisplayEnabled ? <KeyboardOff /> : <Keyboard />}
+        </button>
+        <button
+          title={t("Open Settings")}
+          onClick={() => void invoke("open_settings_window")}
+        >
+          <Settings />
+        </button>
+      </div>
     </aside>
   );
 }

@@ -26,8 +26,9 @@ mod platform {
                     GetClientRect, PeekMessageW, RegisterClassW, SetLayeredWindowAttributes,
                     SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
                     HWND_TOPMOST, LWA_ALPHA, LWA_COLORKEY, MSG, PM_REMOVE, SWP_NOACTIVATE,
-                    SWP_SHOWWINDOW, SW_HIDE, WM_DESTROY, WM_ERASEBKGND, WM_PAINT, WNDCLASSW,
-                    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
+                    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, WM_DESTROY, WM_ERASEBKGND,
+                    WM_PAINT, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+                    WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
@@ -42,6 +43,7 @@ mod platform {
 
     enum CursorCommand {
         Update(CursorVisual),
+        Raise,
     }
 
     #[derive(Clone)]
@@ -103,6 +105,13 @@ mod platform {
                 thickness,
                 visible,
             }));
+        }
+
+        pub fn raise(&self) {
+            let Some(sender) = &self.sender else {
+                return;
+            };
+            let _ = sender.send(CursorCommand::Raise);
         }
     }
 
@@ -182,6 +191,7 @@ mod platform {
         loop {
             match receiver.recv_timeout(Duration::from_millis(16)) {
                 Ok(CursorCommand::Update(visual)) => apply_visual(hwnd, visual),
+                Ok(CursorCommand::Raise) => raise_overlay(hwnd),
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
@@ -227,6 +237,18 @@ mod platform {
         );
         InvalidateRect(hwnd, None, true);
         UpdateWindow(hwnd);
+    }
+
+    unsafe fn raise_overlay(hwnd: HWND) {
+        let _ = SetWindowPos(
+            hwnd,
+            HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+        );
     }
 
     unsafe extern "system" fn window_proc(
@@ -301,6 +323,8 @@ mod platform {
             _visible: bool,
         ) {
         }
+
+        pub fn raise(&self) {}
     }
 }
 

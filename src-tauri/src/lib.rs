@@ -26,8 +26,14 @@ fn app_window_title(app: &AppHandle) -> String {
 }
 
 fn show_settings_window(app: &AppHandle) {
+    let drawing_visible = app
+        .try_state::<Mutex<AppState>>()
+        .and_then(|state| state.lock().ok().map(|state| state.drawing_visible))
+        .unwrap_or(false);
+
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.set_title(&app_window_title(app));
+        let _ = window.set_always_on_top(drawing_visible);
         let _ = window.show();
         let _ = window.set_focus();
         return;
@@ -40,6 +46,7 @@ fn show_settings_window(app: &AppHandle) {
         .min_inner_size(640.0, 480.0)
         .max_inner_size(1000.0, 800.0)
         .maximizable(false)
+        .always_on_top(drawing_visible)
         .build()
         .is_ok()
     {
@@ -395,6 +402,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
                     false
                 } else {
                     app_state.drawing_overlay.raise();
+                    app_state.cursor_overlay.raise();
                     true
                 }
             } else {
@@ -404,6 +412,40 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
                 break;
             }
             let _ = sync_drawing_toolbar_passthrough(&app_handle);
+            let _ = keep_drawing_toolbar_above_canvas(&app_handle);
+        }
+
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+            let settings_visible = app_handle
+                .get_webview_window("settings")
+                .and_then(|window| window.is_visible().ok())
+                .unwrap_or(false);
+            let should_continue = if let Ok(app_state) =
+                app_handle.state::<Mutex<AppState>>().lock()
+            {
+                if !app_state.drawing_visible || app_state.drawing_session_id != drawing_session_id
+                {
+                    false
+                } else {
+                    if !settings_visible {
+                        app_state.drawing_overlay.raise();
+                        app_state.cursor_overlay.raise();
+                    }
+                    true
+                }
+            } else {
+                false
+            };
+            if !should_continue {
+                break;
+            }
+            if settings_visible {
+                if let Some(settings) = app_handle.get_webview_window("settings") {
+                    let _ = settings.set_always_on_top(true);
+                }
+                continue;
+            }
             let _ = keep_drawing_toolbar_above_canvas(&app_handle);
         }
     });
@@ -429,6 +471,29 @@ fn open_screen_drawing(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn close_screen_drawing(app: AppHandle) -> Result<(), String> {
     close_screen_drawing_impl(app)
+}
+
+#[tauri::command]
+fn get_key_display_enabled(app: AppHandle) -> Result<bool, String> {
+    app.state::<Mutex<AppState>>()
+        .lock()
+        .map(|state| state.listening)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
+    let toggle_item = app.state::<TrayMenuItems>().toggle.clone();
+    let state = app.state::<Mutex<AppState>>();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.toggle_listener(&app, &toggle_item);
+    Ok(app_state.listening)
+}
+
+#[tauri::command]
+fn open_settings_window(app: AppHandle) -> Result<(), String> {
+    show_settings_window(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -462,6 +527,10 @@ pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
     app_state.drawing_last_move = None;
     app_state.drawing_overlay.hide();
     drop(app_state);
+
+    if let Some(settings) = app.get_webview_window("settings") {
+        let _ = settings.set_always_on_top(false);
+    }
 
     #[cfg(target_os = "windows")]
     if let Some(toolbar) = app.get_webview_window("drawing-toolbar") {
@@ -820,6 +889,9 @@ pub fn run() {
             set_cursor_settings,
             get_cursor_settings,
             open_screen_drawing,
+            get_key_display_enabled,
+            toggle_key_display,
+            open_settings_window,
             set_drawing_toolbar_side,
             close_screen_drawing,
             set_drawing_click_through,

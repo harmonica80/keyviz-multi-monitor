@@ -203,7 +203,7 @@ impl AppState {
             self.key_overlay.hide();
         }
 
-        let _ = app.emit_to("main", "listening-toggle", self.listening);
+        let _ = app.emit("listening-toggle", self.listening);
     }
 }
 

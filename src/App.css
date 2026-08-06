@@ -390,6 +390,21 @@ body.drawing-page #root {
   transform: scaleX(-1);
 }
 
+.drawing-footer-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+}
+
+.drawing-toolbar .drawing-footer-actions button {
+  min-height: 28px;
+}
+
+.drawing-toolbar .drawing-footer-actions svg {
+  width: 18px;
+  height: 18px;
+}
+
 html,
 body,
 #root {

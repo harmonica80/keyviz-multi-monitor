@@ -17,10 +17,12 @@ import {
   ChevronUp,
   GripHorizontal,
   GripVertical,
+  KeyboardOff,
   PanelLeft,
   PanelRight,
   Redo2,
   RotateCcw,
+  Settings,
   Trash2,
   X,
 } from "lucide-react";
@@ -274,6 +276,14 @@ export const DrawingToolbarSettings = () => {
             <PreviewButton>
               <Trash2 />
             </PreviewButton>
+            <div className="grid grid-cols-2 gap-px">
+              <PreviewButton className="min-h-7">
+                <KeyboardOff />
+              </PreviewButton>
+              <PreviewButton className="min-h-7">
+                <Settings />
+              </PreviewButton>
+            </div>
           </div>
         </div>
       </div>
