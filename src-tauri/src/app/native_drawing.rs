@@ -25,9 +25,9 @@ mod platform {
                 CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen,
                 CreateSolidBrush, CreatedHDC, DeleteDC, DeleteObject, Ellipse, GetDC,
                 GetStockObject, GetTextExtentPoint32W, LineTo, MoveToEx, Polygon, Rectangle,
-                ReleaseDC, SelectObject, SetBkMode, TextOutW, AC_SRC_ALPHA, BITMAPINFO,
-                BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ,
-                HOLLOW_BRUSH, NULL_PEN, PS_DOT, PS_SOLID, TRANSPARENT,
+                ReleaseDC, SelectObject, SetBkMode, SetViewportOrgEx, TextOutW, AC_SRC_ALPHA,
+                BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC,
+                HGDIOBJ, HOLLOW_BRUSH, NULL_PEN, PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -177,10 +177,7 @@ mod platform {
 
     enum DrawingCommand {
         Show {
-            left: i32,
-            top: i32,
-            width: i32,
-            height: i32,
+            monitors: Vec<RECT>,
             toolbar_passthrough: Option<RECT>,
         },
         Hide,
@@ -208,10 +205,7 @@ mod platform {
             y: i32,
         },
         Resize {
-            left: i32,
-            top: i32,
-            width: i32,
-            height: i32,
+            monitors: Vec<RECT>,
         },
     }
 
@@ -321,9 +315,16 @@ mod platform {
         height: i32,
     }
 
+    struct OverlaySurface {
+        hwnd: HWND,
+        bounds: RECT,
+        canvas: Option<OverlayCanvas>,
+    }
+
     struct OverlayState {
         app: AppHandle,
-        hwnd: HWND,
+        surfaces: Vec<OverlaySurface>,
+        input_hwnd: Option<HWND>,
         tool: NativeTool,
         color: COLORREF,
         width: i32,
@@ -341,7 +342,6 @@ mod platform {
         cursor: HCURSOR,
         cursor_owned: bool,
         retired_cursors: Vec<HCURSOR>,
-        canvas: Option<OverlayCanvas>,
     }
 
     #[derive(Clone, Serialize)]
@@ -389,20 +389,22 @@ mod platform {
 
         pub fn show(
             &self,
-            left: i32,
-            top: i32,
-            width: i32,
-            height: i32,
+            monitors: Vec<(i32, i32, i32, i32)>,
             toolbar_passthrough: Option<(i32, i32, i32, i32)>,
         ) {
             let Some(sender) = &self.sender else {
                 return;
             };
             let _ = sender.send(DrawingCommand::Show {
-                left,
-                top,
-                width,
-                height,
+                monitors: monitors
+                    .into_iter()
+                    .map(|(left, top, width, height)| RECT {
+                        left,
+                        top,
+                        right: left + width,
+                        bottom: top + height,
+                    })
+                    .collect(),
                 toolbar_passthrough: toolbar_passthrough.map(|(left, top, right, bottom)| RECT {
                     left,
                     top,
@@ -524,15 +526,20 @@ mod platform {
             let _ = sender.send(DrawingCommand::PointerUp { x, y });
         }
 
-        pub fn resize(&self, left: i32, top: i32, width: i32, height: i32) {
+        pub fn resize(&self, monitors: Vec<(i32, i32, i32, i32)>) {
             let Some(sender) = &self.sender else {
                 return;
             };
             let _ = sender.send(DrawingCommand::Resize {
-                left,
-                top,
-                width,
-                height,
+                monitors: monitors
+                    .into_iter()
+                    .map(|(left, top, width, height)| RECT {
+                        left,
+                        top,
+                        right: left + width,
+                        bottom: top + height,
+                    })
+                    .collect(),
             });
         }
     }
@@ -557,7 +564,6 @@ mod platform {
 
     fn run_window(receiver: Receiver<DrawingCommand>, app: AppHandle) -> Result<(), String> {
         let class_name = wide("KeyvizNativeDrawingOverlay");
-        let window_name = wide("Keyviz Drawing");
 
         unsafe {
             let module = GetModuleHandleW(None).map_err(|error| error.to_string())?;
@@ -573,30 +579,14 @@ mod platform {
                 return Err(std::io::Error::last_os_error().to_string());
             }
 
-            let hwnd = CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
-                PCWSTR(class_name.as_ptr()),
-                PCWSTR(window_name.as_ptr()),
-                WS_POPUP,
-                0,
-                0,
-                1,
-                1,
-                HWND(0),
-                None,
-                module,
-                None,
-            );
-            if hwnd.0 == 0 {
-                return Err(std::io::Error::last_os_error().to_string());
-            }
             let default_color = parse_color("#ef2b2d");
             let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color);
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
                     app,
-                    hwnd,
+                    surfaces: Vec::new(),
+                    input_hwnd: None,
                     tool: NativeTool::Pen,
                     color: default_color,
                     width: 5,
@@ -614,11 +604,9 @@ mod platform {
                     cursor,
                     cursor_owned,
                     retired_cursors: Vec::new(),
-                    canvas: None,
                 });
             }
 
-            ShowWindow(hwnd, SW_HIDE);
             message_loop(receiver);
 
             if let Ok(mut state_guard) = overlay_state().lock() {
@@ -629,14 +617,126 @@ mod platform {
                             let _ = DestroyCursor(state.cursor);
                         }
                     }
-                    release_overlay_canvas(&mut state.canvas);
+                    destroy_overlay_surfaces(&mut state.surfaces);
                 }
                 *state_guard = None;
             }
-            DestroyWindow(hwnd);
         }
 
         Ok(())
+    }
+
+    unsafe fn create_overlay_surface(bounds: RECT) -> Result<OverlaySurface, String> {
+        let module = GetModuleHandleW(None).map_err(|error| error.to_string())?;
+        let class_name = wide("KeyvizNativeDrawingOverlay");
+        let window_name = wide("Keyviz Drawing");
+        let hwnd = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            PCWSTR(class_name.as_ptr()),
+            PCWSTR(window_name.as_ptr()),
+            WS_POPUP,
+            bounds.left,
+            bounds.top,
+            (bounds.right - bounds.left).max(1),
+            (bounds.bottom - bounds.top).max(1),
+            HWND(0),
+            None,
+            module,
+            None,
+        );
+        if hwnd.0 == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        ShowWindow(hwnd, SW_HIDE);
+        Ok(OverlaySurface {
+            hwnd,
+            bounds,
+            canvas: None,
+        })
+    }
+
+    unsafe fn destroy_overlay_surfaces(surfaces: &mut Vec<OverlaySurface>) {
+        for mut surface in surfaces.drain(..) {
+            release_overlay_canvas(&mut surface.canvas);
+            DestroyWindow(surface.hwnd);
+        }
+    }
+
+    unsafe fn rebuild_overlay_surfaces(state: &mut OverlayState, monitors: &[RECT]) -> bool {
+        let monitors: Vec<RECT> = monitors
+            .iter()
+            .copied()
+            .filter(|bounds| bounds.right > bounds.left && bounds.bottom > bounds.top)
+            .collect();
+        if monitors.is_empty() {
+            return false;
+        }
+
+        let mut new_surfaces = Vec::with_capacity(monitors.len());
+        for bounds in &monitors {
+            match create_overlay_surface(*bounds) {
+                Ok(surface) => new_surfaces.push(surface),
+                Err(error) => {
+                    eprintln!("Failed to create drawing surface: {error}");
+                    destroy_overlay_surfaces(&mut new_surfaces);
+                    return false;
+                }
+            }
+        }
+
+        let bounds = RECT {
+            left: monitors.iter().map(|bounds| bounds.left).min().unwrap_or(0),
+            top: monitors.iter().map(|bounds| bounds.top).min().unwrap_or(0),
+            right: monitors
+                .iter()
+                .map(|bounds| bounds.right)
+                .max()
+                .unwrap_or(1),
+            bottom: monitors
+                .iter()
+                .map(|bounds| bounds.bottom)
+                .max()
+                .unwrap_or(1),
+        };
+        destroy_overlay_surfaces(&mut state.surfaces);
+        state.surfaces = new_surfaces;
+        state.bounds = bounds;
+        state.input_hwnd = first_surface_hwnd(state);
+        true
+    }
+
+    fn first_surface_hwnd(state: &OverlayState) -> Option<HWND> {
+        state.surfaces.first().map(|surface| surface.hwnd)
+    }
+
+    fn surface_layout_matches(state: &OverlayState, monitors: &[RECT]) -> bool {
+        state.surfaces.len() == monitors.len()
+            && state
+                .surfaces
+                .iter()
+                .zip(monitors)
+                .all(|(surface, monitor)| {
+                    surface.bounds.left == monitor.left
+                        && surface.bounds.top == monitor.top
+                        && surface.bounds.right == monitor.right
+                        && surface.bounds.bottom == monitor.bottom
+                })
+    }
+
+    fn surface_hwnd_for_point(state: &OverlayState, point: Point) -> Option<HWND> {
+        let global_x = point.x + state.bounds.left;
+        let global_y = point.y + state.bounds.top;
+        state
+            .surfaces
+            .iter()
+            .find(|surface| {
+                global_x >= surface.bounds.left
+                    && global_x < surface.bounds.right
+                    && global_y >= surface.bounds.top
+                    && global_y < surface.bounds.bottom
+            })
+            .map(|surface| surface.hwnd)
+            .or_else(|| first_surface_hwnd(state))
     }
 
     unsafe fn message_loop(receiver: Receiver<DrawingCommand>) {
@@ -697,40 +797,25 @@ mod platform {
 
         match command {
             DrawingCommand::Show {
-                left,
-                top,
-                width,
-                height,
+                monitors,
                 toolbar_passthrough,
             } => {
                 state.toolbar_passthrough = toolbar_passthrough;
-                let was_visible = state.visible;
+                if !surface_layout_matches(state, &monitors)
+                    && !rebuild_overlay_surfaces(state, &monitors)
+                {
+                    return;
+                }
                 state.visible = true;
-                if !was_visible {
-                    state.bounds = RECT {
-                        left,
-                        top,
-                        right: left + width,
-                        bottom: top + height,
-                    };
+                for surface in &state.surfaces {
                     let _ = SetWindowPos(
-                        state.hwnd,
+                        surface.hwnd,
                         HWND_TOPMOST,
-                        left,
-                        top,
-                        width,
-                        height,
+                        surface.bounds.left,
+                        surface.bounds.top,
+                        (surface.bounds.right - surface.bounds.left).max(1),
+                        (surface.bounds.bottom - surface.bounds.top).max(1),
                         SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                    );
-                } else {
-                    let _ = SetWindowPos(
-                        state.hwnd,
-                        HWND_TOPMOST,
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                     );
                 }
                 if matches!(state.tool, NativeTool::Number) {
@@ -743,21 +828,11 @@ mod platform {
                 emit_history(&state.app, !state.drawings.is_empty());
                 refresh_overlay(state);
             }
-            DrawingCommand::Resize {
-                left,
-                top,
-                width,
-                height,
-            } => {
+            DrawingCommand::Resize { monitors } => {
                 if state.visible {
                     return;
                 }
-                state.bounds = RECT {
-                    left,
-                    top,
-                    right: left + width,
-                    bottom: top + height,
-                };
+                let _ = rebuild_overlay_surfaces(state, &monitors);
             }
             DrawingCommand::Hide => {
                 cancel_text_editor(state);
@@ -770,7 +845,8 @@ mod platform {
                     destroy_retired_cursors(state);
                 }
                 state.visible = false;
-                ShowWindow(state.hwnd, SW_HIDE);
+                state.input_hwnd = None;
+                destroy_overlay_surfaces(&mut state.surfaces);
                 emit_history(&state.app, false);
                 emit_selection_state(state);
             }
@@ -874,27 +950,32 @@ mod platform {
             }
             DrawingCommand::Focus => {
                 if state.edit.is_some() || !state.click_through {
-                    let _ = SetFocus(state.hwnd);
+                    if let Some(hwnd) = state.input_hwnd.or_else(|| first_surface_hwnd(state)) {
+                        let _ = SetFocus(hwnd);
+                    }
                 }
             }
             DrawingCommand::Raise => {
                 if !state.visible {
                     return;
                 }
-                let _ = SetWindowPos(
-                    state.hwnd,
-                    HWND_TOPMOST,
-                    0,
-                    0,
-                    0,
-                    0,
-                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-                );
+                for surface in &state.surfaces {
+                    let _ = SetWindowPos(
+                        surface.hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    );
+                }
                 raise_toolbar(&state.app);
             }
             DrawingCommand::PointerDown { x, y } => {
                 if let Some(point) = global_point_for_drawing(state, x, y) {
-                    begin_drawing_at(state, point, Some(state.hwnd));
+                    let capture_hwnd = surface_hwnd_for_point(state, point);
+                    begin_drawing_at(state, point, capture_hwnd);
                 }
             }
             DrawingCommand::PointerMove { x, y } => {
@@ -978,6 +1059,21 @@ mod platform {
         }
     }
 
+    fn is_surface_hwnd(state: &OverlayState, hwnd: HWND) -> bool {
+        state.surfaces.iter().any(|surface| surface.hwnd == hwnd)
+    }
+
+    fn virtual_point_from_client(state: &OverlayState, hwnd: HWND, point: Point) -> Option<Point> {
+        state
+            .surfaces
+            .iter()
+            .find(|surface| surface.hwnd == hwnd)
+            .map(|surface| Point {
+                x: point.x + surface.bounds.left - state.bounds.left,
+                y: point.y + surface.bounds.top - state.bounds.top,
+            })
+    }
+
     unsafe fn on_left_button_down(hwnd: HWND, lparam: LPARAM) {
         let Ok(mut state_guard) = overlay_state().lock() else {
             return;
@@ -985,11 +1081,10 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd {
+        let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
             return;
-        }
-
-        let point = lparam_point(lparam);
+        };
+        state.input_hwnd = Some(hwnd);
         begin_drawing_at(state, point, Some(hwnd));
     }
 
@@ -999,6 +1094,9 @@ mod platform {
             || is_toolbar_passthrough_point(state, point, false)
         {
             return;
+        }
+        if let Some(hwnd) = capture_hwnd {
+            state.input_hwnd = Some(hwnd);
         }
 
         commit_text_editor(state);
@@ -1099,14 +1197,16 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd || (state.active.is_none() && state.selection.is_none()) {
+        if !is_surface_hwnd(state, hwnd) || (state.active.is_none() && state.selection.is_none()) {
             return;
         }
         if (wparam.0 & MK_LBUTTON_MASK) == 0 {
             return;
         }
 
-        let point = lparam_point(lparam);
+        let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
+            return;
+        };
         update_drawing_at(state, point);
     }
 
@@ -1135,10 +1235,12 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd {
+        if !is_surface_hwnd(state, hwnd) {
             return;
         }
-        finish_drawing_at(state, lparam_point(_lparam));
+        let point = virtual_point_from_client(state, hwnd, lparam_point(_lparam))
+            .unwrap_or_else(|| lparam_point(_lparam));
+        finish_drawing_at(state, point);
     }
 
     unsafe fn finish_drawing_at(state: &mut OverlayState, _point: Point) {
@@ -1202,7 +1304,7 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd || !state.visible {
+        if !is_surface_hwnd(state, hwnd) || !state.visible {
             return;
         }
 
@@ -1275,7 +1377,7 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd {
+        if !is_surface_hwnd(state, hwnd) {
             return;
         }
 
@@ -1305,7 +1407,7 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd {
+        if !is_surface_hwnd(state, hwnd) {
             return;
         }
         let Some(edit) = state.edit.as_mut() else {
@@ -1329,7 +1431,7 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd {
+        if !is_surface_hwnd(state, hwnd) {
             return;
         }
         commit_text_editor(state);
@@ -1342,16 +1444,16 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.hwnd != hwnd {
+        if !is_surface_hwnd(state, hwnd) {
             return;
         }
         cancel_text_editor(state);
     }
 
-    unsafe fn ensure_overlay_canvas(state: &mut OverlayState) -> bool {
-        let width = (state.bounds.right - state.bounds.left).max(1);
-        let height = (state.bounds.bottom - state.bounds.top).max(1);
-        if state
+    unsafe fn ensure_overlay_canvas(surface: &mut OverlaySurface) -> bool {
+        let width = (surface.bounds.right - surface.bounds.left).max(1);
+        let height = (surface.bounds.bottom - surface.bounds.top).max(1);
+        if surface
             .canvas
             .as_ref()
             .is_some_and(|canvas| canvas.width == width && canvas.height == height)
@@ -1359,7 +1461,7 @@ mod platform {
             return true;
         }
 
-        release_overlay_canvas(&mut state.canvas);
+        release_overlay_canvas(&mut surface.canvas);
 
         let screen_dc = GetDC(HWND(0));
         if screen_dc.0 == 0 {
@@ -1405,7 +1507,7 @@ mod platform {
 
         let old_bitmap = SelectObject(memory_dc, bitmap);
         ReleaseDC(HWND(0), screen_dc);
-        state.canvas = Some(OverlayCanvas {
+        surface.canvas = Some(OverlayCanvas {
             memory_dc,
             bitmap,
             old_bitmap,
@@ -1426,11 +1528,23 @@ mod platform {
     }
 
     unsafe fn refresh_overlay(state: &mut OverlayState) {
-        if !state.visible || !ensure_overlay_canvas(state) {
+        if !state.visible || state.surfaces.is_empty() {
             return;
         }
 
-        let Some(canvas) = state.canvas.as_ref() else {
+        let mut surfaces = std::mem::take(&mut state.surfaces);
+        for surface in &mut surfaces {
+            refresh_overlay_surface(state, surface);
+        }
+        state.surfaces = surfaces;
+    }
+
+    unsafe fn refresh_overlay_surface(state: &OverlayState, surface: &mut OverlaySurface) {
+        if !ensure_overlay_canvas(surface) {
+            return;
+        }
+
+        let Some(canvas) = surface.canvas.as_ref() else {
             return;
         };
         let width = canvas.width;
@@ -1443,6 +1557,10 @@ mod platform {
         let pixels = std::slice::from_raw_parts_mut(canvas.bits as *mut u32, pixel_count);
         pixels.fill(0);
 
+        let mut old_origin = WinPoint::default();
+        let viewport_x = state.bounds.left - surface.bounds.left;
+        let viewport_y = state.bounds.top - surface.bounds.top;
+        SetViewportOrgEx(drawing_dc, viewport_x, viewport_y, Some(&mut old_origin));
         SetBkMode(drawing_dc, TRANSPARENT);
         for drawing in state.drawings.iter() {
             draw_item(drawing_dc, drawing);
@@ -1479,10 +1597,11 @@ mod platform {
                 0.0,
             );
         }
+        SetViewportOrgEx(drawing_dc, old_origin.x, old_origin.y, None);
 
         for (index, pixel) in pixels.iter_mut().enumerate() {
-            let x = (index % width as usize) as i32 + state.bounds.left;
-            let y = (index / width as usize) as i32 + state.bounds.top;
+            let x = (index % width as usize) as i32 + surface.bounds.left;
+            let y = (index / width as usize) as i32 + surface.bounds.top;
             if is_toolbar_passthrough_point(state, Point { x, y }, true) {
                 *pixel = 0;
                 continue;
@@ -1501,8 +1620,8 @@ mod platform {
         }
 
         let destination = WinPoint {
-            x: state.bounds.left,
-            y: state.bounds.top,
+            x: surface.bounds.left,
+            y: surface.bounds.top,
         };
         let size = SIZE {
             cx: width,
@@ -1520,7 +1639,7 @@ mod platform {
             return;
         }
         let _ = UpdateLayeredWindow(
-            state.hwnd,
+            surface.hwnd,
             screen_dc,
             Some(&destination),
             Some(&size),
@@ -3159,7 +3278,13 @@ mod platform {
             color: state.color,
             width: state.width.max(1),
         });
-        let _ = SetFocus(state.hwnd);
+        if let Some(hwnd) = state
+            .input_hwnd
+            .or_else(|| surface_hwnd_for_point(state, point))
+        {
+            state.input_hwnd = Some(hwnd);
+            let _ = SetFocus(hwnd);
+        }
         refresh_overlay(state);
     }
 
@@ -3221,7 +3346,7 @@ mod platform {
             .and_then(|guard| {
                 guard
                     .as_ref()
-                    .filter(|state| state.hwnd == hwnd)
+                    .filter(|state| is_surface_hwnd(state, hwnd))
                     .map(|state| {
                         state.click_through || is_toolbar_passthrough_point(state, point, true)
                     })
@@ -3348,7 +3473,7 @@ mod platform {
         let Some(state) = state_guard.as_ref() else {
             return false;
         };
-        if state.hwnd != hwnd || !state.visible || state.cursor.0 == 0 {
+        if !is_surface_hwnd(state, hwnd) || !state.visible || state.cursor.0 == 0 {
             return false;
         }
         SetCursor(state.cursor);
@@ -3730,10 +3855,7 @@ mod platform_stub {
         }
         pub fn show(
             &self,
-            _left: i32,
-            _top: i32,
-            _width: i32,
-            _height: i32,
+            _monitors: Vec<(i32, i32, i32, i32)>,
             _toolbar_passthrough: Option<(i32, i32, i32, i32)>,
         ) {
         }
@@ -3749,7 +3871,7 @@ mod platform_stub {
         pub fn set_toolbar_passthrough(&self, _bounds: Option<(i32, i32, i32, i32)>) {}
         pub fn focus(&self) {}
         pub fn raise(&self) {}
-        pub fn resize(&self, _left: i32, _top: i32, _width: i32, _height: i32) {}
+        pub fn resize(&self, _monitors: Vec<(i32, i32, i32, i32)>) {}
     }
 
     pub fn parse_tool(_value: &str) -> Option<NativeTool> {

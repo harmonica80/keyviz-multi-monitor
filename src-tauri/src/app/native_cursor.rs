@@ -12,11 +12,11 @@ mod platform {
     use windows::{
         core::PCWSTR,
         Win32::{
-            Foundation::{COLORREF, HWND, LPARAM, LRESULT, WPARAM},
+            Foundation::{COLORREF, HWND, LPARAM, LRESULT, POINT, WPARAM},
             Graphics::Gdi::{
                 BeginPaint, CreatePen, CreateSolidBrush, DeleteObject, Ellipse, EndPaint, FillRect,
-                GetStockObject, InvalidateRect, SelectObject, UpdateWindow, HOLLOW_BRUSH,
-                PAINTSTRUCT, PS_SOLID,
+                GetStockObject, InvalidateRect, MonitorFromPoint, SelectObject, UpdateWindow,
+                HMONITOR, HOLLOW_BRUSH, MONITOR_DEFAULTTONEAREST, PAINTSTRUCT, PS_SOLID,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -121,7 +121,6 @@ mod platform {
 
     fn run_window(receiver: Receiver<CursorCommand>) -> Result<(), String> {
         let class_name = wide("KeyvizNativeCursorOverlay");
-        let window_name = wide("Keyviz Cursor");
 
         unsafe {
             let module = GetModuleHandleW(None).map_err(|error| error.to_string())?;
@@ -144,46 +143,61 @@ mod platform {
                 })
             });
 
-            let hwnd = CreateWindowExW(
-                WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
-                PCWSTR(class_name.as_ptr()),
-                PCWSTR(window_name.as_ptr()),
-                WS_POPUP,
-                0,
-                0,
-                1,
-                1,
-                HWND(0),
-                None,
-                module,
-                None,
-            );
-            if hwnd.0 == 0 {
-                return Err(std::io::Error::last_os_error().to_string());
-            }
-
-            if !SetLayeredWindowAttributes(hwnd, TRANSPARENT_KEY, 255, LWA_COLORKEY | LWA_ALPHA)
-                .as_bool()
-            {
+            let mut windows = Vec::new();
+            message_loop(receiver, &mut windows);
+            for (_, hwnd) in windows {
                 DestroyWindow(hwnd);
-                return Err(std::io::Error::last_os_error().to_string());
             }
-
-            message_loop(hwnd, receiver);
-            DestroyWindow(hwnd);
         }
 
         Ok(())
     }
 
-    unsafe fn message_loop(hwnd: HWND, receiver: Receiver<CursorCommand>) {
+    unsafe fn create_cursor_window() -> Result<HWND, String> {
+        let module = GetModuleHandleW(None).map_err(|error| error.to_string())?;
+        let class_name = wide("KeyvizNativeCursorOverlay");
+        let window_name = wide("Keyviz Cursor");
+        let hwnd = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            PCWSTR(class_name.as_ptr()),
+            PCWSTR(window_name.as_ptr()),
+            WS_POPUP,
+            0,
+            0,
+            1,
+            1,
+            HWND(0),
+            None,
+            module,
+            None,
+        );
+        if hwnd.0 == 0 {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        if !SetLayeredWindowAttributes(hwnd, TRANSPARENT_KEY, 255, LWA_COLORKEY | LWA_ALPHA)
+            .as_bool()
+        {
+            DestroyWindow(hwnd);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+        ShowWindow(hwnd, SW_HIDE);
+        Ok(hwnd)
+    }
+
+    unsafe fn message_loop(receiver: Receiver<CursorCommand>, windows: &mut Vec<(HMONITOR, HWND)>) {
         let mut message = MSG::default();
 
         loop {
-            match receiver.recv_timeout(Duration::from_millis(16)) {
-                Ok(CursorCommand::Update(visual)) => apply_visual(hwnd, visual),
+            let mut visual = match receiver.recv_timeout(Duration::from_millis(16)) {
+                Ok(CursorCommand::Update(visual)) => Some(visual),
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+            };
+            while let Ok(CursorCommand::Update(next)) = receiver.try_recv() {
+                visual = Some(next);
+            }
+            if let Some(visual) = visual {
+                apply_visual(windows, visual);
             }
 
             while PeekMessageW(&mut message, HWND(0), 0, 0, PM_REMOVE).as_bool() {
@@ -193,10 +207,35 @@ mod platform {
         }
     }
 
-    unsafe fn apply_visual(hwnd: HWND, visual: CursorVisual) {
+    unsafe fn apply_visual(windows: &mut Vec<(HMONITOR, HWND)>, visual: CursorVisual) {
         if !visual.visible {
-            ShowWindow(hwnd, SW_HIDE);
+            for (_, hwnd) in windows.iter() {
+                ShowWindow(*hwnd, SW_HIDE);
+            }
             return;
+        }
+
+        let monitor = MonitorFromPoint(
+            POINT {
+                x: visual.x.round() as i32,
+                y: visual.y.round() as i32,
+            },
+            MONITOR_DEFAULTTONEAREST,
+        );
+        let hwnd =
+            if let Some((_, hwnd)) = windows.iter().find(|(candidate, _)| *candidate == monitor) {
+                *hwnd
+            } else {
+                let Ok(hwnd) = create_cursor_window() else {
+                    return;
+                };
+                windows.push((monitor, hwnd));
+                hwnd
+            };
+        for (_, candidate) in windows.iter() {
+            if *candidate != hwnd {
+                ShowWindow(*candidate, SW_HIDE);
+            }
         }
 
         if let Some(state) = PAINT_STATE.get() {

@@ -337,28 +337,17 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
         return Err("No monitor is available".to_string());
     }
 
-    let left = monitors
+    let drawing_monitors = monitors
         .iter()
-        .map(|monitor| monitor.position().x)
-        .min()
-        .unwrap_or(0);
-    let top = monitors
-        .iter()
-        .map(|monitor| monitor.position().y)
-        .min()
-        .unwrap_or(0);
-    let right = monitors
-        .iter()
-        .map(|monitor| monitor.position().x + monitor.size().width as i32)
-        .max()
-        .unwrap_or(1);
-    let bottom = monitors
-        .iter()
-        .map(|monitor| monitor.position().y + monitor.size().height as i32)
-        .max()
-        .unwrap_or(1);
-    let drawing_width = right - left;
-    let drawing_height = bottom - top;
+        .map(|monitor| {
+            (
+                monitor.position().x,
+                monitor.position().y,
+                monitor.size().width as i32,
+                monitor.size().height as i32,
+            )
+        })
+        .collect();
     let drawing_toolbar_side = app
         .state::<Mutex<AppState>>()
         .lock()
@@ -382,9 +371,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     // overlay in pointer mode, which looks as though the Start Drawing button
     // did nothing.
     app_state.drawing_overlay.set_tool(NativeTool::Pen);
-    app_state
-        .drawing_overlay
-        .show(left, top, drawing_width, drawing_height, None);
+    app_state.drawing_overlay.show(drawing_monitors, None);
     app_state.drawing_overlay.set_click_through(false);
     app_state.drawing_overlay.raise();
     drop(app_state);
@@ -681,31 +668,20 @@ fn resize_drawing_window(app: AppHandle) -> Result<(), String> {
     let monitors = app
         .available_monitors()
         .map_err(|error| error.to_string())?;
-    let left = monitors
+    let drawing_monitors = monitors
         .iter()
-        .map(|monitor| monitor.position().x)
-        .min()
-        .unwrap_or(0);
-    let top = monitors
-        .iter()
-        .map(|monitor| monitor.position().y)
-        .min()
-        .unwrap_or(0);
-    let right = monitors
-        .iter()
-        .map(|monitor| monitor.position().x + monitor.size().width as i32)
-        .max()
-        .unwrap_or(1);
-    let bottom = monitors
-        .iter()
-        .map(|monitor| monitor.position().y + monitor.size().height as i32)
-        .max()
-        .unwrap_or(1);
+        .map(|monitor| {
+            (
+                monitor.position().x,
+                monitor.position().y,
+                monitor.size().width as i32,
+                monitor.size().height as i32,
+            )
+        })
+        .collect();
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|error| error.to_string())?;
-    app_state
-        .drawing_overlay
-        .resize(left, top, right - left, bottom - top);
+    app_state.drawing_overlay.resize(drawing_monitors);
     Ok(())
 }
 
