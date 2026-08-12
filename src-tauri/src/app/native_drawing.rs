@@ -845,16 +845,8 @@ mod platform {
                         (surface.bounds.bottom - surface.bounds.top).max(1),
                         SWP_NOACTIVATE | SWP_SHOWWINDOW,
                     );
-                    let _ = SetWindowPos(
-                        surface.input_hwnd,
-                        HWND_TOPMOST,
-                        surface.bounds.left,
-                        surface.bounds.top,
-                        (surface.bounds.right - surface.bounds.left).max(1),
-                        (surface.bounds.bottom - surface.bounds.top).max(1),
-                        SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                    );
                 }
+                sync_input_surface_visibility(state);
                 if matches!(state.tool, NativeTool::Number) {
                     replace_tool_cursor(state, true);
                 }
@@ -894,6 +886,7 @@ mod platform {
                 state.selected.clear();
                 state.selection = None;
                 state.click_through = click_through;
+                sync_input_surface_visibility(state);
                 replace_tool_cursor(state, false);
                 if state.visible {
                     raise_toolbar(&state.app);
@@ -976,6 +969,7 @@ mod platform {
             }
             DrawingCommand::SetClickThrough(enabled) => {
                 state.click_through = enabled;
+                sync_input_surface_visibility(state);
                 if state.visible {
                     raise_toolbar(&state.app);
                 }
@@ -1006,15 +1000,17 @@ mod platform {
                         0,
                         SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                     );
-                    let _ = SetWindowPos(
-                        surface.input_hwnd,
-                        HWND_TOPMOST,
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-                    );
+                    if !state.click_through {
+                        let _ = SetWindowPos(
+                            surface.input_hwnd,
+                            HWND_TOPMOST,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                        );
+                    }
                 }
                 raise_toolbar(&state.app);
             }
@@ -3402,6 +3398,30 @@ mod platform {
                     })
             })
             .unwrap_or(true)
+    }
+
+    unsafe fn sync_input_surface_visibility(state: &mut OverlayState) {
+        let capture_input = state.visible && !state.click_through;
+        if !capture_input {
+            ReleaseCapture();
+            state.input_hwnd = None;
+        }
+
+        for surface in &state.surfaces {
+            if capture_input {
+                let _ = SetWindowPos(
+                    surface.input_hwnd,
+                    HWND_TOPMOST,
+                    surface.bounds.left,
+                    surface.bounds.top,
+                    (surface.bounds.right - surface.bounds.left).max(1),
+                    (surface.bounds.bottom - surface.bounds.top).max(1),
+                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+            } else {
+                ShowWindow(surface.input_hwnd, SW_HIDE);
+            }
+        }
     }
 
     fn global_point_for_drawing(state: &OverlayState, x: i32, y: i32) -> Option<Point> {
