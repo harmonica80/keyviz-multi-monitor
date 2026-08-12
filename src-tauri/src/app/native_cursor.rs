@@ -24,10 +24,11 @@ mod platform {
                 WindowsAndMessaging::{
                     CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
                     GetClientRect, PeekMessageW, RegisterClassW, SetLayeredWindowAttributes,
-                    SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW,
+                    SetWindowPos, ShowWindow, TranslateMessage, CS_HREDRAW, CS_VREDRAW, HWND_TOP,
                     HWND_TOPMOST, LWA_ALPHA, LWA_COLORKEY, MSG, PM_REMOVE, SWP_NOACTIVATE,
-                    SWP_SHOWWINDOW, SW_HIDE, WM_DESTROY, WM_ERASEBKGND, WM_PAINT, WNDCLASSW,
-                    WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_POPUP,
+                    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, WM_DESTROY, WM_ERASEBKGND,
+                    WM_PAINT, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+                    WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
@@ -158,7 +159,7 @@ mod platform {
         let class_name = wide("KeyvizNativeCursorOverlay");
         let window_name = wide("Keyviz Cursor");
         let hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW,
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             PCWSTR(class_name.as_ptr()),
             PCWSTR(window_name.as_ptr()),
             WS_POPUP,
@@ -263,6 +264,17 @@ mod platform {
             physical_size,
             physical_size,
             SWP_NOACTIVATE | SWP_SHOWWINDOW,
+        );
+        // HWND_TOPMOST keeps the overlay in the topmost band. HWND_TOP then
+        // moves it above other topmost application windows without activation.
+        SetWindowPos(
+            hwnd,
+            HWND_TOP,
+            0,
+            0,
+            0,
+            0,
+            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
         );
         InvalidateRect(hwnd, None, true);
         UpdateWindow(hwnd);
