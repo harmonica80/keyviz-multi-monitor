@@ -4,6 +4,10 @@
 
 This is a customized Windows build based on [mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for tutorials, presentations, screen recording, and live teaching workflows, with multi-monitor support, Traditional Chinese UI, cursor highlighting, and on-screen drawing tools.
 
+## 下載最新版
+
+**[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/download/v1.0.0/keyviz-portable.exe)**
+
 ## 功能介紹
 
 - 即時顯示鍵盤按鍵與快速鍵，方便教學、簡報、錄影與直播。
