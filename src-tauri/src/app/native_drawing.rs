@@ -22,12 +22,12 @@ mod platform {
                 COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE, WPARAM,
             },
             Graphics::Gdi::{
-                CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW, CreatePen,
-                CreateSolidBrush, CreatedHDC, DeleteDC, DeleteObject, Ellipse, GetDC,
-                GetStockObject, GetTextExtentPoint32W, LineTo, MoveToEx, Polygon, Rectangle,
+                BeginPaint, CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW,
+                CreatePen, CreateSolidBrush, CreatedHDC, DeleteDC, DeleteObject, Ellipse, EndPaint,
+                GetDC, GetStockObject, GetTextExtentPoint32W, LineTo, MoveToEx, Polygon, Rectangle,
                 ReleaseDC, SelectObject, SetBkMode, SetViewportOrgEx, TextOutW, AC_SRC_ALPHA,
                 BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC,
-                HGDIOBJ, HOLLOW_BRUSH, NULL_PEN, PS_DOT, PS_SOLID, TRANSPARENT,
+                HGDIOBJ, HOLLOW_BRUSH, NULL_PEN, PAINTSTRUCT, PS_DOT, PS_SOLID, TRANSPARENT,
             },
             System::LibraryLoader::GetModuleHandleW,
             UI::{
@@ -44,8 +44,9 @@ mod platform {
                     SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA,
                     WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
                     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
-                    WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_TOOLWINDOW,
-                    WS_EX_TOPMOST, WS_POPUP,
+                    WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+                    WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+                    WS_POPUP,
                 },
             },
         },
@@ -53,9 +54,6 @@ mod platform {
 
     const TRANSPARENT_KEY: COLORREF = COLORREF(1 | (2 << 8) | (3 << 16));
     const TRANSPARENT_PIXEL: u32 = 0x0001_0203;
-    // Keep a minimal alpha for hit testing, but no RGB payload that a screen
-    // capture path could accidentally expose or amplify.
-    const INPUT_CAPTURE_PIXEL: u32 = 0x0100_0000;
     const WM_APP_COMMIT_TEXT: u32 = WM_APP + 1;
     const WM_APP_CANCEL_TEXT: u32 = WM_APP + 2;
     const NON_ANTIALIASED_FONT_QUALITY: u32 = 3;
@@ -316,7 +314,8 @@ mod platform {
     }
 
     struct OverlaySurface {
-        hwnd: HWND,
+        display_hwnd: HWND,
+        input_hwnd: HWND,
         bounds: RECT,
         canvas: Option<OverlayCanvas>,
     }
@@ -629,11 +628,11 @@ mod platform {
     unsafe fn create_overlay_surface(bounds: RECT) -> Result<OverlaySurface, String> {
         let module = GetModuleHandleW(None).map_err(|error| error.to_string())?;
         let class_name = wide("KeyvizNativeDrawingOverlay");
-        let window_name = wide("Keyviz Drawing");
-        let hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+        let display_name = wide("Keyviz Drawing Display");
+        let display_hwnd = CreateWindowExW(
+            WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             PCWSTR(class_name.as_ptr()),
-            PCWSTR(window_name.as_ptr()),
+            PCWSTR(display_name.as_ptr()),
             WS_POPUP,
             bounds.left,
             bounds.top,
@@ -644,12 +643,40 @@ mod platform {
             module,
             None,
         );
-        if hwnd.0 == 0 {
+        if display_hwnd.0 == 0 {
             return Err(std::io::Error::last_os_error().to_string());
         }
-        ShowWindow(hwnd, SW_HIDE);
+
+        // Input is handled by a separate window that intentionally has no DWM
+        // redirection bitmap. This keeps the visible layered window fully
+        // transparent instead of filling its background with low-alpha black
+        // pixels just to make it hit-testable. Capture and pinning tools can
+        // otherwise promote those pixels to opaque black.
+        let input_name = wide("Keyviz Drawing Input");
+        let input_hwnd = CreateWindowExW(
+            WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            PCWSTR(class_name.as_ptr()),
+            PCWSTR(input_name.as_ptr()),
+            WS_POPUP,
+            bounds.left,
+            bounds.top,
+            (bounds.right - bounds.left).max(1),
+            (bounds.bottom - bounds.top).max(1),
+            HWND(0),
+            None,
+            module,
+            None,
+        );
+        if input_hwnd.0 == 0 {
+            DestroyWindow(display_hwnd);
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+
+        ShowWindow(display_hwnd, SW_HIDE);
+        ShowWindow(input_hwnd, SW_HIDE);
         Ok(OverlaySurface {
-            hwnd,
+            display_hwnd,
+            input_hwnd,
             bounds,
             canvas: None,
         })
@@ -658,7 +685,8 @@ mod platform {
     unsafe fn destroy_overlay_surfaces(surfaces: &mut Vec<OverlaySurface>) {
         for mut surface in surfaces.drain(..) {
             release_overlay_canvas(&mut surface.canvas);
-            DestroyWindow(surface.hwnd);
+            DestroyWindow(surface.input_hwnd);
+            DestroyWindow(surface.display_hwnd);
         }
     }
 
@@ -706,7 +734,7 @@ mod platform {
     }
 
     fn first_surface_hwnd(state: &OverlayState) -> Option<HWND> {
-        state.surfaces.first().map(|surface| surface.hwnd)
+        state.surfaces.first().map(|surface| surface.input_hwnd)
     }
 
     fn surface_layout_matches(state: &OverlayState, monitors: &[RECT]) -> bool {
@@ -735,7 +763,7 @@ mod platform {
                     && global_y >= surface.bounds.top
                     && global_y < surface.bounds.bottom
             })
-            .map(|surface| surface.hwnd)
+            .map(|surface| surface.input_hwnd)
             .or_else(|| first_surface_hwnd(state))
     }
 
@@ -809,7 +837,16 @@ mod platform {
                 state.visible = true;
                 for surface in &state.surfaces {
                     let _ = SetWindowPos(
-                        surface.hwnd,
+                        surface.display_hwnd,
+                        HWND_TOPMOST,
+                        surface.bounds.left,
+                        surface.bounds.top,
+                        (surface.bounds.right - surface.bounds.left).max(1),
+                        (surface.bounds.bottom - surface.bounds.top).max(1),
+                        SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                    );
+                    let _ = SetWindowPos(
+                        surface.input_hwnd,
                         HWND_TOPMOST,
                         surface.bounds.left,
                         surface.bounds.top,
@@ -961,7 +998,16 @@ mod platform {
                 }
                 for surface in &state.surfaces {
                     let _ = SetWindowPos(
-                        surface.hwnd,
+                        surface.display_hwnd,
+                        HWND_TOPMOST,
+                        0,
+                        0,
+                        0,
+                        0,
+                        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                    );
+                    let _ = SetWindowPos(
+                        surface.input_hwnd,
                         HWND_TOPMOST,
                         0,
                         0,
@@ -1020,7 +1066,12 @@ mod platform {
                     DefWindowProcW(hwnd, message, wparam, lparam)
                 }
             }
-            WM_PAINT => DefWindowProcW(hwnd, message, wparam, lparam),
+            WM_PAINT => {
+                let mut paint = PAINTSTRUCT::default();
+                BeginPaint(hwnd, &mut paint);
+                EndPaint(hwnd, &paint);
+                LRESULT(0)
+            }
             WM_LBUTTONDOWN => {
                 on_left_button_down(hwnd, lparam);
                 LRESULT(0)
@@ -1060,14 +1111,17 @@ mod platform {
     }
 
     fn is_surface_hwnd(state: &OverlayState, hwnd: HWND) -> bool {
-        state.surfaces.iter().any(|surface| surface.hwnd == hwnd)
+        state
+            .surfaces
+            .iter()
+            .any(|surface| surface.input_hwnd == hwnd)
     }
 
     fn virtual_point_from_client(state: &OverlayState, hwnd: HWND, point: Point) -> Option<Point> {
         state
             .surfaces
             .iter()
-            .find(|surface| surface.hwnd == hwnd)
+            .find(|surface| surface.input_hwnd == hwnd)
             .map(|surface| Point {
                 x: point.x + surface.bounds.left - state.bounds.left,
                 y: point.y + surface.bounds.top - state.bounds.top,
@@ -1609,11 +1663,7 @@ mod platform {
             let rgb = *pixel & 0x00ff_ffff;
             let alpha = *pixel >> 24;
             if rgb == TRANSPARENT_PIXEL || (rgb == 0 && alpha == 0) {
-                *pixel = if state.click_through {
-                    0
-                } else {
-                    INPUT_CAPTURE_PIXEL
-                };
+                *pixel = 0;
             } else if alpha == 0 {
                 *pixel |= 0xff00_0000;
             }
@@ -1639,7 +1689,7 @@ mod platform {
             return;
         }
         let _ = UpdateLayeredWindow(
-            surface.hwnd,
+            surface.display_hwnd,
             screen_dc,
             Some(&destination),
             Some(&size),
