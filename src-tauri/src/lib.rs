@@ -25,6 +25,23 @@ fn app_window_title(app: &AppHandle) -> String {
     format!("{APP_DISPLAY_NAME} v{}", app.package_info().version)
 }
 
+fn build_settings_window(
+    app: &AppHandle,
+    visible: bool,
+    always_on_top: bool,
+) -> tauri::Result<WebviewWindow> {
+    let webview_url = tauri::WebviewUrl::App("index.html#/settings".into());
+    WebviewWindowBuilder::new(app, "settings", webview_url)
+        .title(app_window_title(app))
+        .inner_size(800.0, 640.0)
+        .min_inner_size(640.0, 480.0)
+        .max_inner_size(1000.0, 800.0)
+        .maximizable(false)
+        .always_on_top(always_on_top)
+        .visible(visible)
+        .build()
+}
+
 fn show_settings_window(app: &AppHandle) {
     let drawing_visible = app
         .try_state::<Mutex<AppState>>()
@@ -36,21 +53,18 @@ fn show_settings_window(app: &AppHandle) {
         let _ = window.set_always_on_top(drawing_visible);
         let _ = window.show();
         let _ = window.set_focus();
+        let _ = app.emit_to("main", "settings-window", true);
         return;
     }
 
-    let webview_url = tauri::WebviewUrl::App("index.html#/settings".into());
-    if WebviewWindowBuilder::new(app, "settings", webview_url)
-        .title(app_window_title(app))
-        .inner_size(800.0, 640.0)
-        .min_inner_size(640.0, 480.0)
-        .max_inner_size(1000.0, 800.0)
-        .maximizable(false)
-        .always_on_top(drawing_visible)
-        .build()
-        .is_ok()
-    {
-        let _ = app.emit_to("main", "settings-window", true);
+    match build_settings_window(app, true, drawing_visible) {
+        Ok(window) => {
+            let _ = window.set_focus();
+            let _ = app.emit_to("main", "settings-window", true);
+        }
+        Err(error) => {
+            eprintln!("Failed to create settings window: {error}");
+        }
     }
 }
 
@@ -708,6 +722,13 @@ pub fn run() {
             }
             // manage app state
             app.manage(Mutex::new(app_state));
+
+            // Initialize WebView2 before the drawing overlays are active. Opening an
+            // uninitialized settings webview from the drawing toolbar can otherwise
+            // leave a blank modal-looking window behind the topmost overlay stack.
+            if let Err(error) = build_settings_window(app_handle, false, false) {
+                eprintln!("Failed to preload settings window: {error}");
+            }
 
             // tray actions
             let is_chinese = app
