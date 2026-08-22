@@ -434,6 +434,8 @@ mod platform {
         }
 
         pub fn hide(&self) {
+            DRAWING_HOOK_ACTIVE.store(false, Ordering::Release);
+            DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
             let Some(sender) = &self.sender else {
                 return;
             };
@@ -441,6 +443,10 @@ mod platform {
         }
 
         pub fn set_tool(&self, tool: NativeTool) {
+            if matches!(tool, NativeTool::Pointer) {
+                DRAWING_HOOK_ACTIVE.store(false, Ordering::Release);
+                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
+            }
             let Some(sender) = &self.sender else {
                 return;
             };
@@ -490,6 +496,10 @@ mod platform {
         }
 
         pub fn set_click_through(&self, enabled: bool) {
+            if enabled {
+                DRAWING_HOOK_ACTIVE.store(false, Ordering::Release);
+                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
+            }
             let Some(sender) = &self.sender else {
                 return;
             };

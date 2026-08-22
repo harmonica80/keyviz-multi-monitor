@@ -45,8 +45,27 @@ fn build_settings_window(
 fn show_settings_window(app: &AppHandle) {
     let drawing_visible = app
         .try_state::<Mutex<AppState>>()
-        .and_then(|state| state.lock().ok().map(|state| state.drawing_visible))
+        .and_then(|state| {
+            state.lock().ok().map(|mut state| {
+                let drawing_visible = state.drawing_visible;
+                if drawing_visible {
+                    state.drawing_input_passthrough = true;
+                    state.drawing_pointer_down = false;
+                    state.drawing_last_move = None;
+                    state.drawing_overlay.set_tool(NativeTool::Pointer);
+                    state.drawing_overlay.set_click_through(true);
+                }
+                drawing_visible
+            })
+        })
         .unwrap_or(false);
+
+    if drawing_visible {
+        let _ = app.emit(
+            "drawing-tool-changed",
+            serde_json::json!({ "tool": "pointer" }),
+        );
+    }
 
     if let Some(window) = app.get_webview_window("settings") {
         let _ = window.set_title(&app_window_title(app));
