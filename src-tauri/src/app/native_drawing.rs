@@ -19,8 +19,7 @@ mod platform {
         core::PCWSTR,
         Win32::{
             Foundation::{
-                COLORREF, HANDLE, HHOOK, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE,
-                WPARAM,
+                COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE, WPARAM,
             },
             Graphics::Gdi::{
                 BeginPaint, CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW,
@@ -41,7 +40,7 @@ mod platform {
                     PeekMessageW, RegisterClassW, SetCursor, SetLayeredWindowAttributes,
                     SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, ShowWindow,
                     TranslateMessage, UnhookWindowsHookEx, UpdateLayeredWindow, CREATESTRUCTW,
-                    CS_HREDRAW, CS_VREDRAW, GA_ROOT, GWLP_USERDATA, HCURSOR, HTCLIENT,
+                    CS_HREDRAW, CS_VREDRAW, GA_ROOT, GWLP_USERDATA, HCURSOR, HHOOK, HTCLIENT,
                     HTTRANSPARENT, HWND_TOPMOST, ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM,
                     LWA_ALPHA, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PM_REMOVE, SWP_NOACTIVATE,
                     SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WH_MOUSE_LL,
