@@ -6,12 +6,11 @@ mod platform {
         iter::once,
         mem::size_of,
         sync::{
-            atomic::{AtomicBool, AtomicI32, Ordering},
             mpsc::{self, Receiver, Sender},
             Mutex, OnceLock,
         },
         thread,
-        time::{Duration, Instant},
+        time::Duration,
     };
 
     use serde::Serialize;
@@ -36,20 +35,18 @@ mod platform {
                     ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN,
                 },
                 WindowsAndMessaging::{
-                    CallNextHookEx, CreateIconIndirect, CreateWindowExW, DefWindowProcW,
-                    DestroyCursor, DestroyWindow, DispatchMessageW, GetAncestor, LoadCursorW,
-                    PeekMessageW, RegisterClassW, SetCursor, SetLayeredWindowAttributes,
-                    SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, ShowWindow,
-                    TranslateMessage, UnhookWindowsHookEx, UpdateLayeredWindow, CREATESTRUCTW,
-                    CS_HREDRAW, CS_VREDRAW, GA_ROOT, GWLP_USERDATA, HCURSOR, HHOOK, HTCLIENT,
-                    HTTRANSPARENT, HWND_TOPMOST, ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM,
-                    LWA_ALPHA, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PM_REMOVE, SWP_NOACTIVATE,
-                    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WH_MOUSE_LL,
+                    CreateIconIndirect, CreateWindowExW, DefWindowProcW, DestroyCursor,
+                    DestroyWindow, DispatchMessageW, GetAncestor, LoadCursorW, PeekMessageW,
+                    RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+                    TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
+                    GA_ROOT, GWLP_USERDATA, HCURSOR, HTCLIENT, HTTRANSPARENT, HWND_TOPMOST,
+                    ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM, MSG, PM_NOREMOVE, PM_REMOVE,
+                    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA,
                     WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
-                    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE,
-                    WM_MOUSEWHEEL, WM_NCHITTEST, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP,
-                    WM_SETCURSOR, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_EX_LAYERED,
-                    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
+                    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
+                    WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+                    WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
+                    WS_POPUP,
                 },
             },
         },
@@ -204,13 +201,6 @@ mod platform {
         PointerUp {
             x: i32,
             y: i32,
-        },
-        CursorMove {
-            x: i32,
-            y: i32,
-        },
-        MouseWheel {
-            delta: i16,
         },
         Resize {
             monitors: Vec<RECT>,
@@ -371,15 +361,6 @@ mod platform {
     }
 
     static OVERLAY_STATE: OnceLock<Mutex<Option<OverlayState>>> = OnceLock::new();
-    static DRAWING_HOOK_SENDER: OnceLock<Sender<DrawingCommand>> = OnceLock::new();
-    static DRAWING_HOOK_POINTER_DOWN: AtomicBool = AtomicBool::new(false);
-    static DRAWING_HOOK_ACTIVE: AtomicBool = AtomicBool::new(false);
-    static DRAWING_HOOK_TOOLBAR_SET: AtomicBool = AtomicBool::new(false);
-    static DRAWING_HOOK_TOOLBAR_LEFT: AtomicI32 = AtomicI32::new(0);
-    static DRAWING_HOOK_TOOLBAR_TOP: AtomicI32 = AtomicI32::new(0);
-    static DRAWING_HOOK_TOOLBAR_RIGHT: AtomicI32 = AtomicI32::new(0);
-    static DRAWING_HOOK_TOOLBAR_BOTTOM: AtomicI32 = AtomicI32::new(0);
-    static DRAWING_HOOK_LAST_MOVE: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
     fn overlay_state() -> &'static Mutex<Option<OverlayState>> {
         OVERLAY_STATE.get_or_init(|| Mutex::new(None))
@@ -394,7 +375,6 @@ mod platform {
     impl NativeDrawingOverlay {
         pub fn new(app: &AppHandle) -> Self {
             let (sender, receiver) = mpsc::channel();
-            let _ = DRAWING_HOOK_SENDER.set(sender.clone());
             let app_handle = app.clone();
             thread::spawn(move || {
                 if let Err(error) = run_window(receiver, app_handle) {
@@ -434,8 +414,6 @@ mod platform {
         }
 
         pub fn hide(&self) {
-            DRAWING_HOOK_ACTIVE.store(false, Ordering::Release);
-            DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
             let Some(sender) = &self.sender else {
                 return;
             };
@@ -443,10 +421,6 @@ mod platform {
         }
 
         pub fn set_tool(&self, tool: NativeTool) {
-            if matches!(tool, NativeTool::Pointer) {
-                DRAWING_HOOK_ACTIVE.store(false, Ordering::Release);
-                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
-            }
             let Some(sender) = &self.sender else {
                 return;
             };
@@ -496,10 +470,6 @@ mod platform {
         }
 
         pub fn set_click_through(&self, enabled: bool) {
-            if enabled {
-                DRAWING_HOOK_ACTIVE.store(false, Ordering::Release);
-                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
-            }
             let Some(sender) = &self.sender else {
                 return;
             };
@@ -555,13 +525,6 @@ mod platform {
             let _ = sender.send(DrawingCommand::PointerUp { x, y });
         }
 
-        pub fn mouse_wheel(&self, delta: i16) {
-            let Some(sender) = &self.sender else {
-                return;
-            };
-            let _ = sender.send(DrawingCommand::MouseWheel { delta });
-        }
-
         pub fn resize(&self, monitors: Vec<(i32, i32, i32, i32)>) {
             let Some(sender) = &self.sender else {
                 return;
@@ -615,9 +578,6 @@ mod platform {
                 return Err(std::io::Error::last_os_error().to_string());
             }
 
-            let mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, Some(low_level_mouse_proc), module, 0)
-                .map_err(|error| format!("Failed to install drawing mouse hook: {error}"))?;
-
             let default_color = parse_color("#ef2b2d");
             let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color);
 
@@ -647,7 +607,6 @@ mod platform {
             }
 
             message_loop(receiver);
-            let _ = UnhookWindowsHookEx(mouse_hook);
 
             if let Ok(mut state_guard) = overlay_state().lock() {
                 if let Some(state) = state_guard.as_mut() {
@@ -688,31 +647,27 @@ mod platform {
             return Err(std::io::Error::last_os_error().to_string());
         }
 
-        // Pointer input is intercepted by the low-level mouse hook. This tiny
-        // transparent helper only receives keyboard focus while editing text;
-        // it never creates a full-monitor DWM surface that capture or pinning
-        // tools could promote to an opaque black frame.
-        let input_name = wide("Keyviz Drawing Text Input");
+        // Input is handled by a separate window that intentionally has no DWM
+        // redirection bitmap. This keeps the visible layered window fully
+        // transparent instead of filling its background with low-alpha black
+        // pixels just to make it hit-testable. Capture and pinning tools can
+        // otherwise promote those pixels to opaque black.
+        let input_name = wide("Keyviz Drawing Input");
         let input_hwnd = CreateWindowExW(
-            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             PCWSTR(class_name.as_ptr()),
             PCWSTR(input_name.as_ptr()),
             WS_POPUP,
             bounds.left,
             bounds.top,
-            1,
-            1,
+            (bounds.right - bounds.left).max(1),
+            (bounds.bottom - bounds.top).max(1),
             HWND(0),
             None,
             module,
             None,
         );
-        if input_hwnd.0 == 0
-            || !SetLayeredWindowAttributes(input_hwnd, COLORREF(0), 1, LWA_ALPHA).as_bool()
-        {
-            if input_hwnd.0 != 0 {
-                DestroyWindow(input_hwnd);
-            }
+        if input_hwnd.0 == 0 {
             DestroyWindow(display_hwnd);
             return Err(std::io::Error::last_os_error().to_string());
         }
@@ -812,154 +767,6 @@ mod platform {
             .or_else(|| first_surface_hwnd(state))
     }
 
-    unsafe fn hide_input_surfaces(state: &mut OverlayState) {
-        for surface in &state.surfaces {
-            ShowWindow(surface.input_hwnd, SW_HIDE);
-        }
-    }
-
-    unsafe fn position_input_surface_at(state: &mut OverlayState, point: Point) {
-        let surface_index = state.surfaces.iter().position(|surface| {
-            point.x >= surface.bounds.left
-                && point.x < surface.bounds.right
-                && point.y >= surface.bounds.top
-                && point.y < surface.bounds.bottom
-        });
-        state.input_hwnd = surface_index.map(|index| state.surfaces[index].input_hwnd);
-
-        for (index, surface) in state.surfaces.iter().enumerate() {
-            if Some(index) == surface_index {
-                let _ = SetWindowPos(
-                    surface.input_hwnd,
-                    HWND_TOPMOST,
-                    point.x,
-                    point.y,
-                    1,
-                    1,
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                );
-            } else {
-                ShowWindow(surface.input_hwnd, SW_HIDE);
-            }
-        }
-    }
-
-    fn sync_mouse_hook_state(state: &OverlayState) {
-        DRAWING_HOOK_ACTIVE.store(state.visible && !state.click_through, Ordering::Release);
-        if let Some(bounds) = state.toolbar_passthrough {
-            DRAWING_HOOK_TOOLBAR_LEFT.store(bounds.left, Ordering::Relaxed);
-            DRAWING_HOOK_TOOLBAR_TOP.store(bounds.top, Ordering::Relaxed);
-            DRAWING_HOOK_TOOLBAR_RIGHT.store(bounds.right, Ordering::Relaxed);
-            DRAWING_HOOK_TOOLBAR_BOTTOM.store(bounds.bottom, Ordering::Relaxed);
-            DRAWING_HOOK_TOOLBAR_SET.store(true, Ordering::Release);
-        } else {
-            DRAWING_HOOK_TOOLBAR_SET.store(false, Ordering::Release);
-        }
-    }
-
-    fn drawing_hook_point_over_toolbar(point: Point) -> bool {
-        DRAWING_HOOK_TOOLBAR_SET.load(Ordering::Acquire)
-            && point.x >= DRAWING_HOOK_TOOLBAR_LEFT.load(Ordering::Relaxed)
-            && point.x < DRAWING_HOOK_TOOLBAR_RIGHT.load(Ordering::Relaxed)
-            && point.y >= DRAWING_HOOK_TOOLBAR_TOP.load(Ordering::Relaxed)
-            && point.y < DRAWING_HOOK_TOOLBAR_BOTTOM.load(Ordering::Relaxed)
-    }
-
-    fn drawing_hook_move_due() -> bool {
-        let now = Instant::now();
-        let last_move = DRAWING_HOOK_LAST_MOVE.get_or_init(|| Mutex::new(None));
-        let Ok(mut last) = last_move.try_lock() else {
-            return false;
-        };
-        if last
-            .map(|previous| now.duration_since(previous) < Duration::from_millis(16))
-            .unwrap_or(false)
-        {
-            return false;
-        }
-        *last = Some(now);
-        true
-    }
-    unsafe extern "system" fn low_level_mouse_proc(
-        code: i32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    ) -> LRESULT {
-        if code < 0 {
-            return CallNextHookEx(HHOOK(0), code, wparam, lparam);
-        }
-
-        let info = lparam.0 as *const MSLLHOOKSTRUCT;
-        if info.is_null() {
-            return CallNextHookEx(HHOOK(0), code, wparam, lparam);
-        }
-        let point = Point {
-            x: (*info).pt.x,
-            y: (*info).pt.y,
-        };
-        let message = wparam.0 as u32;
-        let drawing_active = DRAWING_HOOK_ACTIVE.load(Ordering::Acquire);
-        let over_toolbar = drawing_hook_point_over_toolbar(point);
-
-        if !drawing_active {
-            DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
-            return CallNextHookEx(HHOOK(0), code, wparam, lparam);
-        }
-
-        let Some(sender) = DRAWING_HOOK_SENDER.get() else {
-            return CallNextHookEx(HHOOK(0), code, wparam, lparam);
-        };
-        let pointer_down = DRAWING_HOOK_POINTER_DOWN.load(Ordering::Acquire);
-
-        match message {
-            WM_LBUTTONDOWN if !over_toolbar => {
-                DRAWING_HOOK_POINTER_DOWN.store(true, Ordering::Release);
-                let _ = sender.send(DrawingCommand::PointerDown {
-                    x: point.x,
-                    y: point.y,
-                });
-                LRESULT(1)
-            }
-            WM_MOUSEMOVE if pointer_down => {
-                if drawing_hook_move_due() {
-                    let _ = sender.send(DrawingCommand::PointerMove {
-                        x: point.x,
-                        y: point.y,
-                    });
-                }
-                CallNextHookEx(HHOOK(0), code, wparam, lparam)
-            }
-            WM_MOUSEMOVE if !over_toolbar => {
-                if drawing_hook_move_due() {
-                    let _ = sender.send(DrawingCommand::CursorMove {
-                        x: point.x,
-                        y: point.y,
-                    });
-                }
-                CallNextHookEx(HHOOK(0), code, wparam, lparam)
-            }
-            WM_LBUTTONUP if pointer_down => {
-                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
-                let _ = sender.send(DrawingCommand::PointerUp {
-                    x: point.x,
-                    y: point.y,
-                });
-                LRESULT(1)
-            }
-            WM_MOUSEWHEEL if !over_toolbar => {
-                let delta = (((*info).mouseData >> 16) as u16) as i16;
-                let _ = sender.send(DrawingCommand::MouseWheel { delta });
-                LRESULT(1)
-            }
-            WM_RBUTTONDOWN | WM_RBUTTONUP | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_XBUTTONDOWN
-            | WM_XBUTTONUP
-                if !over_toolbar =>
-            {
-                LRESULT(1)
-            }
-            _ => CallNextHookEx(HHOOK(0), code, wparam, lparam),
-        }
-    }
     unsafe fn message_loop(receiver: Receiver<DrawingCommand>) {
         let mut message = MSG::default();
         let mut commands = VecDeque::new();
@@ -1000,17 +807,9 @@ mod platform {
     }
 
     fn queue_drawing_command(queue: &mut VecDeque<DrawingCommand>, command: DrawingCommand) {
-        let replace_last = matches!(
-            (&command, queue.back()),
-            (
-                DrawingCommand::PointerMove { .. },
-                Some(DrawingCommand::PointerMove { .. })
-            ) | (
-                DrawingCommand::CursorMove { .. },
-                Some(DrawingCommand::CursorMove { .. })
-            )
-        );
-        if replace_last {
+        if matches!(&command, DrawingCommand::PointerMove { .. })
+            && matches!(queue.back(), Some(DrawingCommand::PointerMove { .. }))
+        {
             queue.pop_back();
         }
         queue.push_back(command);
@@ -1036,7 +835,6 @@ mod platform {
                     return;
                 }
                 state.visible = true;
-                sync_mouse_hook_state(state);
                 for surface in &state.surfaces {
                     let _ = SetWindowPos(
                         surface.display_hwnd,
@@ -1076,8 +874,6 @@ mod platform {
                     destroy_retired_cursors(state);
                 }
                 state.visible = false;
-                sync_mouse_hook_state(state);
-                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
                 state.input_hwnd = None;
                 destroy_overlay_surfaces(&mut state.surfaces);
                 emit_history(&state.app, false);
@@ -1090,8 +886,6 @@ mod platform {
                 state.selected.clear();
                 state.selection = None;
                 state.click_through = click_through;
-                sync_mouse_hook_state(state);
-                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
                 sync_input_surface_visibility(state);
                 replace_tool_cursor(state, false);
                 if state.visible {
@@ -1175,8 +969,6 @@ mod platform {
             }
             DrawingCommand::SetClickThrough(enabled) => {
                 state.click_through = enabled;
-                sync_mouse_hook_state(state);
-                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
                 sync_input_surface_visibility(state);
                 if state.visible {
                     raise_toolbar(&state.app);
@@ -1185,7 +977,6 @@ mod platform {
             }
             DrawingCommand::SetToolbarPassthrough(bounds) => {
                 state.toolbar_passthrough = bounds;
-                sync_mouse_hook_state(state);
                 refresh_overlay(state);
             }
             DrawingCommand::Focus => {
@@ -1209,35 +1000,35 @@ mod platform {
                         0,
                         SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                     );
+                    if !state.click_through {
+                        let _ = SetWindowPos(
+                            surface.input_hwnd,
+                            HWND_TOPMOST,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                        );
+                    }
                 }
-                sync_input_surface_visibility(state);
                 raise_toolbar(&state.app);
             }
             DrawingCommand::PointerDown { x, y } => {
-                position_input_surface_at(state, Point { x, y });
                 if let Some(point) = global_point_for_drawing(state, x, y) {
-                    begin_drawing_at(state, point, None);
+                    let capture_hwnd = surface_hwnd_for_point(state, point);
+                    begin_drawing_at(state, point, capture_hwnd);
                 }
             }
             DrawingCommand::PointerMove { x, y } => {
-                position_input_surface_at(state, Point { x, y });
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     update_drawing_at(state, point);
                 }
             }
             DrawingCommand::PointerUp { x, y } => {
-                position_input_surface_at(state, Point { x, y });
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     finish_drawing_at(state, point);
                 }
-            }
-            DrawingCommand::CursorMove { x, y } => {
-                if state.visible && !state.click_through {
-                    position_input_surface_at(state, Point { x, y });
-                }
-            }
-            DrawingCommand::MouseWheel { delta } => {
-                adjust_width_for_wheel(state, delta);
             }
         }
     }
@@ -1277,9 +1068,22 @@ mod platform {
                 EndPaint(hwnd, &paint);
                 LRESULT(0)
             }
-            // Pointer drawing is driven by the low-level hook and rdev listener.
-            // The 1x1 helper window only owns the cursor and text keyboard focus.
-            WM_LBUTTONDOWN | WM_MOUSEMOVE | WM_LBUTTONUP | WM_MOUSEWHEEL => LRESULT(0),
+            WM_LBUTTONDOWN => {
+                on_left_button_down(hwnd, lparam);
+                LRESULT(0)
+            }
+            WM_MOUSEMOVE => {
+                on_mouse_move(hwnd, wparam, lparam);
+                LRESULT(0)
+            }
+            WM_LBUTTONUP => {
+                on_left_button_up(hwnd, lparam);
+                LRESULT(0)
+            }
+            WM_MOUSEWHEEL => {
+                on_mouse_wheel(hwnd, wparam);
+                LRESULT(0)
+            }
             WM_KEYDOWN => {
                 on_key_down(hwnd, wparam);
                 LRESULT(0)
@@ -1555,11 +1359,7 @@ mod platform {
         }
 
         let delta = ((wparam.0 >> 16) & 0xffff) as u16 as i16;
-        adjust_width_for_wheel(state, delta);
-    }
-
-    unsafe fn adjust_width_for_wheel(state: &mut OverlayState, delta: i16) {
-        if !state.visible || delta == 0 || matches!(state.tool, NativeTool::Pointer) {
+        if delta == 0 {
             return;
         }
         let step = if delta > 0 { 1 } else { -1 };
@@ -3524,9 +3324,11 @@ mod platform {
             color: state.color,
             width: state.width.max(1),
         });
-        if let Some(hwnd) = surface_hwnd_for_point(state, point).or(state.input_hwnd) {
+        if let Some(hwnd) = state
+            .input_hwnd
+            .or_else(|| surface_hwnd_for_point(state, point))
+        {
             state.input_hwnd = Some(hwnd);
-            sync_input_surface_visibility(state);
             let _ = SetFocus(hwnd);
         }
         refresh_overlay(state);
@@ -3551,13 +3353,11 @@ mod platform {
             });
             emit_history(&state.app, true);
         }
-        sync_input_surface_visibility(state);
         refresh_overlay(state);
     }
 
     unsafe fn cancel_text_editor(state: &mut OverlayState) {
         state.edit = None;
-        sync_input_surface_visibility(state);
         refresh_overlay(state);
     }
 
@@ -3601,23 +3401,26 @@ mod platform {
     }
 
     unsafe fn sync_input_surface_visibility(state: &mut OverlayState) {
-        if !state.visible || state.click_through {
+        let capture_input = state.visible && !state.click_through;
+        if !capture_input {
             ReleaseCapture();
-            hide_input_surfaces(state);
-            return;
+            state.input_hwnd = None;
         }
 
-        if let Some(hwnd) = state.input_hwnd.or_else(|| first_surface_hwnd(state)) {
-            state.input_hwnd = Some(hwnd);
-            let _ = SetWindowPos(
-                hwnd,
-                HWND_TOPMOST,
-                0,
-                0,
-                0,
-                0,
-                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-            );
+        for surface in &state.surfaces {
+            if capture_input {
+                let _ = SetWindowPos(
+                    surface.input_hwnd,
+                    HWND_TOPMOST,
+                    surface.bounds.left,
+                    surface.bounds.top,
+                    (surface.bounds.right - surface.bounds.left).max(1),
+                    (surface.bounds.bottom - surface.bounds.top).max(1),
+                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+            } else {
+                ShowWindow(surface.input_hwnd, SW_HIDE);
+            }
         }
     }
 
