@@ -219,7 +219,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 app_state.cursor_y = y;
                 app_state.cursor_update_pending = true;
                 let should_send_drawing_move =
-                    if app_state.drawing_visible && app_state.drawing_pointer_down {
+                    if app_state.drawing_input_passthrough && app_state.drawing_pointer_down {
                         let now = Instant::now();
                         let due = app_state
                             .drawing_last_move
@@ -241,7 +241,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
 
             match event.event_type {
                 EventType::ButtonPress(Button::Left) => {
-                    if app_state.drawing_visible {
+                    if app_state.drawing_input_passthrough {
                         let x = app_state.cursor_x.round() as i32;
                         let y = app_state.cursor_y.round() as i32;
                         app_state.drawing_pointer_down = true;
@@ -250,7 +250,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     }
                 }
                 EventType::ButtonRelease(Button::Left) => {
-                    if app_state.drawing_visible {
+                    if app_state.drawing_input_passthrough {
                         let x = app_state.cursor_x.round() as i32;
                         let y = app_state.cursor_y.round() as i32;
                         app_state.drawing_overlay.pointer_up(x, y);
@@ -259,13 +259,6 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     app_state.drawing_last_move = None;
                 }
                 _ => {}
-            }
-
-            if let EventType::Wheel { delta_y, .. } = event.event_type {
-                if app_state.drawing_visible {
-                    let delta = delta_y.clamp(i16::MIN as i64, i16::MAX as i64) as i16;
-                    app_state.drawing_overlay.mouse_wheel(delta);
-                }
             }
 
             // emit event if listening

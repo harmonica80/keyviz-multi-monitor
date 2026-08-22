@@ -6,11 +6,12 @@ mod platform {
         iter::once,
         mem::size_of,
         sync::{
+            atomic::{AtomicBool, AtomicI32, Ordering},
             mpsc::{self, Receiver, Sender},
             Mutex, OnceLock,
         },
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     };
 
     use serde::Serialize;
@@ -204,6 +205,10 @@ mod platform {
             x: i32,
             y: i32,
         },
+        CursorMove {
+            x: i32,
+            y: i32,
+        },
         MouseWheel {
             delta: i16,
         },
@@ -366,6 +371,15 @@ mod platform {
     }
 
     static OVERLAY_STATE: OnceLock<Mutex<Option<OverlayState>>> = OnceLock::new();
+    static DRAWING_HOOK_SENDER: OnceLock<Sender<DrawingCommand>> = OnceLock::new();
+    static DRAWING_HOOK_POINTER_DOWN: AtomicBool = AtomicBool::new(false);
+    static DRAWING_HOOK_ACTIVE: AtomicBool = AtomicBool::new(false);
+    static DRAWING_HOOK_TOOLBAR_SET: AtomicBool = AtomicBool::new(false);
+    static DRAWING_HOOK_TOOLBAR_LEFT: AtomicI32 = AtomicI32::new(0);
+    static DRAWING_HOOK_TOOLBAR_TOP: AtomicI32 = AtomicI32::new(0);
+    static DRAWING_HOOK_TOOLBAR_RIGHT: AtomicI32 = AtomicI32::new(0);
+    static DRAWING_HOOK_TOOLBAR_BOTTOM: AtomicI32 = AtomicI32::new(0);
+    static DRAWING_HOOK_LAST_MOVE: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
     fn overlay_state() -> &'static Mutex<Option<OverlayState>> {
         OVERLAY_STATE.get_or_init(|| Mutex::new(None))
@@ -380,6 +394,7 @@ mod platform {
     impl NativeDrawingOverlay {
         pub fn new(app: &AppHandle) -> Self {
             let (sender, receiver) = mpsc::channel();
+            let _ = DRAWING_HOOK_SENDER.set(sender.clone());
             let app_handle = app.clone();
             thread::spawn(move || {
                 if let Err(error) = run_window(receiver, app_handle) {
@@ -819,57 +834,120 @@ mod platform {
         }
     }
 
+    fn sync_mouse_hook_state(state: &OverlayState) {
+        DRAWING_HOOK_ACTIVE.store(state.visible && !state.click_through, Ordering::Release);
+        if let Some(bounds) = state.toolbar_passthrough {
+            DRAWING_HOOK_TOOLBAR_LEFT.store(bounds.left, Ordering::Relaxed);
+            DRAWING_HOOK_TOOLBAR_TOP.store(bounds.top, Ordering::Relaxed);
+            DRAWING_HOOK_TOOLBAR_RIGHT.store(bounds.right, Ordering::Relaxed);
+            DRAWING_HOOK_TOOLBAR_BOTTOM.store(bounds.bottom, Ordering::Relaxed);
+            DRAWING_HOOK_TOOLBAR_SET.store(true, Ordering::Release);
+        } else {
+            DRAWING_HOOK_TOOLBAR_SET.store(false, Ordering::Release);
+        }
+    }
+
+    fn drawing_hook_point_over_toolbar(point: Point) -> bool {
+        DRAWING_HOOK_TOOLBAR_SET.load(Ordering::Acquire)
+            && point.x >= DRAWING_HOOK_TOOLBAR_LEFT.load(Ordering::Relaxed)
+            && point.x < DRAWING_HOOK_TOOLBAR_RIGHT.load(Ordering::Relaxed)
+            && point.y >= DRAWING_HOOK_TOOLBAR_TOP.load(Ordering::Relaxed)
+            && point.y < DRAWING_HOOK_TOOLBAR_BOTTOM.load(Ordering::Relaxed)
+    }
+
+    fn drawing_hook_move_due() -> bool {
+        let now = Instant::now();
+        let last_move = DRAWING_HOOK_LAST_MOVE.get_or_init(|| Mutex::new(None));
+        let Ok(mut last) = last_move.try_lock() else {
+            return false;
+        };
+        if last
+            .map(|previous| now.duration_since(previous) < Duration::from_millis(16))
+            .unwrap_or(false)
+        {
+            return false;
+        }
+        *last = Some(now);
+        true
+    }
     unsafe extern "system" fn low_level_mouse_proc(
         code: i32,
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
-        // Let other low-level listeners (including rdev) observe the event
-        // before deciding whether it may reach the application underneath.
-        let next = CallNextHookEx(HHOOK(0), code, wparam, lparam);
         if code < 0 {
-            return next;
+            return CallNextHookEx(HHOOK(0), code, wparam, lparam);
         }
 
         let info = lparam.0 as *const MSLLHOOKSTRUCT;
         if info.is_null() {
-            return next;
+            return CallNextHookEx(HHOOK(0), code, wparam, lparam);
         }
         let point = Point {
             x: (*info).pt.x,
             y: (*info).pt.y,
         };
         let message = wparam.0 as u32;
-        let is_blockable = matches!(
-            message,
-            WM_LBUTTONDOWN
-                | WM_LBUTTONUP
-                | WM_RBUTTONDOWN
-                | WM_RBUTTONUP
-                | WM_MBUTTONDOWN
-                | WM_MBUTTONUP
-                | WM_XBUTTONDOWN
-                | WM_XBUTTONUP
-                | WM_MOUSEWHEEL
-        );
+        let drawing_active = DRAWING_HOOK_ACTIVE.load(Ordering::Acquire);
+        let over_toolbar = drawing_hook_point_over_toolbar(point);
 
-        let mut should_block = false;
-        if let Ok(mut guard) = overlay_state().lock() {
-            if let Some(state) = guard.as_mut() {
-                let over_toolbar = is_toolbar_passthrough_point(state, point, true);
-                if state.visible && !state.click_through && !over_toolbar {
-                    position_input_surface_at(state, point);
-                    should_block = is_blockable;
-                } else {
-                    hide_input_surfaces(state);
-                }
-            }
+        if !drawing_active {
+            DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
+            return CallNextHookEx(HHOOK(0), code, wparam, lparam);
         }
 
-        if should_block {
-            LRESULT(1)
-        } else {
-            next
+        let Some(sender) = DRAWING_HOOK_SENDER.get() else {
+            return CallNextHookEx(HHOOK(0), code, wparam, lparam);
+        };
+        let pointer_down = DRAWING_HOOK_POINTER_DOWN.load(Ordering::Acquire);
+
+        match message {
+            WM_LBUTTONDOWN if !over_toolbar => {
+                DRAWING_HOOK_POINTER_DOWN.store(true, Ordering::Release);
+                let _ = sender.send(DrawingCommand::PointerDown {
+                    x: point.x,
+                    y: point.y,
+                });
+                LRESULT(1)
+            }
+            WM_MOUSEMOVE if pointer_down => {
+                if drawing_hook_move_due() {
+                    let _ = sender.send(DrawingCommand::PointerMove {
+                        x: point.x,
+                        y: point.y,
+                    });
+                }
+                CallNextHookEx(HHOOK(0), code, wparam, lparam)
+            }
+            WM_MOUSEMOVE if !over_toolbar => {
+                if drawing_hook_move_due() {
+                    let _ = sender.send(DrawingCommand::CursorMove {
+                        x: point.x,
+                        y: point.y,
+                    });
+                }
+                CallNextHookEx(HHOOK(0), code, wparam, lparam)
+            }
+            WM_LBUTTONUP if pointer_down => {
+                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
+                let _ = sender.send(DrawingCommand::PointerUp {
+                    x: point.x,
+                    y: point.y,
+                });
+                LRESULT(1)
+            }
+            WM_MOUSEWHEEL if !over_toolbar => {
+                let delta = (((*info).mouseData >> 16) as u16) as i16;
+                let _ = sender.send(DrawingCommand::MouseWheel { delta });
+                LRESULT(1)
+            }
+            WM_RBUTTONDOWN | WM_RBUTTONUP | WM_MBUTTONDOWN | WM_MBUTTONUP | WM_XBUTTONDOWN
+            | WM_XBUTTONUP
+                if !over_toolbar =>
+            {
+                LRESULT(1)
+            }
+            _ => CallNextHookEx(HHOOK(0), code, wparam, lparam),
         }
     }
     unsafe fn message_loop(receiver: Receiver<DrawingCommand>) {
@@ -912,9 +990,17 @@ mod platform {
     }
 
     fn queue_drawing_command(queue: &mut VecDeque<DrawingCommand>, command: DrawingCommand) {
-        if matches!(&command, DrawingCommand::PointerMove { .. })
-            && matches!(queue.back(), Some(DrawingCommand::PointerMove { .. }))
-        {
+        let replace_last = matches!(
+            (&command, queue.back()),
+            (
+                DrawingCommand::PointerMove { .. },
+                Some(DrawingCommand::PointerMove { .. })
+            ) | (
+                DrawingCommand::CursorMove { .. },
+                Some(DrawingCommand::CursorMove { .. })
+            )
+        );
+        if replace_last {
             queue.pop_back();
         }
         queue.push_back(command);
@@ -940,6 +1026,7 @@ mod platform {
                     return;
                 }
                 state.visible = true;
+                sync_mouse_hook_state(state);
                 for surface in &state.surfaces {
                     let _ = SetWindowPos(
                         surface.display_hwnd,
@@ -979,6 +1066,8 @@ mod platform {
                     destroy_retired_cursors(state);
                 }
                 state.visible = false;
+                sync_mouse_hook_state(state);
+                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
                 state.input_hwnd = None;
                 destroy_overlay_surfaces(&mut state.surfaces);
                 emit_history(&state.app, false);
@@ -991,6 +1080,8 @@ mod platform {
                 state.selected.clear();
                 state.selection = None;
                 state.click_through = click_through;
+                sync_mouse_hook_state(state);
+                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
                 sync_input_surface_visibility(state);
                 replace_tool_cursor(state, false);
                 if state.visible {
@@ -1074,6 +1165,8 @@ mod platform {
             }
             DrawingCommand::SetClickThrough(enabled) => {
                 state.click_through = enabled;
+                sync_mouse_hook_state(state);
+                DRAWING_HOOK_POINTER_DOWN.store(false, Ordering::Release);
                 sync_input_surface_visibility(state);
                 if state.visible {
                     raise_toolbar(&state.app);
@@ -1082,6 +1175,7 @@ mod platform {
             }
             DrawingCommand::SetToolbarPassthrough(bounds) => {
                 state.toolbar_passthrough = bounds;
+                sync_mouse_hook_state(state);
                 refresh_overlay(state);
             }
             DrawingCommand::Focus => {
@@ -1110,18 +1204,26 @@ mod platform {
                 raise_toolbar(&state.app);
             }
             DrawingCommand::PointerDown { x, y } => {
+                position_input_surface_at(state, Point { x, y });
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     begin_drawing_at(state, point, None);
                 }
             }
             DrawingCommand::PointerMove { x, y } => {
+                position_input_surface_at(state, Point { x, y });
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     update_drawing_at(state, point);
                 }
             }
             DrawingCommand::PointerUp { x, y } => {
+                position_input_surface_at(state, Point { x, y });
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     finish_drawing_at(state, point);
+                }
+            }
+            DrawingCommand::CursorMove { x, y } => {
+                if state.visible && !state.click_through {
+                    position_input_surface_at(state, Point { x, y });
                 }
             }
             DrawingCommand::MouseWheel { delta } => {
