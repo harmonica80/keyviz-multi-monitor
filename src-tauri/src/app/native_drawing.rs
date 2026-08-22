@@ -19,7 +19,8 @@ mod platform {
         core::PCWSTR,
         Win32::{
             Foundation::{
-                COLORREF, HANDLE, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE, WPARAM,
+                COLORREF, HANDLE, HHOOK, HWND, LPARAM, LRESULT, POINT as WinPoint, RECT, SIZE,
+                WPARAM,
             },
             Graphics::Gdi::{
                 BeginPaint, CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW,
@@ -35,18 +36,20 @@ mod platform {
                     ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN,
                 },
                 WindowsAndMessaging::{
-                    CreateIconIndirect, CreateWindowExW, DefWindowProcW, DestroyCursor,
-                    DestroyWindow, DispatchMessageW, GetAncestor, LoadCursorW, PeekMessageW,
-                    RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos, ShowWindow,
-                    TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
-                    GA_ROOT, GWLP_USERDATA, HCURSOR, HTCLIENT, HTTRANSPARENT, HWND_TOPMOST,
-                    ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM, MSG, PM_NOREMOVE, PM_REMOVE,
-                    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA,
+                    CallNextHookEx, CreateIconIndirect, CreateWindowExW, DefWindowProcW,
+                    DestroyCursor, DestroyWindow, DispatchMessageW, GetAncestor, LoadCursorW,
+                    PeekMessageW, RegisterClassW, SetCursor, SetLayeredWindowAttributes,
+                    SetWindowLongPtrW, SetWindowPos, SetWindowsHookExW, ShowWindow,
+                    TranslateMessage, UnhookWindowsHookEx, UpdateLayeredWindow, CREATESTRUCTW,
+                    CS_HREDRAW, CS_VREDRAW, GA_ROOT, GWLP_USERDATA, HCURSOR, HTCLIENT,
+                    HTTRANSPARENT, HWND_TOPMOST, ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM,
+                    LWA_ALPHA, MSG, MSLLHOOKSTRUCT, PM_NOREMOVE, PM_REMOVE, SWP_NOACTIVATE,
+                    SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, WH_MOUSE_LL,
                     WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
-                    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
-                    WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
-                    WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
-                    WS_POPUP,
+                    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEMOVE,
+                    WM_MOUSEWHEEL, WM_NCHITTEST, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP,
+                    WM_SETCURSOR, WM_XBUTTONDOWN, WM_XBUTTONUP, WNDCLASSW, WS_EX_LAYERED,
+                    WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT, WS_POPUP,
                 },
             },
         },
@@ -201,6 +204,9 @@ mod platform {
         PointerUp {
             x: i32,
             y: i32,
+        },
+        MouseWheel {
+            delta: i16,
         },
         Resize {
             monitors: Vec<RECT>,
@@ -525,6 +531,13 @@ mod platform {
             let _ = sender.send(DrawingCommand::PointerUp { x, y });
         }
 
+        pub fn mouse_wheel(&self, delta: i16) {
+            let Some(sender) = &self.sender else {
+                return;
+            };
+            let _ = sender.send(DrawingCommand::MouseWheel { delta });
+        }
+
         pub fn resize(&self, monitors: Vec<(i32, i32, i32, i32)>) {
             let Some(sender) = &self.sender else {
                 return;
@@ -578,6 +591,9 @@ mod platform {
                 return Err(std::io::Error::last_os_error().to_string());
             }
 
+            let mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, Some(low_level_mouse_proc), module, 0)
+                .map_err(|error| format!("Failed to install drawing mouse hook: {error}"))?;
+
             let default_color = parse_color("#ef2b2d");
             let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color);
 
@@ -607,6 +623,7 @@ mod platform {
             }
 
             message_loop(receiver);
+            let _ = UnhookWindowsHookEx(mouse_hook);
 
             if let Ok(mut state_guard) = overlay_state().lock() {
                 if let Some(state) = state_guard.as_mut() {
@@ -647,27 +664,31 @@ mod platform {
             return Err(std::io::Error::last_os_error().to_string());
         }
 
-        // Input is handled by a separate window that intentionally has no DWM
-        // redirection bitmap. This keeps the visible layered window fully
-        // transparent instead of filling its background with low-alpha black
-        // pixels just to make it hit-testable. Capture and pinning tools can
-        // otherwise promote those pixels to opaque black.
-        let input_name = wide("Keyviz Drawing Input");
+        // Pointer input is intercepted by the low-level mouse hook. This tiny
+        // transparent helper only receives keyboard focus while editing text;
+        // it never creates a full-monitor DWM surface that capture or pinning
+        // tools could promote to an opaque black frame.
+        let input_name = wide("Keyviz Drawing Text Input");
         let input_hwnd = CreateWindowExW(
-            WS_EX_NOREDIRECTIONBITMAP | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
+            WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST,
             PCWSTR(class_name.as_ptr()),
             PCWSTR(input_name.as_ptr()),
             WS_POPUP,
             bounds.left,
             bounds.top,
-            (bounds.right - bounds.left).max(1),
-            (bounds.bottom - bounds.top).max(1),
+            1,
+            1,
             HWND(0),
             None,
             module,
             None,
         );
-        if input_hwnd.0 == 0 {
+        if input_hwnd.0 == 0
+            || !SetLayeredWindowAttributes(input_hwnd, COLORREF(0), 1, LWA_ALPHA).as_bool()
+        {
+            if input_hwnd.0 != 0 {
+                DestroyWindow(input_hwnd);
+            }
             DestroyWindow(display_hwnd);
             return Err(std::io::Error::last_os_error().to_string());
         }
@@ -767,6 +788,91 @@ mod platform {
             .or_else(|| first_surface_hwnd(state))
     }
 
+    unsafe fn hide_input_surfaces(state: &mut OverlayState) {
+        for surface in &state.surfaces {
+            ShowWindow(surface.input_hwnd, SW_HIDE);
+        }
+    }
+
+    unsafe fn position_input_surface_at(state: &mut OverlayState, point: Point) {
+        let surface_index = state.surfaces.iter().position(|surface| {
+            point.x >= surface.bounds.left
+                && point.x < surface.bounds.right
+                && point.y >= surface.bounds.top
+                && point.y < surface.bounds.bottom
+        });
+        state.input_hwnd = surface_index.map(|index| state.surfaces[index].input_hwnd);
+
+        for (index, surface) in state.surfaces.iter().enumerate() {
+            if Some(index) == surface_index {
+                let _ = SetWindowPos(
+                    surface.input_hwnd,
+                    HWND_TOPMOST,
+                    point.x,
+                    point.y,
+                    1,
+                    1,
+                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                );
+            } else {
+                ShowWindow(surface.input_hwnd, SW_HIDE);
+            }
+        }
+    }
+
+    unsafe extern "system" fn low_level_mouse_proc(
+        code: i32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        // Let other low-level listeners (including rdev) observe the event
+        // before deciding whether it may reach the application underneath.
+        let next = CallNextHookEx(HHOOK(0), code, wparam, lparam);
+        if code < 0 {
+            return next;
+        }
+
+        let info = lparam.0 as *const MSLLHOOKSTRUCT;
+        if info.is_null() {
+            return next;
+        }
+        let point = Point {
+            x: (*info).pt.x,
+            y: (*info).pt.y,
+        };
+        let message = wparam.0 as u32;
+        let is_blockable = matches!(
+            message,
+            WM_LBUTTONDOWN
+                | WM_LBUTTONUP
+                | WM_RBUTTONDOWN
+                | WM_RBUTTONUP
+                | WM_MBUTTONDOWN
+                | WM_MBUTTONUP
+                | WM_XBUTTONDOWN
+                | WM_XBUTTONUP
+                | WM_MOUSEWHEEL
+        );
+
+        let mut should_block = false;
+        if let Ok(mut guard) = overlay_state().lock() {
+            if let Some(state) = guard.as_mut() {
+                let over_toolbar = is_toolbar_passthrough_point(state, point, true);
+                if state.visible && !state.click_through && !over_toolbar {
+                    position_input_surface_at(state, point);
+                    should_block = is_blockable;
+                } else {
+                    hide_input_surfaces(state);
+                }
+            }
+        }
+
+        if should_block {
+            LRESULT(1)
+        } else {
+            next
+        }
+    }
     unsafe fn message_loop(receiver: Receiver<DrawingCommand>) {
         let mut message = MSG::default();
         let mut commands = VecDeque::new();
@@ -1000,24 +1106,13 @@ mod platform {
                         0,
                         SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
                     );
-                    if !state.click_through {
-                        let _ = SetWindowPos(
-                            surface.input_hwnd,
-                            HWND_TOPMOST,
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-                        );
-                    }
                 }
+                sync_input_surface_visibility(state);
                 raise_toolbar(&state.app);
             }
             DrawingCommand::PointerDown { x, y } => {
                 if let Some(point) = global_point_for_drawing(state, x, y) {
-                    let capture_hwnd = surface_hwnd_for_point(state, point);
-                    begin_drawing_at(state, point, capture_hwnd);
+                    begin_drawing_at(state, point, None);
                 }
             }
             DrawingCommand::PointerMove { x, y } => {
@@ -1029,6 +1124,9 @@ mod platform {
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     finish_drawing_at(state, point);
                 }
+            }
+            DrawingCommand::MouseWheel { delta } => {
+                adjust_width_for_wheel(state, delta);
             }
         }
     }
@@ -1068,22 +1166,9 @@ mod platform {
                 EndPaint(hwnd, &paint);
                 LRESULT(0)
             }
-            WM_LBUTTONDOWN => {
-                on_left_button_down(hwnd, lparam);
-                LRESULT(0)
-            }
-            WM_MOUSEMOVE => {
-                on_mouse_move(hwnd, wparam, lparam);
-                LRESULT(0)
-            }
-            WM_LBUTTONUP => {
-                on_left_button_up(hwnd, lparam);
-                LRESULT(0)
-            }
-            WM_MOUSEWHEEL => {
-                on_mouse_wheel(hwnd, wparam);
-                LRESULT(0)
-            }
+            // Pointer drawing is driven by the low-level hook and rdev listener.
+            // The 1x1 helper window only owns the cursor and text keyboard focus.
+            WM_LBUTTONDOWN | WM_MOUSEMOVE | WM_LBUTTONUP | WM_MOUSEWHEEL => LRESULT(0),
             WM_KEYDOWN => {
                 on_key_down(hwnd, wparam);
                 LRESULT(0)
@@ -1359,7 +1444,11 @@ mod platform {
         }
 
         let delta = ((wparam.0 >> 16) & 0xffff) as u16 as i16;
-        if delta == 0 {
+        adjust_width_for_wheel(state, delta);
+    }
+
+    unsafe fn adjust_width_for_wheel(state: &mut OverlayState, delta: i16) {
+        if !state.visible || delta == 0 || matches!(state.tool, NativeTool::Pointer) {
             return;
         }
         let step = if delta > 0 { 1 } else { -1 };
@@ -3324,11 +3413,9 @@ mod platform {
             color: state.color,
             width: state.width.max(1),
         });
-        if let Some(hwnd) = state
-            .input_hwnd
-            .or_else(|| surface_hwnd_for_point(state, point))
-        {
+        if let Some(hwnd) = surface_hwnd_for_point(state, point).or(state.input_hwnd) {
             state.input_hwnd = Some(hwnd);
+            sync_input_surface_visibility(state);
             let _ = SetFocus(hwnd);
         }
         refresh_overlay(state);
@@ -3353,11 +3440,13 @@ mod platform {
             });
             emit_history(&state.app, true);
         }
+        sync_input_surface_visibility(state);
         refresh_overlay(state);
     }
 
     unsafe fn cancel_text_editor(state: &mut OverlayState) {
         state.edit = None;
+        sync_input_surface_visibility(state);
         refresh_overlay(state);
     }
 
@@ -3401,26 +3490,23 @@ mod platform {
     }
 
     unsafe fn sync_input_surface_visibility(state: &mut OverlayState) {
-        let capture_input = state.visible && !state.click_through;
-        if !capture_input {
+        if !state.visible || state.click_through {
             ReleaseCapture();
-            state.input_hwnd = None;
+            hide_input_surfaces(state);
+            return;
         }
 
-        for surface in &state.surfaces {
-            if capture_input {
-                let _ = SetWindowPos(
-                    surface.input_hwnd,
-                    HWND_TOPMOST,
-                    surface.bounds.left,
-                    surface.bounds.top,
-                    (surface.bounds.right - surface.bounds.left).max(1),
-                    (surface.bounds.bottom - surface.bounds.top).max(1),
-                    SWP_NOACTIVATE | SWP_SHOWWINDOW,
-                );
-            } else {
-                ShowWindow(surface.input_hwnd, SW_HIDE);
-            }
+        if let Some(hwnd) = state.input_hwnd.or_else(|| first_surface_hwnd(state)) {
+            state.input_hwnd = Some(hwnd);
+            let _ = SetWindowPos(
+                hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+            );
         }
     }
 
