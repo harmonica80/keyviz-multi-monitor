@@ -4,6 +4,7 @@ use serde::Serialize;
 use tauri::Manager;
 use tauri_plugin_store::StoreExt;
 
+use crate::app::diagnostics::record_error;
 use crate::app::native_drawing::{parse_tool, NativeTool};
 use crate::app::native_keys::NativeKeyVisual;
 use crate::app::state::{AppState, TrayMenuItems};
@@ -15,6 +16,9 @@ use crate::app::window::{
 #[tauri::command]
 pub fn log(message: String) {
     println!("[LOG] {}", message);
+    if message.to_ascii_lowercase().contains("error") {
+        record_error(format!("Frontend: {message}"));
+    }
 }
 
 #[tauri::command]
@@ -268,6 +272,7 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     let passthrough = matches!(tool, NativeTool::Pointer);
+    app_state.drawing_tool = tool.as_str().to_string();
     app_state.drawing_input_passthrough = passthrough;
     if passthrough {
         app_state.drawing_pointer_down = false;

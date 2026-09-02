@@ -13,6 +13,7 @@ mod platform {
         time::Duration,
     };
 
+    use crate::app::diagnostics::record_error;
     use serde::Serialize;
     use tauri::{AppHandle, Emitter, Manager};
     use windows::{
@@ -171,6 +172,46 @@ mod platform {
         Number,
         CheckMark,
         CrossMark,
+    }
+
+    impl NativeTool {
+        pub fn as_str(self) -> &'static str {
+            match self {
+                Self::Pointer => "pointer",
+                Self::Select => "select",
+                Self::Pen => "pen",
+                Self::Eraser => "eraser",
+                Self::Line => "line",
+                Self::Arrow => "arrow",
+                Self::Rectangle => "rectangle",
+                Self::Ellipse => "ellipse",
+                Self::Text => "text",
+                Self::Number => "number",
+                Self::CheckMark => "check-mark",
+                Self::CrossMark => "cross-mark",
+            }
+        }
+    }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct NativeDrawingWindowSnapshot {
+        pub role: String,
+        pub hwnd: i64,
+        pub bounds: [i32; 4],
+        pub canvas_size: Option<[i32; 2]>,
+    }
+
+    #[derive(Clone, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct NativeDrawingSnapshot {
+        pub initialized: bool,
+        pub visible: bool,
+        pub click_through: bool,
+        pub tool: String,
+        pub drawing_count: usize,
+        pub selection_count: usize,
+        pub windows: Vec<NativeDrawingWindowSnapshot>,
     }
 
     enum DrawingCommand {
@@ -373,12 +414,71 @@ mod platform {
     }
 
     impl NativeDrawingOverlay {
+        pub fn diagnostics(&self) -> NativeDrawingSnapshot {
+            let Ok(state_guard) = overlay_state().lock() else {
+                return NativeDrawingSnapshot {
+                    initialized: false,
+                    visible: false,
+                    click_through: false,
+                    tool: "unknown".to_string(),
+                    drawing_count: 0,
+                    selection_count: 0,
+                    windows: Vec::new(),
+                };
+            };
+            let Some(state) = state_guard.as_ref() else {
+                return NativeDrawingSnapshot {
+                    initialized: false,
+                    visible: false,
+                    click_through: false,
+                    tool: "unknown".to_string(),
+                    drawing_count: 0,
+                    selection_count: 0,
+                    windows: Vec::new(),
+                };
+            };
+            let mut windows = Vec::with_capacity(state.surfaces.len() * 2);
+            for surface in &state.surfaces {
+                let bounds = [
+                    surface.bounds.left,
+                    surface.bounds.top,
+                    surface.bounds.right,
+                    surface.bounds.bottom,
+                ];
+                let canvas_size = surface
+                    .canvas
+                    .as_ref()
+                    .map(|canvas| [canvas.width, canvas.height]);
+                windows.push(NativeDrawingWindowSnapshot {
+                    role: "drawing-display".to_string(),
+                    hwnd: surface.display_hwnd.0 as i64,
+                    bounds,
+                    canvas_size,
+                });
+                windows.push(NativeDrawingWindowSnapshot {
+                    role: "drawing-input".to_string(),
+                    hwnd: surface.input_hwnd.0 as i64,
+                    bounds,
+                    canvas_size: None,
+                });
+            }
+            NativeDrawingSnapshot {
+                initialized: true,
+                visible: state.visible,
+                click_through: state.click_through,
+                tool: state.tool.as_str().to_string(),
+                drawing_count: state.drawings.len(),
+                selection_count: state.selected.len(),
+                windows,
+            }
+        }
+
         pub fn new(app: &AppHandle) -> Self {
             let (sender, receiver) = mpsc::channel();
             let app_handle = app.clone();
             thread::spawn(move || {
                 if let Err(error) = run_window(receiver, app_handle) {
-                    eprintln!("Native drawing overlay failed: {error}");
+                    record_error(format!("Native drawing overlay failed: {error}"));
                 }
             });
             Self {
@@ -705,7 +805,7 @@ mod platform {
             match create_overlay_surface(*bounds) {
                 Ok(surface) => new_surfaces.push(surface),
                 Err(error) => {
-                    eprintln!("Failed to create drawing surface: {error}");
+                    record_error(format!("Failed to create drawing surface: {error}"));
                     destroy_overlay_surfaces(&mut new_surfaces);
                     return false;
                 }
@@ -3903,7 +4003,7 @@ mod platform_stub {
     #[derive(Clone, Default)]
     pub struct NativeDrawingOverlay;
 
-    #[derive(Clone)]
+    #[derive(Clone, Copy)]
     pub enum NativeTool {
         Pointer,
         Select,
@@ -3919,9 +4019,60 @@ mod platform_stub {
         CrossMark,
     }
 
+    impl NativeTool {
+        pub fn as_str(self) -> &'static str {
+            match self {
+                Self::Pointer => "pointer",
+                Self::Select => "select",
+                Self::Pen => "pen",
+                Self::Eraser => "eraser",
+                Self::Line => "line",
+                Self::Arrow => "arrow",
+                Self::Rectangle => "rectangle",
+                Self::Ellipse => "ellipse",
+                Self::Text => "text",
+                Self::Number => "number",
+                Self::CheckMark => "check-mark",
+                Self::CrossMark => "cross-mark",
+            }
+        }
+    }
+
+    #[derive(Clone, serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct NativeDrawingWindowSnapshot {
+        pub role: String,
+        pub hwnd: i64,
+        pub bounds: [i32; 4],
+        pub canvas_size: Option<[i32; 2]>,
+    }
+
+    #[derive(Clone, serde::Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct NativeDrawingSnapshot {
+        pub initialized: bool,
+        pub visible: bool,
+        pub click_through: bool,
+        pub tool: String,
+        pub drawing_count: usize,
+        pub selection_count: usize,
+        pub windows: Vec<NativeDrawingWindowSnapshot>,
+    }
+
     impl NativeDrawingOverlay {
         pub fn new(_app: &AppHandle) -> Self {
             Self
+        }
+        pub fn diagnostics(&self) -> NativeDrawingSnapshot {
+            NativeDrawingSnapshot {
+                initialized: true,
+                visible: false,
+                click_through: false,
+                tool: "unknown".to_string(),
+                drawing_count: 0,
+                selection_count: 0,
+                windows: Vec::new(),
+            }
         }
         pub fn show(
             &self,

@@ -684,6 +684,10 @@ mod platform {
             Self
         }
 
+        pub fn diagnostic_hwnds(&self) -> Vec<i64> {
+            Vec::new()
+        }
+
         pub fn update(
             &self,
             _visual: NativeKeyVisual,

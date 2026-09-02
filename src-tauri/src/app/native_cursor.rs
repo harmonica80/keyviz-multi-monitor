@@ -9,6 +9,7 @@ mod platform {
         time::Duration,
     };
 
+    use crate::app::diagnostics::record_error;
     use windows::{
         core::PCWSTR,
         Win32::{
@@ -62,6 +63,11 @@ mod platform {
     }
 
     static PAINT_STATE: OnceLock<Mutex<PaintState>> = OnceLock::new();
+    static CURSOR_WINDOWS: OnceLock<Mutex<Vec<isize>>> = OnceLock::new();
+
+    fn cursor_windows() -> &'static Mutex<Vec<isize>> {
+        CURSOR_WINDOWS.get_or_init(|| Mutex::new(Vec::new()))
+    }
 
     impl Default for NativeCursorOverlay {
         fn default() -> Self {
@@ -74,12 +80,19 @@ mod platform {
             let (sender, receiver) = mpsc::channel();
             thread::spawn(move || {
                 if let Err(error) = run_window(receiver) {
-                    eprintln!("Native cursor overlay failed: {error}");
+                    record_error(format!("Native cursor overlay failed: {error}"));
                 }
             });
             Self {
                 sender: Some(sender),
             }
+        }
+
+        pub fn diagnostic_hwnds(&self) -> Vec<i64> {
+            cursor_windows()
+                .lock()
+                .map(|windows| windows.iter().map(|hwnd| *hwnd as i64).collect())
+                .unwrap_or_default()
         }
 
         pub fn update(
@@ -148,6 +161,9 @@ mod platform {
             message_loop(receiver, &mut windows);
             for (_, hwnd) in windows {
                 DestroyWindow(hwnd);
+            }
+            if let Ok(mut diagnostic_windows) = cursor_windows().lock() {
+                diagnostic_windows.clear();
             }
         }
 
@@ -231,6 +247,9 @@ mod platform {
                     return;
                 };
                 windows.push((monitor, hwnd));
+                if let Ok(mut diagnostic_windows) = cursor_windows().lock() {
+                    diagnostic_windows.push(hwnd.0);
+                }
                 hwnd
             };
         for (_, candidate) in windows.iter() {
@@ -339,6 +358,10 @@ mod platform {
     impl NativeCursorOverlay {
         pub fn new() -> Self {
             Self
+        }
+
+        pub fn diagnostic_hwnds(&self) -> Vec<i64> {
+            Vec::new()
         }
 
         pub fn update(

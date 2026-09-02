@@ -1,4 +1,4 @@
-﻿import { create } from "zustand";
+import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 export type Locale = "en" | "zh-TW";
@@ -18,6 +18,12 @@ const zhTW: Record<string, string> = {
   "Checking...": "檢查中…",
   "Check": "檢查",
   "Download": "前往下載",
+  "Export Diagnostics": "匯出診斷資料",
+  "Save monitor, drawing, window, mouse hook, and recent error details.": "儲存螢幕、繪圖、視窗、滑鼠 hook 與最近錯誤等資訊。",
+  "Exporting diagnostics...": "正在匯出診斷資料…",
+  "Diagnostics saved to: {path}": "診斷資料已儲存至：{path}",
+  "Unable to export diagnostics. Please try again.": "無法匯出診斷資料，請再試一次。",
+  "Exporting...": "匯出中…",
   "About": "關於",
   "General": "一般",
   "Appearance": "外觀",

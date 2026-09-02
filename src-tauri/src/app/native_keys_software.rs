@@ -1,7 +1,10 @@
 use std::{
     ffi::c_void,
     mem::size_of,
-    sync::mpsc::{self, Receiver, Sender},
+    sync::{
+        atomic::{AtomicIsize, Ordering},
+        mpsc::{self, Receiver, Sender},
+    },
     thread,
     time::Duration,
 };
@@ -59,11 +62,14 @@ use windows::{
 };
 
 use super::NativeKeyVisual;
+use crate::app::diagnostics::record_error;
 
 #[derive(Clone, Default)]
 pub struct NativeKeyOverlay {
     sender: Option<Sender<KeyCommand>>,
 }
+
+static KEY_WINDOW_HWND: AtomicIsize = AtomicIsize::new(0);
 
 enum KeyCommand {
     Update(KeyUpdate),
@@ -149,11 +155,20 @@ impl NativeKeyOverlay {
         let (sender, receiver) = mpsc::channel();
         thread::spawn(move || {
             if let Err(error) = run_window(receiver) {
-                eprintln!("Native Direct2D key overlay failed: {error}");
+                record_error(format!("Native Direct2D key overlay failed: {error}"));
             }
         });
         Self {
             sender: Some(sender),
+        }
+    }
+
+    pub fn diagnostic_hwnds(&self) -> Vec<i64> {
+        let hwnd = KEY_WINDOW_HWND.load(Ordering::Relaxed);
+        if hwnd == 0 {
+            Vec::new()
+        } else {
+            vec![hwnd as i64]
         }
     }
 
@@ -485,8 +500,10 @@ unsafe fn run_initialized_window(receiver: Receiver<KeyCommand>) -> Result<(), S
     if hwnd.0 == 0 {
         return Err(std::io::Error::last_os_error().to_string());
     }
+    KEY_WINDOW_HWND.store(hwnd.0, Ordering::Relaxed);
 
     message_loop(hwnd, receiver, &renderer);
+    KEY_WINDOW_HWND.store(0, Ordering::Relaxed);
     DestroyWindow(hwnd);
     Ok(())
 }
@@ -547,7 +564,7 @@ unsafe fn apply_update(hwnd: HWND, update: KeyUpdate, renderer: &SoftwareRendere
             );
         }
         Err(error) => {
-            eprintln!("Direct2D key overlay render failed: {error}");
+            record_error(format!("Direct2D key overlay render failed: {error}"));
             ShowWindow(hwnd, SW_HIDE);
         }
     }

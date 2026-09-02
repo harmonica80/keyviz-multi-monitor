@@ -14,6 +14,7 @@ use app::commands::{
     set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut, set_tray_locale,
     update_native_key_overlay, update_overlay_window,
 };
+use app::diagnostics::{export_diagnostics, record_error};
 use app::event::start_listener;
 use app::native_drawing::NativeTool;
 use app::state::{AppState, TrayMenuItems};
@@ -63,7 +64,7 @@ fn show_settings_window(app: &AppHandle) {
             let _ = app.emit_to("main", "settings-window", true);
         }
         Err(error) => {
-            eprintln!("Failed to create settings window: {error}");
+            record_error(format!("Failed to create settings window: {error}"));
         }
     }
 }
@@ -376,6 +377,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.pressed_keys.clear();
     app_state.drawing_visible = true;
+    app_state.drawing_tool = "pen".to_string();
     app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
     let drawing_session_id = app_state.drawing_session_id;
     app_state.drawing_input_passthrough = false;
@@ -453,7 +455,9 @@ fn open_screen_drawing(app: AppHandle) -> Result<(), String> {
     std::thread::spawn(move || {
         let app_handle = app;
         if let Err(error) = show_drawing_window(&app_handle) {
-            eprintln!("Failed to open screen drawing from settings: {error}");
+            record_error(format!(
+                "Failed to open screen drawing from settings: {error}"
+            ));
             return;
         }
         if let Some(settings) = app_handle.get_webview_window("settings") {
@@ -727,7 +731,7 @@ pub fn run() {
             // uninitialized settings webview from the drawing toolbar can otherwise
             // leave a blank modal-looking window behind the topmost overlay stack.
             if let Err(error) = build_settings_window(app_handle, false, false) {
-                eprintln!("Failed to preload settings window: {error}");
+                record_error(format!("Failed to preload settings window: {error}"));
             }
 
             // tray actions
@@ -810,7 +814,7 @@ pub fn run() {
                     }
                     "drawing" => {
                         if let Err(error) = show_drawing_window(app) {
-                            eprintln!("Failed to open screen drawing: {error}");
+                            record_error(format!("Failed to open screen drawing: {error}"));
                         }
                     }
                     "quit" => std::process::exit(0),
@@ -897,7 +901,8 @@ pub fn run() {
             drawing_set_width,
             drawing_clear,
             drawing_toggle_group,
-            drawing_undo
+            drawing_undo,
+            export_diagnostics
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

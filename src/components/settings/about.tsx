@@ -4,8 +4,9 @@ import { compareVersions, loadAppVersion, useAppVersion } from "@/lib/app-versio
 import { useTranslation } from "@/lib/i18n";
 import { GithubIcon, LinkSquare02Icon, WebDesign01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { CheckCircle2, Download, RefreshCw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Download, FileJson, RefreshCw, TriangleAlert } from "lucide-react";
 import { useState } from "react";
 
 const LATEST_RELEASE_API =
@@ -23,10 +24,17 @@ type UpdateStatus =
     | { state: "available"; latestVersion: string; url: string }
     | { state: "error" };
 
+type DiagnosticStatus =
+    | { state: "idle" }
+    | { state: "exporting" }
+    | { state: "success"; path: string }
+    | { state: "error" };
+
 export const AboutPage = () => {
     const { t } = useTranslation();
     const version = useAppVersion();
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
+    const [diagnosticStatus, setDiagnosticStatus] = useState<DiagnosticStatus>({ state: "idle" });
 
     const checkForUpdates = async () => {
         setUpdateStatus({ state: "checking" });
@@ -57,6 +65,17 @@ export const AboutPage = () => {
             setUpdateStatus({ state: "error" });
         } finally {
             window.clearTimeout(timeout);
+        }
+    };
+
+    const exportDiagnostics = async () => {
+        setDiagnosticStatus({ state: "exporting" });
+        try {
+            const path = await invoke<string>("export_diagnostics");
+            setDiagnosticStatus({ state: "success", path });
+        } catch (error) {
+            console.error("Failed to export diagnostics:", error);
+            setDiagnosticStatus({ state: "error" });
         }
     };
 
@@ -170,6 +189,42 @@ export const AboutPage = () => {
                                 {t(updateStatus.state === "checking" ? "Checking..." : "Check")}
                             </Button>
                         )}
+                    </ItemActions>
+                </Item>
+
+                <Item variant="muted">
+                    <ItemContent>
+                        <ItemTitle>
+                            {diagnosticStatus.state === "error" ? (
+                                <TriangleAlert className="size-4" />
+                            ) : diagnosticStatus.state === "success" ? (
+                                <CheckCircle2 className="size-4" />
+                            ) : (
+                                <FileJson className="size-4" />
+                            )}
+                            {t("Export Diagnostics")}
+                        </ItemTitle>
+                        <ItemDescription className="max-w-100 break-all">
+                            {diagnosticStatus.state === "idle" &&
+                                t("Save monitor, drawing, window, mouse hook, and recent error details.")}
+                            {diagnosticStatus.state === "exporting" &&
+                                t("Exporting diagnostics...")}
+                            {diagnosticStatus.state === "success" &&
+                                t("Diagnostics saved to: {path}", { path: diagnosticStatus.path })}
+                            {diagnosticStatus.state === "error" &&
+                                t("Unable to export diagnostics. Please try again.")}
+                        </ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={diagnosticStatus.state === "exporting"}
+                            onClick={exportDiagnostics}
+                        >
+                            <FileJson />
+                            {t(diagnosticStatus.state === "exporting" ? "Exporting..." : "Export")}
+                        </Button>
                     </ItemActions>
                 </Item>
             </div>

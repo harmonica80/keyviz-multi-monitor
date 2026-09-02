@@ -2,6 +2,7 @@ use serde::Deserialize;
 use tauri::{image::Image, include_image, menu::MenuItem, Emitter, Manager, Wry};
 use tauri_plugin_store::StoreExt;
 
+use crate::app::diagnostics::record_error;
 use crate::app::native_cursor::NativeCursorOverlay;
 use crate::app::native_drawing::NativeDrawingOverlay;
 use crate::app::native_keys::NativeKeyOverlay;
@@ -39,10 +40,15 @@ pub struct AppState {
     pub key_overlay: NativeKeyOverlay,
     pub drawing_overlay: NativeDrawingOverlay,
     pub drawing_visible: bool,
+    pub drawing_tool: String,
     pub drawing_session_id: u64,
     pub drawing_input_passthrough: bool,
     pub drawing_pointer_down: bool,
     pub drawing_last_move: Option<std::time::Instant>,
+    pub mouse_hook_status: String,
+    pub mouse_hook_event_count: u64,
+    pub mouse_hook_last_event_unix_ms: Option<u64>,
+    pub mouse_hook_last_error: Option<String>,
 }
 
 pub struct TrayMenuItems {
@@ -99,7 +105,9 @@ impl AppState {
                             drawing_undo_shortcut = parsed.state.drawing_undo_shortcut;
                             drawing_close_shortcut = parsed.state.drawing_close_shortcut;
                         }
-                        Err(e) => eprintln!("Failed to parse inner config JSON: {}", e),
+                        Err(error) => {
+                            record_error(format!("Failed to parse inner config JSON: {error}"))
+                        }
                     }
                 }
             }
@@ -167,10 +175,15 @@ impl AppState {
             key_overlay: NativeKeyOverlay::new(),
             drawing_overlay: NativeDrawingOverlay::new(app),
             drawing_visible: false,
+            drawing_tool: "pen".to_string(),
             drawing_session_id: 0,
             drawing_input_passthrough: false,
             drawing_pointer_down: false,
             drawing_last_move: None,
+            mouse_hook_status: "starting".to_string(),
+            mouse_hook_event_count: 0,
+            mouse_hook_last_event_unix_ms: None,
+            mouse_hook_last_error: None,
         }
     }
     pub fn toggle_listener(&mut self, app: &tauri::AppHandle, toggle: &MenuItem<Wry>) {

@@ -8,6 +8,7 @@ use rdev::{listen, Button, EventType};
 use serde::Serialize;
 use tauri::{menu::MenuItem, AppHandle, Emitter, Manager, Wry};
 
+use crate::app::diagnostics::{record_error, unix_time_ms};
 use crate::app::native_drawing::NativeTool;
 use crate::app::state::AppState;
 
@@ -107,13 +108,21 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
     thread::spawn(move || {
         println!("Starting global input listener...");
 
+        let status_app_handle = app_handle.clone();
+        if let Ok(mut app_state) = status_app_handle.state::<Mutex<AppState>>().lock() {
+            app_state.mouse_hook_status = "running".to_string();
+            app_state.mouse_hook_last_error = None;
+        }
+
         if let Err(err) = listen(move |event| {
             // get app state
             let state = app_handle.state::<Mutex<AppState>>();
             let Ok(mut app_state) = state.lock() else {
-                eprintln!("Input state is unavailable");
+                record_error("Input state is unavailable");
                 return;
             };
+            app_state.mouse_hook_event_count = app_state.mouse_hook_event_count.wrapping_add(1);
+            app_state.mouse_hook_last_event_unix_ms = Some(unix_time_ms());
 
             // track pressed keys
             if let EventType::KeyPress(key) = event.event_type {
@@ -142,7 +151,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                         crate::show_drawing_window(&app_handle)
                     };
                     if let Err(error) = result {
-                        eprintln!("Failed to toggle screen drawing shortcut: {error}");
+                        record_error(format!("Failed to toggle screen drawing shortcut: {error}"));
                     }
                     return;
                 }
@@ -156,7 +165,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 {
                     drop(app_state);
                     if let Err(error) = set_drawing_pointer_mode(&app_handle) {
-                        eprintln!("Failed to set drawing pointer shortcut: {error}");
+                        record_error(format!("Failed to set drawing pointer shortcut: {error}"));
                     }
                     return;
                 }
@@ -181,7 +190,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     app_state.pressed_keys.clear();
                     drop(app_state);
                     if let Err(error) = crate::close_screen_drawing_impl(app_handle.clone()) {
-                        eprintln!("Failed to close screen drawing shortcut: {error}");
+                        record_error(format!("Failed to close screen drawing shortcut: {error}"));
                     }
                     return;
                 }
@@ -200,7 +209,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                                     name: key_name.clone(),
                                 },
                             ) {
-                                eprintln!("Failed to emit key release: {error}");
+                                record_error(format!("Failed to emit key release: {error}"));
                             }
                         }
                     }
@@ -290,10 +299,15 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
             };
 
             if let Err(error) = app_handle.emit("input-event", input_event) {
-                eprintln!("Failed to emit input event: {error}");
+                record_error(format!("Failed to emit input event: {error}"));
             }
         }) {
-            eprintln!("rdev listen failed: {:?}", err);
+            let message = format!("rdev listen failed: {err:?}");
+            record_error(message.clone());
+            if let Ok(mut app_state) = status_app_handle.state::<Mutex<AppState>>().lock() {
+                app_state.mouse_hook_status = "failed".to_string();
+                app_state.mouse_hook_last_error = Some(message);
+            }
         }
     });
 }
@@ -391,6 +405,7 @@ fn set_drawing_pointer_mode(app_handle: &AppHandle) -> Result<(), String> {
     app_state.drawing_pointer_down = false;
     app_state.drawing_last_move = None;
     app_state.drawing_overlay.set_tool(NativeTool::Pointer);
+    app_state.drawing_tool = "pointer".to_string();
     app_state.drawing_overlay.set_click_through(true);
     drop(app_state);
     app_handle
@@ -448,7 +463,9 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
                     crate::show_drawing_window(&app_handle)
                 };
                 if let Err(error) = result {
-                    eprintln!("Failed to toggle screen drawing poller shortcut: {error}");
+                    record_error(format!(
+                        "Failed to toggle screen drawing poller shortcut: {error}"
+                    ));
                 }
             }
 
@@ -482,14 +499,18 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
                 };
                 if drawing_visible {
                     if let Err(error) = crate::close_screen_drawing_impl(app_handle.clone()) {
-                        eprintln!("Failed to close screen drawing poller shortcut: {error}");
+                        record_error(format!(
+                            "Failed to close screen drawing poller shortcut: {error}"
+                        ));
                     }
                 }
             }
 
             if pointer_down && !pointer_was_down {
                 if let Err(error) = set_drawing_pointer_mode(&app_handle) {
-                    eprintln!("Failed to set drawing pointer poller shortcut: {error}");
+                    record_error(format!(
+                        "Failed to set drawing pointer poller shortcut: {error}"
+                    ));
                 }
             }
 
