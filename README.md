@@ -6,7 +6,7 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 ## 下載最新版
 
-**[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/download/v1.0.0/keyviz-portable.exe)**
+**[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
 ## 功能介紹
 
