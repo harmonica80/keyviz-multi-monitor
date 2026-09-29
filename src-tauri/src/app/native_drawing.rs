@@ -935,7 +935,10 @@ mod platform {
         match command {
             DrawingCommand::SetHoverEdit(preferences) => {
                 state.hover_edit = preferences;
-                if state.selection.is_none() && !matches!(state.tool, NativeTool::Select) {
+                if !matches!(state.tool, NativeTool::Select) {
+                    if state.selection.take().is_some() {
+                        ReleaseCapture();
+                    }
                     state.selected.clear();
                     emit_selection_state(state);
                     refresh_overlay(state);
@@ -998,6 +1001,8 @@ mod platform {
             }
             DrawingCommand::SetTool(tool) => {
                 commit_text_editor(state);
+                state.active = None;
+                ReleaseCapture();
                 let click_through = matches!(tool, NativeTool::Pointer);
                 state.tool = tool;
                 state.selected.clear();
@@ -1379,6 +1384,9 @@ mod platform {
             return;
         }
         if (wparam.0 & MK_LBUTTON_MASK) == 0 {
+            // Recover when mouse-up was delivered to another window (for
+            // example after opening settings during a drag).
+            finish_drawing_at(state, point);
             return;
         }
         update_drawing_at(state, point);
@@ -1418,6 +1426,7 @@ mod platform {
     }
 
     unsafe fn finish_drawing_at(state: &mut OverlayState, _point: Point) {
+        ReleaseCapture();
         if state.selection.is_some() {
             finish_selection(state);
             ReleaseCapture();
@@ -1953,13 +1962,21 @@ mod platform {
         preferences.get(tool.as_str()).copied().unwrap_or(true)
     }
 
+    fn hover_selection_enabled(preferences: &std::collections::HashMap<String, bool>, drawings: &[DrawingItem], selected: &[usize]) -> bool {
+        !selected.is_empty() && selected.iter().all(|index| {
+            drawings.get(*index).map(|drawing| hover_edit_enabled(preferences, drawing)).unwrap_or(false)
+        })
+    }
+
     fn update_hover_selection(state: &mut OverlayState, point: Point) -> bool {
         if !state.visible || !hover_edit_mode(state) || state.active.is_some()
             || state.selection.is_some() || state.edit.is_some() {
             return false;
         }
-        // Keep the handles reachable even though they sit outside the object.
-        if let Some(frame) = selection_frame(state) {
+        // A disabled/stale selection must not keep intercepting the next click.
+        let selection_enabled = hover_selection_enabled(&state.hover_edit, &state.drawings, &state.selected);
+        // Keep valid handles reachable even though they sit outside the object.
+        if let Some(frame) = selection_frame(state).filter(|_| selection_enabled && !is_toolbar_passthrough_point(state, point, false)) {
             if selection_resize_anchor(frame, point).is_some()
                 || point_near(point, rotation_handle(frame), SELECTION_HANDLE_SIZE + 4) {
                 return false;
@@ -4106,6 +4123,12 @@ mod platform {
             preferences.insert("number".into(), false);
             assert!(!hover_edit_enabled(&preferences, &marker));
             assert!(hover_edit_enabled(&preferences, &text));
+            let drawings = vec![marker, text];
+            assert!(!hover_selection_enabled(&preferences, &drawings, &[0]));
+            assert!(hover_selection_enabled(&preferences, &drawings, &[1]));
+            assert!(!hover_selection_enabled(&preferences, &drawings, &[0, 1]));
+            assert!(!hover_selection_enabled(&preferences, &drawings, &[2]));
+            assert!(!hover_selection_enabled(&preferences, &drawings, &[]));
         }
 
         #[test]
