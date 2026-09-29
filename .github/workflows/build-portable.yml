@@ -28,6 +28,9 @@ jobs:
       - name: Build portable executable
         run: npm run build:portable
 
+      - name: Test native object editing
+        run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib hover_tests
+
       - name: Prepare portable artifact
         shell: pwsh
         run: |

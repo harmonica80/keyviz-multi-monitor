@@ -2661,11 +2661,49 @@ mod platform {
     }
 
     fn drawing_hit_test(drawing: &DrawingItem, point: Point) -> bool {
+        if let DrawingItem::Shape { tool, start, end, width, rotation, .. } = drawing {
+            if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
+                let center = Point { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
+                let (x, y) = point_to_selection_local(point, center, *rotation);
+                return outline_hit_test(*tool == NativeTool::Ellipse, x, y,
+                    (end.x - start.x).abs() as f64 / 2.0,
+                    (end.y - start.y).abs() as f64 / 2.0,
+                    (*width).max(1) as f64 / 2.0 + 4.0);
+            }
+        }
         let bounds = drawing_bounds(drawing);
         point.x >= bounds.left - 4
             && point.x <= bounds.right + 4
             && point.y >= bounds.top - 4
             && point.y <= bounds.bottom + 4
+    }
+
+    fn outline_hit_test(ellipse: bool, x: f64, y: f64, rx: f64, ry: f64, tolerance: f64) -> bool {
+        let (x, y) = (x.abs(), y.abs());
+        if x > rx + tolerance || y > ry + tolerance {
+            return false;
+        }
+        if !ellipse || rx < 1.0 || ry < 1.0 {
+            let outside = ((x - rx).max(0.0)).hypot((y - ry).max(0.0));
+            let inside = (rx - x).min(ry - y).max(0.0);
+            return outside + inside <= tolerance;
+        }
+        // Approximate the nearest quadrant with short segments. Unlike a
+        // normalized-radius threshold this keeps picking tolerance in pixels,
+        // including for very wide or tall ellipses.
+        let segments = ((rx.max(ry) / 0.5).sqrt().ceil() as usize).clamp(16, 2048);
+        let mut previous = (rx, 0.0);
+        for index in 1..=segments {
+            let angle = std::f64::consts::FRAC_PI_2 * index as f64 / segments as f64;
+            let next = (rx * angle.cos(), ry * angle.sin());
+            let (dx, dy) = (next.0 - previous.0, next.1 - previous.1);
+            let t = (((x - previous.0) * dx + (y - previous.1) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+            if (x - previous.0 - t * dx).hypot(y - previous.1 - t * dy) <= tolerance {
+                return true;
+            }
+            previous = next;
+        }
+        false
     }
 
     fn drawing_bounds(drawing: &DrawingItem) -> RECT {
@@ -4113,6 +4151,28 @@ mod platform {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn hollow_shapes_only_hit_the_outline() {
+            for ellipse in [false, true] {
+                assert!(!outline_hit_test(ellipse, 0.0, 0.0, 200.0, 100.0, 8.0));
+                assert!(outline_hit_test(ellipse, 200.0, 0.0, 200.0, 100.0, 8.0));
+                assert!(outline_hit_test(ellipse, 204.0, 0.0, 200.0, 100.0, 8.0));
+                assert!(!outline_hit_test(ellipse, 220.0, 0.0, 200.0, 100.0, 8.0));
+            }
+            assert!(outline_hit_test(false, 200.0, 100.0, 200.0, 100.0, 8.0));
+            assert!(!outline_hit_test(true, 200.0, 100.0, 200.0, 100.0, 8.0));
+            assert!(outline_hit_test(true, 0.0, 20.0, 500.0, 20.0, 8.0));
+            assert!(!outline_hit_test(true, 0.0, 0.0, 500.0, 20.0, 8.0));
+        }
+
+        #[test]
+        fn rotated_outline_uses_object_coordinates() {
+            let shape = DrawingItem::Shape { tool: NativeTool::Rectangle, start: Point { x: -100, y: -50 }, end: Point { x: 100, y: 50 }, color: COLORREF(0), width: 4, rotation: std::f64::consts::FRAC_PI_2, group: None };
+            assert!(drawing_hit_test(&shape, Point { x: 0, y: 100 }));
+            assert!(!drawing_hit_test(&shape, Point { x: 0, y: 0 }));
+            assert!(!drawing_hit_test(&shape, Point { x: 100, y: 0 }));
+        }
 
         #[test]
         fn preferences_default_on_and_are_independent() {
