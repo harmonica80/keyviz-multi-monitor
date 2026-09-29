@@ -1768,14 +1768,16 @@ mod platform {
             return;
         }
 
+        // Resolve monitor-dependent controls before temporarily taking the surfaces.
+        let controls = number_controls(state);
         let mut surfaces = std::mem::take(&mut state.surfaces);
         for surface in &mut surfaces {
-            refresh_overlay_surface(state, surface);
+            refresh_overlay_surface(state, surface, controls);
         }
         state.surfaces = surfaces;
     }
 
-    unsafe fn refresh_overlay_surface(state: &OverlayState, surface: &mut OverlaySurface) {
+    unsafe fn refresh_overlay_surface(state: &OverlayState, surface: &mut OverlaySurface, controls: Option<(usize, [RECT; 2])>) {
         if !ensure_overlay_canvas(surface) {
             return;
         }
@@ -1802,7 +1804,7 @@ mod platform {
             draw_item(drawing_dc, drawing);
         }
         if !state.selected.is_empty() {
-            draw_selection(drawing_dc, state);
+            draw_selection(drawing_dc, state, controls);
         }
         if let Some(SelectionSession {
             start,
@@ -2936,8 +2938,8 @@ mod platform {
             RECT { left: x, top: y + size + 4, right: x + size, bottom: y + 2 * size + 4 }]))
     }
 
-    unsafe fn draw_number_controls(dc: HDC, state: &OverlayState) {
-        let Some((_, buttons)) = number_controls(state) else { return; };
+    unsafe fn draw_number_controls(dc: HDC, controls: Option<(usize, [RECT; 2])>) {
+        let Some((_, buttons)) = controls else { return; };
         let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00e0_8030));
         let brush = CreateSolidBrush(COLORREF(0x00ff_ffff));
         let old_pen = SelectObject(dc, pen);
@@ -2959,7 +2961,7 @@ mod platform {
         DeleteObject(brush);
     }
 
-    unsafe fn draw_selection(dc: HDC, state: &OverlayState) {
+    unsafe fn draw_selection(dc: HDC, state: &OverlayState, controls: Option<(usize, [RECT; 2])>) {
         let Some(frame) = selection_frame(state) else {
             return;
         };
@@ -3004,7 +3006,7 @@ mod platform {
         SelectObject(dc, old_brush);
         SelectObject(dc, old_pen);
         DeleteObject(pen);
-        draw_number_controls(dc, state);
+        draw_number_controls(dc, controls);
     }
 
     unsafe fn draw_marquee(dc: HDC, bounds: RECT) {
