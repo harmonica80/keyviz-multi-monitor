@@ -232,6 +232,10 @@ export default function ScreenDrawing() {
   });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const toolbarItems = useDrawingToolbar((state) => state.items);
+  const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
+  useEffect(() => {
+    void invoke("set_drawing_hover_edit", { preferences: hoverEdit }).catch(console.error);
+  }, [hoverEdit]);
   const isTextEditorOpen = textEditor !== null;
   const drawingUndoShortcut = useKeyEvent((state) => state.drawingUndoShortcut);
   const drawingCloseShortcut = useKeyEvent((state) => state.drawingCloseShortcut);

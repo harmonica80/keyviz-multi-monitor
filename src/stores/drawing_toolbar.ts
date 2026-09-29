@@ -18,11 +18,13 @@ export interface DrawingToolbarItem {
 export type DrawingToolbarSide = "left" | "right";
 
 interface DrawingToolbarState {
+  hoverEdit: Partial<Record<DrawingTool, boolean>>;
   items: DrawingToolbarItem[];
   side: DrawingToolbarSide;
 }
 
 interface DrawingToolbarActions {
+  setHoverEdit: (id: DrawingTool, enabled: boolean) => void;
   setItems: (items: DrawingToolbarItem[]) => void;
   setToolVisible: (id: DrawingTool, visible: boolean) => void;
   setSide: (side: DrawingToolbarSide) => void;
@@ -66,6 +68,8 @@ const normalizeDrawingToolbarSide = (side: unknown): DrawingToolbarSide =>
 const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
   DRAWING_TOOLBAR_STORE,
   (set) => ({
+    hoverEdit: {},
+    setHoverEdit: (id, enabled) => set((state) => ({ hoverEdit: { ...state.hoverEdit, [id]: enabled } })),
     items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
     side: DEFAULT_DRAWING_TOOLBAR_SIDE,
     setItems: (items) => set({ items: normalizeDrawingToolbarItems(items) }),
@@ -94,12 +98,14 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
         return {
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
+          hoverEdit: state.hoverEdit ?? {},
         };
       },
       merge: (persistedState, currentState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
           ...currentState,
+          hoverEdit: state.hoverEdit ?? {},
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
         };

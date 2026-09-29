@@ -221,6 +221,7 @@ mod platform {
         },
         Hide,
         SetTool(NativeTool),
+        SetHoverEdit(std::collections::HashMap<String, bool>),
         SetColor(String),
         SetWidth(i32),
         Clear,
@@ -362,6 +363,7 @@ mod platform {
     }
 
     struct OverlayState {
+        hover_edit: std::collections::HashMap<String, bool>,
         app: AppHandle,
         surfaces: Vec<OverlaySurface>,
         input_hwnd: Option<HWND>,
@@ -527,6 +529,12 @@ mod platform {
             let _ = sender.send(DrawingCommand::SetTool(tool));
         }
 
+        pub fn set_hover_edit(&self, preferences: std::collections::HashMap<String, bool>) {
+            if let Some(sender) = &self.sender {
+                let _ = sender.send(DrawingCommand::SetHoverEdit(preferences));
+            }
+        }
+
         pub fn set_color(&self, color: &str) {
             let Some(sender) = &self.sender else {
                 return;
@@ -683,6 +691,7 @@ mod platform {
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
+                    hover_edit: std::collections::HashMap::new(),
                     app,
                     surfaces: Vec::new(),
                     input_hwnd: None,
@@ -924,6 +933,14 @@ mod platform {
         };
 
         match command {
+            DrawingCommand::SetHoverEdit(preferences) => {
+                state.hover_edit = preferences;
+                if state.selection.is_none() && !matches!(state.tool, NativeTool::Select) {
+                    state.selected.clear();
+                    emit_selection_state(state);
+                    refresh_overlay(state);
+                }
+            }
             DrawingCommand::Show {
                 monitors,
                 toolbar_passthrough,
@@ -1181,7 +1198,7 @@ mod platform {
                 LRESULT(0)
             }
             WM_MOUSEWHEEL => {
-                on_mouse_wheel(hwnd, wparam);
+                on_mouse_wheel(hwnd, wparam, lparam);
                 LRESULT(0)
             }
             WM_KEYDOWN => {
@@ -1250,7 +1267,8 @@ mod platform {
         }
 
         commit_text_editor(state);
-        if matches!(state.tool, NativeTool::Select) {
+        update_hover_selection(state, point);
+        if matches!(state.tool, NativeTool::Select) || !state.selected.is_empty() && hover_edit_mode(state) {
             begin_selection_at(state, point);
             if let Some(hwnd) = capture_hwnd {
                 SetCapture(hwnd);
@@ -1347,16 +1365,22 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if !is_surface_hwnd(state, hwnd) || (state.active.is_none() && state.selection.is_none()) {
-            return;
-        }
-        if (wparam.0 & MK_LBUTTON_MASK) == 0 {
+        if !is_surface_hwnd(state, hwnd) {
             return;
         }
 
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
             return;
         };
+        if state.active.is_none() && state.selection.is_none() {
+            if (wparam.0 & MK_LBUTTON_MASK) == 0 && update_hover_selection(state, point) {
+                refresh_overlay(state);
+            }
+            return;
+        }
+        if (wparam.0 & MK_LBUTTON_MASK) == 0 {
+            return;
+        }
         update_drawing_at(state, point);
     }
 
@@ -1364,7 +1388,7 @@ mod platform {
         if !state.visible || matches!(state.tool, NativeTool::Pointer) {
             return;
         }
-        if matches!(state.tool, NativeTool::Select) && state.selection.is_some() {
+        if state.selection.is_some() {
             update_selection_at(state, point);
             refresh_overlay(state);
             return;
@@ -1394,7 +1418,7 @@ mod platform {
     }
 
     unsafe fn finish_drawing_at(state: &mut OverlayState, _point: Point) {
-        if matches!(state.tool, NativeTool::Select) && state.selection.is_some() {
+        if state.selection.is_some() {
             finish_selection(state);
             ReleaseCapture();
             refresh_overlay(state);
@@ -1447,7 +1471,7 @@ mod platform {
         refresh_overlay(state);
     }
 
-    unsafe fn on_mouse_wheel(hwnd: HWND, wparam: WPARAM) {
+    unsafe fn on_mouse_wheel(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) {
         let Ok(mut state_guard) = overlay_state().lock() else {
             return;
         };
@@ -1463,6 +1487,47 @@ mod platform {
             return;
         }
         let step = if delta > 0 { 1 } else { -1 };
+        let screen_point = lparam_point(lparam);
+        let point = Point { x: screen_point.x - state.bounds.left, y: screen_point.y - state.bounds.top };
+        update_hover_selection(state, point);
+        if hover_edit_mode(state) && state.active.is_none() && state.selection.is_none() && state.edit.is_none() {
+            if let Some(frame) = selection_frame(state) {
+                let mut scale: f64 = if step > 0 { 1.15 } else { 1.0 / 1.15 };
+                let mut single_width = None;
+                // Text and numbers store size as integer widths. Ensure one
+                // wheel step changes even the smallest visible marker/font.
+                if state.selected.len() == 1 {
+                    let item = &state.drawings[state.selected[0]];
+                    let current = match item {
+                        DrawingItem::Number { width, .. } => Some(*width),
+                        DrawingItem::Text { width, .. } => Some((*width).max(5)),
+                        _ => None,
+                    };
+                    if let Some(current) = current {
+                        let minimum = if matches!(item, DrawingItem::Text { .. }) { 5 } else { 1 };
+                        let next = if step > 0 {
+                            ((current as f64 * scale).round() as i32).max(current + 1)
+                        } else {
+                            ((current as f64 * scale).round() as i32).min(current - 1)
+                        }.clamp(minimum, 100);
+                        scale = if matches!(item, DrawingItem::Text { .. }) {
+                            text_font_size(next) as f64 / text_font_size(drawing_width(item)) as f64
+                        } else {
+                            number_radius(next) as f64 / number_radius(drawing_width(item)) as f64
+                        };
+                        single_width = Some(next);
+                    }
+                }
+                for (index, original) in selected_originals(state) {
+                    state.drawings[index] = scale_drawing(&original, frame.center, scale, scale, scale, frame.angle);
+                    if let Some(width) = single_width {
+                        set_drawing_width(&mut state.drawings[index], width);
+                    }
+                }
+                refresh_overlay(state);
+                return;
+            }
+        }
         if matches!(state.tool, NativeTool::Text) && state.edit.is_some() {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
@@ -1517,7 +1582,6 @@ mod platform {
             refresh_overlay(state);
             return;
         }
-        // Object editing is intentionally limited to the selection tool.
     }
 
     unsafe fn on_key_down(hwnd: HWND, wparam: WPARAM) {
@@ -1872,6 +1936,49 @@ mod platform {
             .unwrap_or(0)
             .saturating_add(1)
             .max(1);
+    }
+
+    fn hover_edit_mode(state: &OverlayState) -> bool {
+        !matches!(state.tool, NativeTool::Pointer | NativeTool::Select | NativeTool::Eraser)
+    }
+
+    fn hover_edit_enabled(preferences: &std::collections::HashMap<String, bool>, drawing: &DrawingItem) -> bool {
+        let tool = match drawing {
+            DrawingItem::Stroke { erase: true, .. } => return false,
+            DrawingItem::Stroke { .. } => NativeTool::Pen,
+            DrawingItem::Shape { tool, .. } => *tool,
+            DrawingItem::Text { .. } => NativeTool::Text,
+            DrawingItem::Number { .. } => NativeTool::Number,
+        };
+        preferences.get(tool.as_str()).copied().unwrap_or(true)
+    }
+
+    fn update_hover_selection(state: &mut OverlayState, point: Point) -> bool {
+        if !state.visible || !hover_edit_mode(state) || state.active.is_some()
+            || state.selection.is_some() || state.edit.is_some() {
+            return false;
+        }
+        // Keep the handles reachable even though they sit outside the object.
+        if let Some(frame) = selection_frame(state) {
+            if selection_resize_anchor(frame, point).is_some()
+                || point_near(point, rotation_handle(frame), SELECTION_HANDLE_SIZE + 4) {
+                return false;
+            }
+        }
+        let selected = if is_toolbar_passthrough_point(state, point, false) {
+            Vec::new()
+        } else {
+            hit_test_drawing(state, point)
+                .filter(|index| hover_edit_enabled(&state.hover_edit, &state.drawings[*index]))
+                .map(|index| grouped_indices(state, index))
+                .unwrap_or_default()
+        };
+        if selected == state.selected {
+            return false;
+        }
+        state.selected = selected;
+        emit_selection_state(state);
+        true
     }
 
     fn hit_test_drawing(state: &OverlayState, point: Point) -> Option<usize> {
@@ -3986,6 +4093,33 @@ mod platform {
         );
     }
 
+    #[cfg(test)]
+    mod hover_tests {
+        use super::*;
+
+        #[test]
+        fn preferences_default_on_and_are_independent() {
+            let mut preferences = std::collections::HashMap::new();
+            let marker = DrawingItem::Number { center: Point { x: 10, y: 20 }, value: 1, color: COLORREF(0), width: 5, rotation: 0.0, group: None };
+            let text = DrawingItem::Text { start: Point { x: 10, y: 20 }, text: "test".into(), color: COLORREF(0), width: 5, rotation: 0.0, group: None };
+            assert!(hover_edit_enabled(&preferences, &marker));
+            preferences.insert("number".into(), false);
+            assert!(!hover_edit_enabled(&preferences, &marker));
+            assert!(hover_edit_enabled(&preferences, &text));
+        }
+
+        #[test]
+        fn scaling_changes_geometry_and_preserves_group() {
+            let original = DrawingItem::Shape { tool: NativeTool::Rectangle, start: Point { x: 0, y: 0 }, end: Point { x: 100, y: 60 }, color: COLORREF(0), width: 4, rotation: 0.0, group: Some(7) };
+            let scaled = scale_drawing(&original, Point { x: 50, y: 30 }, 2.0, 2.0, 2.0, 0.0);
+            if let DrawingItem::Shape { start, end, width, group, .. } = scaled {
+                assert_eq!((start.x, start.y, end.x, end.y), (-50, -30, 150, 90));
+                assert_eq!(width, 8);
+                assert_eq!(group, Some(7));
+            } else { panic!("shape type changed"); }
+        }
+    }
+
     fn lparam_point(lparam: LPARAM) -> Point {
         let x = (lparam.0 as u32 & 0xffff) as i16 as i32;
         let y = ((lparam.0 as u32 >> 16) & 0xffff) as i16 as i32;
@@ -4082,6 +4216,7 @@ mod platform_stub {
         }
         pub fn hide(&self) {}
         pub fn set_tool(&self, _tool: NativeTool) {}
+        pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}
         pub fn clear(&self) {}

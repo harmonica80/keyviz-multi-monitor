@@ -497,6 +497,14 @@ fn open_settings_window(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_drawing_hover_edit(app: AppHandle, preferences: std::collections::HashMap<String, bool>) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.set_hover_edit(preferences);
+    Ok(())
+}
+
+#[tauri::command]
 fn set_drawing_toolbar_side(app: AppHandle, side: String) -> Result<(), String> {
     let normalized_side = if side == "left" { "left" } else { "right" }.to_string();
     let drawing_visible = {
@@ -889,6 +897,7 @@ pub fn run() {
             toggle_key_display,
             open_settings_window,
             set_drawing_toolbar_side,
+            set_drawing_hover_edit,
             close_screen_drawing,
             set_drawing_click_through,
             activate_drawing_toolbar,

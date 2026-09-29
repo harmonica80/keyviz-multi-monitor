@@ -4,6 +4,8 @@ import { createJSONStorage, persist } from "zustand/middleware";
 export type Locale = "en" | "zh-TW";
 
 const zhTW: Record<string, string> = {
+  "Hover to Edit Objects": "滑鼠移入編輯物件",
+  "Hover over an enabled object to show handles. Drag to move, or scroll to resize the object. Pointer and eraser modes are unchanged.": "移入已啟用的物件即可顯示控制點，拖曳可移動，滾輪可縮放物件。滑鼠模式與橡皮擦維持原有操作。",
   "Keyviz Keyboard Visualizer": "Keyviz 鍵盤按鍵顯示器與螢幕繪圖",
   "Teacher Chiu Learning Website": "述文老師學習網",
   "Keyviz Open Source Website": "Keyviz 開放原始碼網站",

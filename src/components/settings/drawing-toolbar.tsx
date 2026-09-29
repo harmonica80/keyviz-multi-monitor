@@ -38,6 +38,8 @@ export const DrawingToolbarSettings = () => {
   const { t } = useTranslation();
   const items = useDrawingToolbar((state) => state.items);
   const side = useDrawingToolbar((state) => state.side);
+  const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
+  const setHoverEdit = useDrawingToolbar((state) => state.setHoverEdit);
   const setItems = useDrawingToolbar((state) => state.setItems);
   const setToolVisible = useDrawingToolbar((state) => state.setToolVisible);
   const setSide = useDrawingToolbar((state) => state.setSide);
@@ -128,6 +130,21 @@ export const DrawingToolbarSettings = () => {
             </ToggleGroupItem>
           </ToggleGroup>
         </ItemActions>
+      </Item>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Hover to Edit Objects")}</ItemTitle>
+          <ItemDescription>{t("Hover over an enabled object to show handles. Drag to move, or scroll to resize the object. Pointer and eraser modes are unchanged.")}</ItemDescription>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {(["number", "check-mark", "cross-mark", "text", "ellipse", "rectangle", "line", "arrow", "pen"] as DrawingTool[]).map((id) => (
+              <label key={id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                <span>{t(DRAWING_TOOL_BY_ID[id].label)}</span>
+                <Switch checked={hoverEdit[id] !== false} onCheckedChange={(enabled) => setHoverEdit(id, enabled)} aria-label={`${t("Hover to Edit Objects")}: ${t(DRAWING_TOOL_BY_ID[id].label)}`} />
+              </label>
+            ))}
+          </div>
+        </ItemContent>
       </Item>
 
       <Item variant="muted">
