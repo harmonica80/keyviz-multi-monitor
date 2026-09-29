@@ -1,7 +1,7 @@
 import { getVersion } from "@tauri-apps/api/app";
 import { useEffect, useState } from "react";
 
-export const FALLBACK_APP_VERSION = "1.0.6";
+export const FALLBACK_APP_VERSION = "1.0.7";
 
 let appVersionPromise: Promise<string> | undefined;
 

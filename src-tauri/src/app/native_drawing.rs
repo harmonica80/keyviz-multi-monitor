@@ -2691,6 +2691,9 @@ mod platform {
     }
 
     fn drawing_hit_test(drawing: &DrawingItem, point: Point) -> bool {
+        if let DrawingItem::Stroke { points, width, erase: false, .. } = drawing {
+            return stroke_hit_test(points, *width, point);
+        }
         if let DrawingItem::Shape { tool, start, end, width, rotation, .. } = drawing {
             if matches!(tool, NativeTool::Rectangle | NativeTool::Ellipse) {
                 let center = Point { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 };
@@ -2706,6 +2709,66 @@ mod platform {
             && point.x <= bounds.right + 4
             && point.y >= bounds.top - 4
             && point.y <= bounds.bottom + 4
+    }
+
+    fn stroke_curve(points: &[Point], index: usize) -> [(f64, f64); 4] {
+        let p0 = points[index.saturating_sub(1)];
+        let p1 = points[index];
+        let p2 = points[index + 1];
+        let p3 = points[(index + 2).min(points.len() - 1)];
+        [
+            (p1.x as f64, p1.y as f64),
+            (p1.x as f64 + (p2.x as f64 - p0.x as f64) / 6.0,
+             p1.y as f64 + (p2.y as f64 - p0.y as f64) / 6.0),
+            (p2.x as f64 - (p3.x as f64 - p1.x as f64) / 6.0,
+             p2.y as f64 - (p3.y as f64 - p1.y as f64) / 6.0),
+            (p2.x as f64, p2.y as f64),
+        ]
+    }
+
+    fn segment_distance(p: (f64, f64), a: (f64, f64), b: (f64, f64)) -> f64 {
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let length_squared = dx * dx + dy * dy;
+        let t = if length_squared == 0.0 { 0.0 } else {
+            (((p.0 - a.0) * dx + (p.1 - a.1) * dy) / length_squared).clamp(0.0, 1.0)
+        };
+        (p.0 - a.0 - t * dx).hypot(p.1 - a.1 - t * dy)
+    }
+
+    fn curve_hit_test(curve: [(f64, f64); 4], point: (f64, f64), tolerance: f64, depth: u8) -> bool {
+        let left = curve.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+        let right = curve.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
+        let top = curve.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+        let bottom = curve.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+        if point.0 < left - tolerance || point.0 > right + tolerance
+            || point.1 < top - tolerance || point.1 > bottom + tolerance {
+            return false;
+        }
+        // Subdivide only nearby curved sections, to subpixel accuracy.
+        if depth >= 12 || (segment_distance(curve[1], curve[0], curve[3]) <= 0.25
+            && segment_distance(curve[2], curve[0], curve[3]) <= 0.25) {
+            return segment_distance(point, curve[0], curve[3]) <= tolerance;
+        }
+        let midpoint = |a: (f64, f64), b: (f64, f64)| ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
+        let a = midpoint(curve[0], curve[1]);
+        let b = midpoint(curve[1], curve[2]);
+        let c = midpoint(curve[2], curve[3]);
+        let d = midpoint(a, b);
+        let e = midpoint(b, c);
+        let mid = midpoint(d, e);
+        curve_hit_test([curve[0], a, d, mid], point, tolerance, depth + 1)
+            || curve_hit_test([mid, e, c, curve[3]], point, tolerance, depth + 1)
+    }
+
+    fn stroke_hit_test(points: &[Point], width: i32, point: Point) -> bool {
+        let tolerance = width.max(1) as f64 / 2.0 + 4.0;
+        let p = (point.x as f64, point.y as f64);
+        match points {
+            [] => false,
+            [a] => segment_distance(p, (a.x as f64, a.y as f64), (a.x as f64, a.y as f64)) <= tolerance,
+            [a, b] => segment_distance(p, (a.x as f64, a.y as f64), (b.x as f64, b.y as f64)) <= tolerance,
+            _ => (0..points.len() - 1).any(|index| curve_hit_test(stroke_curve(points, index), p, tolerance, 0)),
+        }
     }
 
     fn outline_hit_test(ellipse: bool, x: f64, y: f64, rx: f64, ry: f64, tolerance: f64) -> bool {
@@ -3149,24 +3212,17 @@ mod platform {
             } else {
                 let mut status = 0;
                 for index in 0..points.len() - 1 {
-                    let p0 = points[index.saturating_sub(1)];
-                    let p1 = points[index];
-                    let p2 = points[index + 1];
-                    let p3 = points[(index + 2).min(points.len() - 1)];
-                    let c1x = p1.x as f32 + (p2.x - p0.x) as f32 / 6.0;
-                    let c1y = p1.y as f32 + (p2.y - p0.y) as f32 / 6.0;
-                    let c2x = p2.x as f32 - (p3.x - p1.x) as f32 / 6.0;
-                    let c2y = p2.y as f32 - (p3.y - p1.y) as f32 / 6.0;
+                    let [p1, c1, c2, p2] = stroke_curve(points, index);
                     status = GdipAddPathBezier(
                         path,
-                        p1.x as f32,
-                        p1.y as f32,
-                        c1x,
-                        c1y,
-                        c2x,
-                        c2y,
-                        p2.x as f32,
-                        p2.y as f32,
+                        p1.0 as f32,
+                        p1.1 as f32,
+                        c1.0 as f32,
+                        c1.1 as f32,
+                        c2.0 as f32,
+                        c2.1 as f32,
+                        p2.0 as f32,
+                        p2.1 as f32,
                     );
                     if status != 0 {
                         break;
@@ -4234,6 +4290,38 @@ mod platform {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn pen_hits_curve_not_enclosed_space() {
+            let points = vec![Point { x: 0, y: 0 }, Point { x: 200, y: 0 },
+                Point { x: 200, y: 200 }, Point { x: 0, y: 200 }, Point { x: 0, y: 0 }];
+            assert!(!stroke_hit_test(&points, 8, Point { x: 100, y: 100 }));
+            assert!(stroke_hit_test(&points, 8, Point { x: 200, y: 0 }));
+            // The smoothed right edge bows out to x=225, beyond the raw polyline.
+            assert!(stroke_hit_test(&points, 8, Point { x: 225, y: 100 }));
+            assert!(!stroke_hit_test(&points, 8, Point { x: 200, y: 100 }));
+        }
+
+        #[test]
+        fn pen_handles_empty_dot_repeated_points_and_width() {
+            let dot = Point { x: -20, y: 30 };
+            assert!(!stroke_hit_test(&[], 4, dot));
+            assert!(stroke_hit_test(&[dot], 4, dot));
+            assert!(!stroke_hit_test(&[dot], 4, Point { x: -10, y: 30 }));
+            assert!(stroke_hit_test(&[dot, dot, dot], 4, dot));
+            let line = [Point { x: -100, y: 0 }, Point { x: 100, y: 0 }];
+            assert!(stroke_hit_test(&line, 20, Point { x: 0, y: 13 }));
+            assert!(!stroke_hit_test(&line, 20, Point { x: 0, y: 20 }));
+        }
+
+        #[test]
+        fn rotated_pen_hits_transformed_path_only() {
+            let stroke = DrawingItem::Stroke { points: vec![Point { x: -100, y: 0 }, Point { x: 100, y: 0 }],
+                color: COLORREF(0), width: 4, erase: false, rotation: 0.0, group: None };
+            let rotated = rotate_drawing(&stroke, Point { x: 0, y: 0 }, std::f64::consts::FRAC_PI_2);
+            assert!(drawing_hit_test(&rotated, Point { x: 0, y: 60 }));
+            assert!(!drawing_hit_test(&rotated, Point { x: 60, y: 0 }));
+        }
 
         #[test]
         fn number_controls_change_value_without_underflow_or_overflow() {
