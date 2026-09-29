@@ -84,6 +84,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     setSide: (side) => set({ side: normalizeDrawingToolbarSide(side) }),
     resetToolbar: () =>
       set({
+        hoverEdit: {},
         items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
         side: DEFAULT_DRAWING_TOOLBAR_SIDE,
       }),

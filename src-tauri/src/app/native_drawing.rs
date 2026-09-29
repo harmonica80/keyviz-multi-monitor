@@ -1273,6 +1273,19 @@ mod platform {
 
         commit_text_editor(state);
         update_hover_selection(state, point);
+        if let Some((index, buttons)) = number_controls(state) {
+            if let Some(button) = buttons.iter().position(|rect| point_in_rect(point, *rect)) {
+                if let DrawingItem::Number { value, .. } = &mut state.drawings[index] {
+                    *value = adjusted_number(*value, button == 0);
+                }
+                sync_next_number(state);
+                if matches!(state.tool, NativeTool::Number) {
+                    replace_tool_cursor(state, true);
+                }
+                refresh_overlay(state);
+                return;
+            }
+        }
         if matches!(state.tool, NativeTool::Select) || !state.selected.is_empty() && hover_edit_mode(state) {
             begin_selection_at(state, point);
             if let Some(hwnd) = capture_hwnd {
@@ -1975,6 +1988,21 @@ mod platform {
         }
         // A disabled/stale selection must not keep intercepting the next click.
         let selection_enabled = hover_selection_enabled(&state.hover_edit, &state.drawings, &state.selected);
+        if selection_enabled && !is_toolbar_passthrough_point(state, point, false) {
+            if let Some((_, buttons)) = number_controls(state) {
+                if let Some(bounds) = selection_bounds(state) {
+                    let corridor = RECT {
+                        left: bounds.left.min(buttons[0].left),
+                        right: bounds.right.max(buttons[0].right),
+                        top: buttons[0].top,
+                        bottom: buttons[1].bottom,
+                    };
+                    if point_in_rect(point, corridor) {
+                        return false;
+                    }
+                }
+            }
+        }
         // Keep valid handles reachable even though they sit outside the object.
         if let Some(frame) = selection_frame(state).filter(|_| selection_enabled && !is_toolbar_passthrough_point(state, point, false)) {
             if selection_resize_anchor(frame, point).is_some()
@@ -2879,6 +2907,58 @@ mod platform {
         .map(|point| rotate_point(point, center, rotation))
     }
 
+    fn adjusted_number(value: u32, increase: bool) -> u32 {
+        if increase { value.saturating_add(1) } else { value.saturating_sub(1).max(1) }
+    }
+
+    fn point_in_rect(point: Point, rect: RECT) -> bool {
+        point.x >= rect.left && point.x < rect.right && point.y >= rect.top && point.y < rect.bottom
+    }
+
+    fn number_controls(state: &OverlayState) -> Option<(usize, [RECT; 2])> {
+        if state.selected.len() != 1 || state.edit.is_some() { return None; }
+        let index = state.selected[0];
+        let DrawingItem::Number { center, .. } = state.drawings.get(index)? else { return None; };
+        let bounds = selection_bounds(state)?;
+        let monitor = state.surfaces.iter().find(|surface| point_in_rect(Point {
+            x: center.x + state.bounds.left, y: center.y + state.bounds.top,
+        }, surface.bounds))?;
+        let size = 22;
+        let left_edge = monitor.bounds.left - state.bounds.left;
+        let right_edge = monitor.bounds.right - state.bounds.left;
+        let x = if bounds.right + 12 + size <= right_edge {
+            bounds.right + 12
+        } else { bounds.left - 12 - size }.clamp(left_edge, (right_edge - size).max(left_edge));
+        let top_edge = monitor.bounds.top - state.bounds.top;
+        let bottom_edge = monitor.bounds.bottom - state.bounds.top;
+        let y = (center.y - size - 2).clamp(top_edge, (bottom_edge - 2 * size - 4).max(top_edge));
+        Some((index, [RECT { left: x, top: y, right: x + size, bottom: y + size },
+            RECT { left: x, top: y + size + 4, right: x + size, bottom: y + 2 * size + 4 }]))
+    }
+
+    unsafe fn draw_number_controls(dc: HDC, state: &OverlayState) {
+        let Some((_, buttons)) = number_controls(state) else { return; };
+        let pen = CreatePen(PS_SOLID, 2, COLORREF(0x00e0_8030));
+        let brush = CreateSolidBrush(COLORREF(0x00ff_ffff));
+        let old_pen = SelectObject(dc, pen);
+        let old_brush = SelectObject(dc, brush);
+        for (index, rect) in buttons.iter().enumerate() {
+            Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
+            let x = (rect.left + rect.right) / 2;
+            let y = (rect.top + rect.bottom) / 2;
+            MoveToEx(dc, x - 5, y, None);
+            LineTo(dc, x + 6, y);
+            if index == 0 {
+                MoveToEx(dc, x, y - 5, None);
+                LineTo(dc, x, y + 6);
+            }
+        }
+        SelectObject(dc, old_pen);
+        SelectObject(dc, old_brush);
+        DeleteObject(pen);
+        DeleteObject(brush);
+    }
+
     unsafe fn draw_selection(dc: HDC, state: &OverlayState) {
         let Some(frame) = selection_frame(state) else {
             return;
@@ -2924,6 +3004,7 @@ mod platform {
         SelectObject(dc, old_brush);
         SelectObject(dc, old_pen);
         DeleteObject(pen);
+        draw_number_controls(dc, state);
     }
 
     unsafe fn draw_marquee(dc: HDC, bounds: RECT) {
@@ -4151,6 +4232,14 @@ mod platform {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn number_controls_change_value_without_underflow_or_overflow() {
+            assert_eq!(adjusted_number(3, true), 4);
+            assert_eq!(adjusted_number(3, false), 2);
+            assert_eq!(adjusted_number(1, false), 1);
+            assert_eq!(adjusted_number(u32::MAX, true), u32::MAX);
+        }
 
         #[test]
         fn hollow_shapes_only_hit_the_outline() {
