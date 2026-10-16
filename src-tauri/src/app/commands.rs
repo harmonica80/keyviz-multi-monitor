@@ -325,3 +325,20 @@ pub fn drawing_toggle_group(app: tauri::AppHandle) -> Result<(), String> {
     app_state.drawing_overlay.toggle_group();
     Ok(())
 }
+
+#[tauri::command]
+pub fn drawing_redo(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.redo();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn drawing_recover(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.recover();
+    app_state.cursor_overlay.recover();
+    Ok(())
+}

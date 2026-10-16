@@ -35,6 +35,7 @@ export const AboutPage = () => {
     const version = useAppVersion();
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
     const [diagnosticStatus, setDiagnosticStatus] = useState<DiagnosticStatus>({ state: "idle" });
+    const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
 
     const checkForUpdates = async () => {
         setUpdateStatus({ state: "checking" });
@@ -189,6 +190,20 @@ export const AboutPage = () => {
                                 {t(updateStatus.state === "checking" ? "Checking..." : "Check")}
                             </Button>
                         )}
+                    </ItemActions>
+                </Item>
+
+                <Item variant="muted">
+                    <ItemContent>
+                        <ItemTitle>{t("Restore Overlay Display")}</ItemTitle>
+                        <ItemDescription>{recoveryStatus ?? t("Rebuild drawing and cursor display windows while preserving annotations.")}</ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        <Button variant="outline" size="sm" onClick={() => {
+                            void invoke("drawing_recover")
+                                .then(() => setRecoveryStatus(t("Display recovery requested")))
+                                .catch(() => setRecoveryStatus(t("Display recovery failed")));
+                        }}><RefreshCw />{t("Restore Overlay Display")}</Button>
                     </ItemActions>
                 </Item>
 

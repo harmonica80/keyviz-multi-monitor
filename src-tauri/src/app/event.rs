@@ -423,6 +423,7 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
         let mut pointer_was_down = false;
         let mut clear_was_down = false;
         let mut undo_was_down = false;
+        let mut redo_was_down = false;
         let mut close_was_down = false;
 
         loop {
@@ -447,6 +448,7 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
             let pointer_down = shortcut_is_down(&pointer_shortcut);
             let clear_down = shortcut_is_down(&clear_shortcut);
             let undo_down = shortcut_is_down(&undo_shortcut);
+            let redo_down = shortcut_is_down(&["ControlLeft".into(), "ShiftLeft".into(), "KeyZ".into()]);
             let close_down = shortcut_is_down(&close_shortcut);
 
             if toggle_down && !toggle_was_down {
@@ -472,18 +474,28 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
             if clear_down && !clear_was_down {
                 let state = app_handle.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
-                    if app_state.drawing_visible {
+                    if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
                         app_state.drawing_overlay.delete_selection_or_clear();
                         app_state.pressed_keys.clear();
                     }
                 };
             }
 
-            if undo_down && !undo_was_down {
+            if undo_down && !undo_was_down && !redo_down {
                 let state = app_handle.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
-                    if app_state.drawing_visible {
+                    if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
                         app_state.drawing_overlay.undo();
+                        app_state.pressed_keys.clear();
+                    }
+                };
+            }
+
+            if redo_down && !redo_was_down {
+                let state = app_handle.state::<Mutex<AppState>>();
+                if let Ok(mut app_state) = state.lock() {
+                    if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
+                        app_state.drawing_overlay.redo();
                         app_state.pressed_keys.clear();
                     }
                 };
@@ -518,6 +530,7 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
             pointer_was_down = pointer_down;
             clear_was_down = clear_down;
             undo_was_down = undo_down;
+            redo_was_down = redo_down;
             close_was_down = close_down;
         }
     });

@@ -20,6 +20,8 @@ import {
   Keyboard,
   KeyboardOff,
   Redo2,
+  Undo2,
+  RefreshCw,
   Settings,
   Trash2,
   X,
@@ -48,7 +50,8 @@ type DrawingCommand =
   | { type: "width"; value: number }
   | { type: "clear" }
   | { type: "group" }
-  | { type: "undo" };
+  | { type: "undo" }
+  | { type: "redo" };
 type ToolChangedPayload = { tool: Tool };
 type DrawingSelectionPayload = { count: number; grouped: boolean };
 
@@ -225,6 +228,13 @@ export default function ScreenDrawing() {
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(WIDTHS[1]);
   const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const [operationHint, setOperationHint] = useState<{ text: string } | null>(null);
+  useEffect(() => {
+    if (!operationHint) return;
+    const timer = window.setTimeout(() => setOperationHint(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [operationHint]);
   const [keyDisplayEnabled, setKeyDisplayEnabled] = useState(true);
   const [selectionState, setSelectionState] = useState<DrawingSelectionPayload>({
     count: 0,
@@ -360,8 +370,13 @@ export default function ScreenDrawing() {
       const resizeRequestListener = listen("drawing-toolbar-resize-request", () => {
         resizeToolbar(true);
       });
-      const historyListener = listen<{ canUndo: boolean }>("drawing-history", (event) => {
+      const historyListener = listen<{ canUndo: boolean; canRedo: boolean }>("drawing-history", (event) => {
         setCanUndo(event.payload.canUndo);
+        setCanRedo(event.payload.canRedo);
+      });
+      const hintListener = listen<{ object: boolean; tool: Tool; width: number }>("drawing-operation-hint", (event) => {
+        setOperationHint({ text: event.payload.object ? t("Resizing Object")
+          : `${t(DRAWING_TOOL_BY_ID[event.payload.tool].label)}: ${event.payload.width}` });
       });
       const widthListener = listen<{ width: number }>("drawing-width-changed", (event) => {
         setWidth(event.payload.width);
@@ -381,6 +396,7 @@ export default function ScreenDrawing() {
         observer.disconnect();
         void resizeRequestListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
+        void hintListener.then((unlisten) => unlisten());
         void widthListener.then((unlisten) => unlisten());
         void selectionListener.then((unlisten) => unlisten());
         void nativeCloseListener.then((unlisten) => unlisten());
@@ -459,6 +475,10 @@ export default function ScreenDrawing() {
     }
     if (command.type === "undo") {
       await invoke("drawing_undo");
+      return;
+    }
+    if (command.type === "redo") {
+      await invoke("drawing_redo");
       return;
     }
     if (command.type === "group") {
@@ -666,8 +686,11 @@ export default function ScreenDrawing() {
         title={`${t("Undo")}${undoShortcutLabel ? ` (${undoShortcutLabel})` : ""}`}
         onClick={() => void sendCommand({ type: "undo" })}
       >
-        <Redo2 className="drawing-undo" />
+        <Undo2 />
       </button>
+      <button disabled={!canRedo} title={`${t("Redo")} (Ctrl + Shift + Z)`}
+        onClick={() => void sendCommand({ type: "redo" })}><Redo2 /></button>
+      {operationHint && <output className="drawing-operation-hint" role="status">{operationHint.text}</output>}
       <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
         <Trash2 />
       </button>
@@ -692,6 +715,10 @@ export default function ScreenDrawing() {
           <Settings />
         </button>
       </div>
+      <button title={t("Restore Overlay Display")} onClick={() => {
+        void invoke("drawing_recover").then(() => setOperationHint({ text: t("Display recovery requested") }))
+          .catch(() => setOperationHint({ text: t("Display recovery failed") }));
+      }}><RefreshCw /></button>
     </aside>
   );
 }

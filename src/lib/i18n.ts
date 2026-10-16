@@ -4,8 +4,14 @@ import { createJSONStorage, persist } from "zustand/middleware";
 export type Locale = "en" | "zh-TW";
 
 const zhTW: Record<string, string> = {
+  "Redo": "重做",
+  "Resizing Object": "調整物件大小",
+  "Restore Overlay Display": "恢復透明顯示層",
+  "Display recovery requested": "已送出恢復要求",
+  "Display recovery failed": "恢復要求失敗",
+  "Rebuild drawing and cursor display windows while preserving annotations.": "重新建立繪圖與游標醒目顯示視窗，保留目前標註。",
   "Hover to Edit Objects": "滑鼠移入編輯物件",
-  "Hover over an enabled object to show handles. Drag to move, or scroll to resize the object. Pointer and eraser modes are unchanged.": "移入已啟用的物件即可顯示控制點，拖曳可移動，滾輪可縮放物件。滑鼠模式與橡皮擦維持原有操作。",
+  "Hover over an enabled object to show handles. Drag to move, or scroll to resize the object. Pointer and eraser modes are unchanged.": "移入已啟用的物件即可顯示控制點，拖曳可移動，滾輪可縮放物件。按住 Alt 可略過既有物件並繼續繪圖。游標模式與橡皮擦維持原有操作。",
   "Keyviz Keyboard Visualizer": "Keyviz 鍵盤按鍵顯示器與螢幕繪圖",
   "Teacher Chiu Learning Website": "述文老師學習網",
   "Keyviz Open Source Website": "Keyviz 開放原始碼網站",

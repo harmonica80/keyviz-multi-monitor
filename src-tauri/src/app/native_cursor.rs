@@ -44,6 +44,7 @@ mod platform {
 
     enum CursorCommand {
         Update(CursorVisual),
+        Recover,
     }
 
     #[derive(Clone)]
@@ -93,6 +94,10 @@ mod platform {
                 .lock()
                 .map(|windows| windows.iter().map(|hwnd| *hwnd as i64).collect())
                 .unwrap_or_default()
+        }
+
+        pub fn recover(&self) {
+            if let Some(sender) = &self.sender { let _ = sender.send(CursorCommand::Recover); }
         }
 
         pub fn update(
@@ -203,15 +208,25 @@ mod platform {
 
     unsafe fn message_loop(receiver: Receiver<CursorCommand>, windows: &mut Vec<(HMONITOR, HWND)>) {
         let mut message = MSG::default();
+        let mut last_visual: Option<CursorVisual> = None;
 
         loop {
-            let mut visual = match receiver.recv_timeout(Duration::from_millis(16)) {
-                Ok(CursorCommand::Update(visual)) => Some(visual),
+            let mut commands = match receiver.recv_timeout(Duration::from_millis(16)) {
+                Ok(command) => vec![command],
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Timeout) => Vec::new(),
             };
-            while let Ok(CursorCommand::Update(next)) = receiver.try_recv() {
-                visual = Some(next);
+            commands.extend(receiver.try_iter());
+            let mut visual = None;
+            for command in commands {
+                match command {
+                    CursorCommand::Update(next) => { last_visual = Some(next.clone()); visual = Some(next); }
+                    CursorCommand::Recover => {
+                        for (_, hwnd) in windows.drain(..) { DestroyWindow(hwnd); }
+                        if let Ok(mut diagnostic_windows) = cursor_windows().lock() { diagnostic_windows.clear(); }
+                        visual = last_visual.clone();
+                    }
+                }
             }
             if let Some(visual) = visual {
                 apply_visual(windows, visual);
@@ -359,6 +374,7 @@ mod platform {
         pub fn new() -> Self {
             Self
         }
+        pub fn recover(&self) {}
 
         pub fn diagnostic_hwnds(&self) -> Vec<i64> {
             Vec::new()

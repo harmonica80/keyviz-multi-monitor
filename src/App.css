@@ -281,6 +281,18 @@ body.drawing-page #root {
   background: #aaa;
 }
 
+.drawing-operation-hint {
+  width: 100%;
+  padding: 2px;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+  color: #173e65;
+  background: #eef6ff;
+  pointer-events: none;
+}
+
 .drawing-colors {
   display: grid;
   grid-template-columns: repeat(2, 22px);
