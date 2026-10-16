@@ -1663,9 +1663,9 @@ mod platform {
         update_hover_selection(state, point);
         if hover_edit_mode(state) && state.active.is_none() && state.selection.is_none() && state.edit.is_none() {
             if let Some(frame) = selection_frame(state) {
-                let before = state.drawings.clone();
                 let merge = state.last_wheel.as_ref().map(|(time, selected)|
                     time.elapsed() < Duration::from_millis(350) && *selected == state.selected).unwrap_or(false);
+                let before = (!merge).then(|| state.drawings.clone());
                 let mut scale: f64 = if step > 0 { 1.15 } else { 1.0 / 1.15 };
                 let mut single_width = None;
                 // Text and numbers store size as integer widths. Ensure one
@@ -1698,7 +1698,7 @@ mod platform {
                         set_drawing_width(&mut state.drawings[index], width);
                     }
                 }
-                if !merge { record_change(state, before); }
+                if let Some(before) = before { record_change(state, before); }
                 state.last_wheel = Some((Instant::now(), state.selected.clone()));
                 emit_wheel_hint(state, true);
                 refresh_overlay(state);
