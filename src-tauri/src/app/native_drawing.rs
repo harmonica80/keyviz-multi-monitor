@@ -1596,6 +1596,7 @@ mod platform {
         let Some(active) = state.active.take() else {
             return;
         };
+        let before = state.gesture_before.take().unwrap_or_else(|| state.drawings.clone());
         let drawing = match active {
             ActiveDrawing::Stroke {
                 points,
@@ -1636,7 +1637,8 @@ mod platform {
 
         state.drawings.push(drawing);
         ReleaseCapture();
-        finish_gesture_history(state);
+        record_change(state, before);
+        state.last_wheel = None;
         refresh_overlay(state);
     }
 

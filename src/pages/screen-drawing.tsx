@@ -57,7 +57,7 @@ type DrawingSelectionPayload = { count: number; grouped: boolean };
 
 const COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
 const WIDTHS = [2, 5, 9, 15];
-const MIN_WIDTH = WIDTHS[0];
+const MIN_WIDTH = 1;
 const MAX_WIDTH = WIDTHS[WIDTHS.length - 1];
 
 const keyboardEventKey = (event: KeyboardEvent): string => {
@@ -681,7 +681,7 @@ export default function ScreenDrawing() {
           onChange={(event) => void sendCommand({ type: "width", value: Number(event.target.value) })}
         />
       </label>
-      <button
+      <div className="drawing-history-actions"><button
         disabled={!canUndo}
         title={`${t("Undo")}${undoShortcutLabel ? ` (${undoShortcutLabel})` : ""}`}
         onClick={() => void sendCommand({ type: "undo" })}
@@ -689,7 +689,7 @@ export default function ScreenDrawing() {
         <Undo2 />
       </button>
       <button disabled={!canRedo} title={`${t("Redo")} (Ctrl + Shift + Z)`}
-        onClick={() => void sendCommand({ type: "redo" })}><Redo2 /></button>
+        onClick={() => void sendCommand({ type: "redo" })}><Redo2 /></button></div>
       {operationHint && <output className="drawing-operation-hint" role="status">{operationHint.text}</output>}
       <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
         <Trash2 />
@@ -714,11 +714,11 @@ export default function ScreenDrawing() {
         >
           <Settings />
         </button>
-      </div>
       <button title={t("Restore Overlay Display")} onClick={() => {
         void invoke("drawing_recover").then(() => setOperationHint({ text: t("Display recovery requested") }))
           .catch(() => setOperationHint({ text: t("Display recovery failed") }));
       }}><RefreshCw /></button>
+      </div>
     </aside>
   );
 }
