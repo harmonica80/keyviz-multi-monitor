@@ -108,21 +108,23 @@ export const GeneralSettings = () => {
         </Item>
 
         <Item variant="muted">
-            <ItemContent>
-                <ItemTitle>
-                    <HugeiconsIcon icon={LayerIcon} size="1em" /> {t("History")}
-                </ItemTitle>
-                <ItemDescription>
-                    {t("Keep previously pressed keystrokes in the view")}
-                </ItemDescription>
-            </ItemContent>
-            <ItemActions>
-                <Switch checked={showEventHistory} onCheckedChange={setShowEventHistory} />
-            </ItemActions>
-        </Item>
+            <ItemHeader>
+                <ItemContent>
+                    <ItemTitle>
+                        <HugeiconsIcon icon={LayerIcon} size="1em" /> {t("History")}
+                    </ItemTitle>
+                    <ItemDescription>
+                        {t("Keep previously pressed keystrokes in the view")}
+                    </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <Switch aria-label={t("History")} checked={showEventHistory} onCheckedChange={setShowEventHistory} />
+                </ItemActions>
+            </ItemHeader>
 
-        <div className={cn("flex flex-col gap-4 md:flex-row", showEventHistory ? "" : "pointer-events-none opacity-50", "transition-opacity")}>
-            <Item variant="muted" className="flex-7">
+            <fieldset disabled={!showEventHistory} aria-label={t("History")}
+                className={cn("flex min-w-0 w-full flex-col gap-3 border-t pt-3 md:flex-row transition-opacity", !showEventHistory && "opacity-50")}>
+            <Item className="flex-7 bg-background/60">
                 <ItemContent>
                     <ItemTitle>{t("Direction")}</ItemTitle>
                 </ItemContent>
@@ -131,8 +133,11 @@ export const GeneralSettings = () => {
                         size="sm"
                         type="single"
                         variant="outline"
+                        disabled={!showEventHistory}
                         value={direction}
-                        onValueChange={(value) => setAppearance({ flexDirection: value as KeyStyleState["appearance"]["flexDirection"] })}
+                        onValueChange={(value) => {
+                            if (value) setAppearance({ flexDirection: value as KeyStyleState["appearance"]["flexDirection"] });
+                        }}
                     >
                         <ToggleGroupItem value="row" aria-label="Horizontal">
                             <HugeiconsIcon icon={ArrowHorizontalIcon} strokeWidth={2} size={10} /> {t("Row")}
@@ -143,15 +148,16 @@ export const GeneralSettings = () => {
                     </ToggleGroup>
                 </ItemActions>
             </Item>
-            <Item variant="muted" className="flex-5">
+            <Item className="flex-5 bg-background/60">
                 <ItemContent>
                     <ItemTitle>{t("Max Count")}</ItemTitle>
                 </ItemContent>
                 <ItemActions className="max-w-20">
-                    <NumberInput className="h-8" value={maxHistory} onChange={setMaxHistory} minValue={2} maxValue={12} />
+                    <NumberInput aria-label={t("Max Count")} isDisabled={!showEventHistory} className="h-8" value={maxHistory} onChange={setMaxHistory} minValue={2} maxValue={12} />
                 </ItemActions>
             </Item>
-        </div>
+            </fieldset>
+        </Item>
 
         <Item variant="muted">
             <ItemHeader className="flex-col items-start">
