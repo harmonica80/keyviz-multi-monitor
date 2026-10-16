@@ -13,7 +13,7 @@ mod platform {
         time::{Duration, Instant},
     };
 
-    use crate::app::diagnostics::record_error;
+    use crate::app::diagnostics::{record_error, record_event};
     use serde::Serialize;
     use tauri::{AppHandle, Emitter, Manager};
     use windows::{
@@ -25,7 +25,7 @@ mod platform {
             Graphics::Gdi::{
                 BeginPaint, CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW,
                 CreatePen, CreateSolidBrush, CreatedHDC, DeleteDC, DeleteObject, Ellipse, EndPaint,
-                GetDC, GetStockObject, GetTextExtentPoint32W, LineTo, MoveToEx, Polygon, Rectangle,
+                GetDC, GetStockObject, GetTextExtentPoint32W, GdiFlush, LineTo, MoveToEx, Polygon, Rectangle,
                 ReleaseDC, SelectObject, SetBkMode, SetViewportOrgEx, TextOutW, AC_SRC_ALPHA,
                 BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC,
                 HGDIOBJ, HOLLOW_BRUSH, NULL_PEN, PAINTSTRUCT, PS_DOT, PS_SOLID, TRANSPARENT,
@@ -33,16 +33,16 @@ mod platform {
             System::LibraryLoader::GetModuleHandleW,
             UI::{
                 Input::KeyboardAndMouse::{
-                    GetAsyncKeyState, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN, VK_MENU,
+                    GetAsyncKeyState, GetCapture, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN, VK_MENU,
                 },
                 WindowsAndMessaging::{
                     CreateIconIndirect, CreateWindowExW, DefWindowProcW, DestroyCursor,
                     DestroyWindow, DispatchMessageW, GetAncestor, LoadCursorW, PeekMessageW,
-                    RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+                    RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos, ShowWindow, IsWindowVisible,
                     TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
                     GA_ROOT, GWLP_USERDATA, HCURSOR, HTCLIENT, HTTRANSPARENT, HWND_TOPMOST,
                     ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM, MSG, PM_NOREMOVE, PM_REMOVE,
-                    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA, SET_WINDOW_POS_FLAGS,
+                    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, SET_WINDOW_POS_FLAGS,
                     WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
                     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
                     WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
@@ -200,6 +200,25 @@ mod platform {
         pub hwnd: i64,
         pub bounds: [i32; 4],
         pub canvas_size: Option<[i32; 2]>,
+        pub display_ready: bool,
+        pub last_update_error: Option<i32>,
+        pub frame_stats: Option<FrameStats>,
+    }
+
+    #[derive(Clone, Default, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct FrameStats {
+        transparent_pixels: u64,
+        opaque_pixels: u64,
+        opaque_black_pixels: u64,
+    }
+
+    impl FrameStats {
+        fn observe(&mut self, pixel: u32) {
+            if pixel >> 24 == 0 { self.transparent_pixels += 1; }
+            if pixel >> 24 == 255 { self.opaque_pixels += 1; }
+            if pixel == 0xff00_0000 { self.opaque_black_pixels += 1; }
+        }
     }
 
     #[derive(Clone, Serialize)]
@@ -228,6 +247,7 @@ mod platform {
         Undo,
         Redo,
         Recover,
+        Probe { input: bool, reply: Sender<Result<(), String>> },
         ToggleGroup,
         DeleteSelectionOrClear,
         SetClickThrough(bool),
@@ -363,9 +383,18 @@ mod platform {
         bounds: RECT,
         canvas: Option<OverlayCanvas>,
         last_update_error: Option<i32>,
+        display_ready: bool,
+        frame_stats: Option<FrameStats>,
+    }
+
+    struct LayerProbe {
+        deadline: Instant,
+        windows: Vec<HWND>,
+        reply: Sender<Result<(), String>>,
     }
 
     struct OverlayState {
+        probe: Option<LayerProbe>,
         history: DrawingHistory,
         gesture_before: Option<Vec<DrawingItem>>,
         last_wheel: Option<(Instant, Vec<usize>)>,
@@ -538,12 +567,18 @@ mod platform {
                     hwnd: surface.display_hwnd.0 as i64,
                     bounds,
                     canvas_size,
+                    display_ready: surface.display_ready,
+                    last_update_error: surface.last_update_error,
+                    frame_stats: surface.frame_stats.clone(),
                 });
                 windows.push(NativeDrawingWindowSnapshot {
                     role: "drawing-input".to_string(),
                     hwnd: surface.input_hwnd.0 as i64,
                     bounds,
                     canvas_size: None,
+                    display_ready: surface.display_ready,
+                    last_update_error: None,
+                    frame_stats: None,
                 });
             }
             NativeDrawingSnapshot {
@@ -651,6 +686,14 @@ mod platform {
 
         pub fn recover(&self) {
             if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::Recover); }
+        }
+
+        pub fn probe_layer(&self, input: bool) -> Result<(), String> {
+            let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
+            let (reply, receiver) = mpsc::channel();
+            sender.send(DrawingCommand::Probe { input, reply }).map_err(|e| e.to_string())?;
+            receiver.recv_timeout(Duration::from_secs(10))
+                .map_err(|_| "Layer test timed out; use Restore Overlay Display or Esc".to_string())?
         }
 
         pub fn toggle_group(&self) {
@@ -781,6 +824,7 @@ mod platform {
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
+                    probe: None,
                     history: DrawingHistory::default(),
                     gesture_before: None,
                     last_wheel: None,
@@ -883,6 +927,8 @@ mod platform {
             bounds,
             canvas: None,
             last_update_error: None,
+            display_ready: false,
+            frame_stats: None,
         })
     }
 
@@ -990,6 +1036,14 @@ mod platform {
                 apply_command(command);
             }
 
+            if let Ok(mut guard) = overlay_state().lock() {
+                if let Some(state) = guard.as_mut() {
+                    if state.probe.as_ref().map(|p| Instant::now() >= p.deadline).unwrap_or(false) {
+                        finish_layer_probe(state, Ok(()));
+                    }
+                }
+            }
+
             while PeekMessageW(&mut message, HWND(0), 0, 0, PM_REMOVE).as_bool() {
                 if message.message == WM_MOUSEMOVE {
                     loop {
@@ -1019,6 +1073,42 @@ mod platform {
         queue.push_back(command);
     }
 
+    unsafe fn finish_layer_probe(state: &mut OverlayState, mut result: Result<(), String>) {
+        if let Some(probe) = state.probe.take() {
+            // Restore only the tested windows. Repainting or raising the other
+            // layer here would make the isolation test inconclusive.
+            if state.visible {
+                if let Err(error) = restore_probe_windows(&probe.windows) { result = Err(error); }
+            }
+            record_event(format!("Layer test finished: {result:?}"));
+            let _ = probe.reply.send(result);
+        }
+    }
+
+    unsafe fn probe_windows(surfaces: &[OverlaySurface], input: bool) -> Vec<HWND> {
+        surfaces.iter().map(|s| if input { s.input_hwnd } else { s.display_hwnd })
+            .filter(|hwnd| IsWindowVisible(*hwnd).as_bool()).collect()
+    }
+
+    unsafe fn restore_probe_windows(windows: &[HWND]) -> Result<(), String> {
+        let mut failure = None;
+        for hwnd in windows {
+            if !SetWindowPos(*hwnd, HWND(0), 0, 0, 0, 0,
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW).as_bool() {
+                record_error(format!("Layer test restore failed HWND={hwnd:?}: {}", std::io::Error::last_os_error()));
+                failure = Some("Layer restore failed; use Restore Overlay Display or Esc".to_string());
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
+    unsafe fn quarantine_surface(surface: &mut OverlaySurface) {
+        surface.display_ready = false;
+        if GetCapture() == surface.input_hwnd { ReleaseCapture(); }
+        ShowWindow(surface.input_hwnd, SW_HIDE);
+        ShowWindow(surface.display_hwnd, SW_HIDE);
+    }
+
     unsafe fn apply_command(command: DrawingCommand) {
         let Ok(mut state_guard) = overlay_state().lock() else {
             return;
@@ -1027,7 +1117,38 @@ mod platform {
             return;
         };
 
+        if state.probe.is_some() {
+            match &command {
+                DrawingCommand::Raise | DrawingCommand::Focus | DrawingCommand::PointerDown { .. }
+                | DrawingCommand::PointerMove { .. } | DrawingCommand::PointerUp { .. } => return,
+                DrawingCommand::SetToolbarPassthrough(bounds) => {
+                    state.toolbar_passthrough = *bounds;
+                    return;
+                }
+                DrawingCommand::Probe { reply, .. } => {
+                    let _ = reply.send(Err("A layer test is already running".into()));
+                    return;
+                }
+                _ => finish_layer_probe(state, Err("Layer test cancelled by another drawing operation".into())),
+            }
+        }
+
         match command {
+            DrawingCommand::Probe { input, reply } => {
+                if !state.visible || state.active.is_some() || state.selection.is_some() || state.edit.is_some() {
+                    let _ = reply.send(Err("Open the drawing toolbar and finish the current gesture before testing".into()));
+                    return;
+                }
+                let windows = probe_windows(&state.surfaces, input);
+                if windows.is_empty() {
+                    let _ = reply.send(Err("The selected layer is already hidden; choose a drawing tool before testing input".into()));
+                    return;
+                }
+                ReleaseCapture();
+                record_event(format!("Layer test started: {} HWNDs={windows:?}; hiding for 5 seconds", if input { "input" } else { "display" }));
+                for hwnd in &windows { ShowWindow(*hwnd, SW_HIDE); }
+                state.probe = Some(LayerProbe { deadline: Instant::now() + Duration::from_secs(5), windows, reply });
+            }
             DrawingCommand::SetHoverEdit(preferences) => {
                 finish_gesture_history(state);
                 state.hover_edit = preferences;
@@ -1051,7 +1172,9 @@ mod platform {
                     return;
                 }
                 state.visible = true;
+                refresh_overlay(state);
                 for surface in &state.surfaces {
+                    if !surface.display_ready { continue; }
                     checked_set_window_pos(
                         surface.display_hwnd,
                         HWND_TOPMOST,
@@ -1071,7 +1194,6 @@ mod platform {
                     destroy_retired_cursors(state);
                 }
                 emit_history(state);
-                refresh_overlay(state);
             }
             DrawingCommand::Resize { monitors } => {
                 if state.visible {
@@ -1219,6 +1341,7 @@ mod platform {
                     refresh_overlay(state);
                     sync_input_surface_visibility(state);
                     for surface in &state.surfaces {
+                        if !surface.display_ready { continue; }
                         if !SetWindowPos(surface.display_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
                             SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW).as_bool() {
                             record_error(format!("Recovery SetWindowPos failed HWND={:?}: {}", surface.display_hwnd, std::io::Error::last_os_error()));
@@ -1253,6 +1376,7 @@ mod platform {
                     return;
                 }
                 for surface in &state.surfaces {
+                    if !surface.display_ready { continue; }
                     checked_set_window_pos(
                         surface.display_hwnd,
                         HWND_TOPMOST,
@@ -1369,7 +1493,7 @@ mod platform {
     }
 
     fn is_surface_hwnd(state: &OverlayState, hwnd: HWND) -> bool {
-        state
+        state.probe.is_none() && state
             .surfaces
             .iter()
             .any(|surface| surface.input_hwnd == hwnd)
@@ -1931,21 +2055,38 @@ mod platform {
     }
 
     unsafe fn refresh_overlay(state: &mut OverlayState) {
-        if !state.visible || state.surfaces.is_empty() {
+        if !state.visible || state.surfaces.is_empty() || state.probe.is_some() {
             return;
         }
 
         // Resolve monitor-dependent controls before temporarily taking the surfaces.
         let controls = number_controls(state);
         let mut surfaces = std::mem::take(&mut state.surfaces);
+        let mut restored = false;
         for surface in &mut surfaces {
+            let was_ready = surface.display_ready;
             refresh_overlay_surface(state, surface, controls);
+            if !was_ready && surface.display_ready {
+                ShowWindow(surface.display_hwnd, SW_SHOWNOACTIVATE);
+                restored = true;
+            }
         }
         state.surfaces = surfaces;
+        if restored {
+            sync_input_surface_visibility(state);
+            raise_toolbar(&state.app);
+        }
     }
 
     unsafe fn refresh_overlay_surface(state: &OverlayState, surface: &mut OverlaySurface, controls: Option<(usize, [RECT; 2])>) {
+        // DIB memory and GDI batches must not be accessed concurrently.
+        if !GdiFlush().as_bool() {
+            record_error("GdiFlush failed before clearing drawing DIB; surface hidden");
+            quarantine_surface(surface);
+            return;
+        }
         if !ensure_overlay_canvas(surface) {
+            quarantine_surface(surface);
             return;
         }
 
@@ -2004,11 +2145,18 @@ mod platform {
         }
         SetViewportOrgEx(drawing_dc, old_origin.x, old_origin.y, None);
 
+        if !GdiFlush().as_bool() {
+            record_error("GdiFlush failed before drawing alpha conversion; surface hidden");
+            quarantine_surface(surface);
+            return;
+        }
+        let mut frame_stats = FrameStats::default();
         for (index, pixel) in pixels.iter_mut().enumerate() {
             let x = (index % width as usize) as i32 + surface.bounds.left;
             let y = (index / width as usize) as i32 + surface.bounds.top;
             if is_toolbar_passthrough_point(state, Point { x, y }, true) {
                 *pixel = 0;
+                frame_stats.observe(*pixel);
                 continue;
             }
             let rgb = *pixel & 0x00ff_ffff;
@@ -2018,7 +2166,9 @@ mod platform {
             } else if alpha == 0 {
                 *pixel |= 0xff00_0000;
             }
+            frame_stats.observe(*pixel);
         }
+        surface.frame_stats = Some(frame_stats);
 
         let destination = WinPoint {
             x: surface.bounds.left,
@@ -2037,6 +2187,8 @@ mod platform {
         };
         let screen_dc = GetDC(HWND(0));
         if screen_dc.0 == 0 {
+            record_error(format!("Drawing GetDC failed HWND={:?}: {}", surface.display_hwnd, std::io::Error::last_os_error()));
+            quarantine_surface(surface);
             return;
         }
         let updated = UpdateLayeredWindow(
@@ -2059,8 +2211,10 @@ mod platform {
                     surface.bounds.bottom, width, height));
             }
             surface.last_update_error = Some(code);
+            quarantine_surface(surface);
         } else {
             surface.last_update_error = None;
+            surface.display_ready = true;
         }
         ReleaseDC(HWND(0), screen_dc);
     }
@@ -3993,6 +4147,7 @@ mod platform {
     }
 
     unsafe fn sync_input_surface_visibility(state: &mut OverlayState) {
+        if state.probe.is_some() { return; }
         let capture_input = state.visible && !state.click_through;
         if !capture_input {
             ReleaseCapture();
@@ -4000,7 +4155,7 @@ mod platform {
         }
 
         for surface in &state.surfaces {
-            if capture_input {
+            if capture_input && surface.display_ready {
                 checked_set_window_pos(
                     surface.input_hwnd,
                     HWND_TOPMOST,
@@ -4017,7 +4172,7 @@ mod platform {
     }
 
     fn global_point_for_drawing(state: &OverlayState, x: i32, y: i32) -> Option<Point> {
-        if !state.visible || matches!(state.tool, NativeTool::Pointer) {
+        if !state.visible || state.probe.is_some() || matches!(state.tool, NativeTool::Pointer) {
             return None;
         }
         let global = Point { x, y };
@@ -4482,6 +4637,54 @@ mod platform {
     mod hover_tests {
         use super::*;
 
+        #[test]
+        fn layer_probe_and_failure_isolation_use_separate_windows() {
+            unsafe {
+                let class = wide("STATIC");
+                let name = wide("Keyviz isolation test");
+                let create = || CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                    PCWSTR(class.as_ptr()), PCWSTR(name.as_ptr()), WS_POPUP,
+                    -32000, -32000, 2, 2, HWND(0), None, GetModuleHandleW(None).unwrap(), None);
+                let display = create();
+                let input = create();
+                assert_ne!(display.0, 0);
+                assert_ne!(input.0, 0);
+                let mut surfaces = vec![OverlaySurface {
+                    display_hwnd: display, input_hwnd: input, bounds: RECT::default(),
+                    canvas: None, last_update_error: None, display_ready: true, frame_stats: None,
+                }];
+                ShowWindow(display, SW_SHOWNOACTIVATE);
+                ShowWindow(input, SW_SHOWNOACTIVATE);
+                let targets = probe_windows(&surfaces, true);
+                assert_eq!(targets, vec![input]);
+                for hwnd in &targets { ShowWindow(*hwnd, SW_HIDE); }
+                assert!(IsWindowVisible(display).as_bool());
+                assert!(!IsWindowVisible(input).as_bool());
+                assert!(probe_windows(&surfaces, true).is_empty());
+                restore_probe_windows(&targets).unwrap();
+                assert!(IsWindowVisible(input).as_bool());
+                let targets = probe_windows(&surfaces, false);
+                assert_eq!(targets, vec![display]);
+                for hwnd in &targets { ShowWindow(*hwnd, SW_HIDE); }
+                assert!(IsWindowVisible(input).as_bool());
+                restore_probe_windows(&targets).unwrap();
+                quarantine_surface(&mut surfaces[0]);
+                assert!(!surfaces[0].display_ready);
+                assert!(!IsWindowVisible(display).as_bool());
+                assert!(!IsWindowVisible(input).as_bool());
+                destroy_overlay_surfaces(&mut surfaces);
+            }
+        }
+
+        #[test]
+        fn diagnostic_pixels_distinguish_black_from_transparency() {
+            let mut stats = FrameStats::default();
+            for pixel in [0, 0x0012_3456, 0xff00_0000, 0xffff_ffff, 0x8000_0000] { stats.observe(pixel); }
+            assert_eq!(stats.transparent_pixels, 2);
+            assert_eq!(stats.opaque_pixels, 2);
+            assert_eq!(stats.opaque_black_pixels, 1);
+        }
+
         fn history_marker(value: u32) -> DrawingItem {
             DrawingItem::Number { center: Point { x: 50, y: 50 }, value, color: COLORREF(0), width: 5, rotation: 0.0, group: None }
         }
@@ -4731,6 +4934,9 @@ mod platform_stub {
         pub fn undo(&self) {}
         pub fn redo(&self) {}
         pub fn recover(&self) {}
+        pub fn probe_layer(&self, _input: bool) -> Result<(), String> {
+            Err("Layer tests are available on Windows only".into())
+        }
         pub fn toggle_group(&self) {}
         pub fn delete_selection_or_clear(&self) {}
         pub fn set_click_through(&self, _enabled: bool) {}

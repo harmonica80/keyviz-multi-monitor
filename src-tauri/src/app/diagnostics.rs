@@ -22,6 +22,62 @@ pub struct DiagnosticError {
 }
 
 static RECENT_ERRORS: OnceLock<Mutex<VecDeque<DiagnosticError>>> = OnceLock::new();
+static RECENT_EVENTS: OnceLock<Mutex<VecDeque<DiagnosticError>>> = OnceLock::new();
+
+pub fn record_event(message: impl Into<String>) {
+    if let Ok(mut events) = RECENT_EVENTS.get_or_init(|| Mutex::new(VecDeque::new())).lock() {
+        if events.len() >= MAX_RECENT_ERRORS { events.pop_front(); }
+        events.push_back(DiagnosticError { timestamp_unix_ms: unix_time_ms(), message: message.into() });
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn system_details() -> serde_json::Value {
+    use windows::{core::PCWSTR, Win32::{
+        Graphics::Gdi::{EnumDisplayDevicesW, DISPLAY_DEVICEW},
+        System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RRF_RT_REG_DWORD},
+    }};
+    fn wide(s: &str) -> Vec<u16> { s.encode_utf16().chain(Some(0)).collect() }
+    fn string_value(path: &str, name: &str) -> Option<String> {
+        let (path, name) = (wide(path), wide(name));
+        let mut data = [0u16; 512];
+        let mut bytes = std::mem::size_of_val(&data) as u32;
+        let status = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, PCWSTR(path.as_ptr()), PCWSTR(name.as_ptr()),
+            RRF_RT_REG_SZ, None, Some(data.as_mut_ptr().cast()), Some(&mut bytes)) };
+        (status.0 == 0).then(|| String::from_utf16_lossy(&data[..data.iter().position(|v| *v == 0).unwrap_or(data.len())]))
+    }
+    let path = r"SOFTWARE\Microsoft\Windows NT\CurrentVersion";
+    let mut revision = 0u32;
+    let mut bytes = 4;
+    let (path_wide, ubr) = (wide(path), wide("UBR"));
+    let revision_status = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, PCWSTR(path_wide.as_ptr()), PCWSTR(ubr.as_ptr()),
+        RRF_RT_REG_DWORD, None, Some((&mut revision as *mut u32).cast()), Some(&mut bytes)) };
+    let mut adapters = Vec::new();
+    for index in 0..64 {
+        let mut device = DISPLAY_DEVICEW::default();
+        device.cb = std::mem::size_of::<DISPLAY_DEVICEW>() as u32;
+        if !unsafe { EnumDisplayDevicesW(PCWSTR::null(), index, &mut device, 0).as_bool() } { break; }
+        let decode = |value: &[u16]| String::from_utf16_lossy(&value[..value.iter().position(|v| *v == 0).unwrap_or(value.len())]);
+        let key = decode(&device.DeviceKey);
+        let driver_key = key.strip_prefix(r"\Registry\Machine\");
+        adapters.push(serde_json::json!({
+            "name": decode(&device.DeviceName), "description": decode(&device.DeviceString),
+            "stateFlags": device.StateFlags,
+            "driverVersion": driver_key.and_then(|key| string_value(key, "DriverVersion")),
+            "driverDate": driver_key.and_then(|key| string_value(key, "DriverDate")),
+        }));
+    }
+    serde_json::json!({
+        "source": "Windows registry and EnumDisplayDevicesW",
+        "displayVersion": string_value(path, "DisplayVersion"),
+        "buildNumber": string_value(path, "CurrentBuildNumber"),
+        "updateBuildRevision": if revision_status.0 == 0 { Some(revision) } else { None },
+        "adapters": adapters,
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+fn system_details() -> serde_json::Value { serde_json::Value::Null }
 
 fn error_log() -> &'static Mutex<VecDeque<DiagnosticError>> {
     RECENT_ERRORS.get_or_init(|| Mutex::new(VecDeque::with_capacity(MAX_RECENT_ERRORS)))
@@ -129,10 +185,12 @@ struct DiagnosticReport {
     process_id: u32,
     platform: String,
     architecture: String,
+    system_details: serde_json::Value,
     monitors: Vec<MonitorDiagnostic>,
     application_state: ApplicationStateDiagnostic,
     windows: Vec<WindowDiagnostic>,
     recent_errors: Vec<DiagnosticError>,
+    recent_events: Vec<DiagnosticError>,
 }
 
 #[cfg(target_os = "windows")]
@@ -316,16 +374,19 @@ pub fn export_diagnostics(app: AppHandle) -> Result<String, String> {
     }
 
     let report = DiagnosticReport {
-        schema_version: 1,
+        schema_version: 2,
         generated_at_unix_ms: unix_time_ms(),
         app_version: app.package_info().version.to_string(),
         process_id: std::process::id(),
         platform: std::env::consts::OS.to_string(),
         architecture: std::env::consts::ARCH.to_string(),
+        system_details: system_details(),
         monitors,
         application_state,
         windows,
         recent_errors: recent_errors(),
+        recent_events: RECENT_EVENTS.get_or_init(|| Mutex::new(VecDeque::new())).lock()
+            .map(|events| events.iter().cloned().collect()).unwrap_or_default(),
     };
     let json = serde_json::to_string_pretty(&report).map_err(|error| {
         let message = format!("Failed to serialize diagnostics: {error}");

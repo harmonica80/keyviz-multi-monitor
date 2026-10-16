@@ -342,3 +342,27 @@ pub fn drawing_recover(app: tauri::AppHandle) -> Result<(), String> {
     app_state.cursor_overlay.recover();
     Ok(())
 }
+
+#[tauri::command]
+pub async fn drawing_probe_layer(app: tauri::AppHandle, layer: String) -> Result<serde_json::Value, String> {
+    let input = match layer.as_str() {
+        "input" => true,
+        "display" => false,
+        _ => return Err("Unknown overlay layer".into()),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let overlay = {
+            let state = app.state::<Mutex<AppState>>();
+            let state = state.lock().map_err(|e| e.to_string())?;
+            state.drawing_overlay.clone()
+        };
+        crate::app::diagnostics::record_event(format!("Requested {layer} isolation test"));
+        let before = crate::app::diagnostics::export_diagnostics(app.clone())?;
+        let result = overlay.probe_layer(input);
+        let after = crate::app::diagnostics::export_diagnostics(app);
+        Ok(serde_json::json!({
+            "before": before, "after": after.as_ref().ok(),
+            "error": result.err().or_else(|| after.err()),
+        }))
+    }).await.map_err(|e| e.to_string())?
+}

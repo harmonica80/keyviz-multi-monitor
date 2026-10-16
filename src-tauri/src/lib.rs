@@ -9,7 +9,7 @@ use tauri::{
 
 mod app;
 use app::commands::{
-    drawing_clear, drawing_redo, drawing_recover, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
+    drawing_clear, drawing_redo, drawing_recover, drawing_probe_layer, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
     drawing_undo, get_cursor_settings, hide_native_key_overlay, log, set_cursor_settings,
     set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut, set_tray_locale,
     update_native_key_overlay, update_overlay_window,
@@ -911,6 +911,7 @@ pub fn run() {
             drawing_clear,
             drawing_redo,
             drawing_recover,
+            drawing_probe_layer,
             drawing_toggle_group,
             drawing_undo,
             export_diagnostics

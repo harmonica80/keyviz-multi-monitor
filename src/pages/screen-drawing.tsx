@@ -1,4 +1,5 @@
 import { useTranslation } from "@/lib/i18n";
+import { useOverlayProbe } from "@/lib/overlay-probe";
 import { keymaps } from "@/lib/keymaps";
 import {
   DRAWING_TOOL_BY_ID,
@@ -230,6 +231,8 @@ export default function ScreenDrawing() {
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [operationHint, setOperationHint] = useState<{ text: string } | null>(null);
+  const [probeMenu, setProbeMenu] = useState(false);
+  const probe = useOverlayProbe();
   useEffect(() => {
     if (!operationHint) return;
     const timer = window.setTimeout(() => setOperationHint(null), 1800);
@@ -690,12 +693,21 @@ export default function ScreenDrawing() {
       </button>
       <button disabled={!canRedo} title={`${t("Redo")} (Ctrl + Shift + Z)`}
         onClick={() => void sendCommand({ type: "redo" })}><Redo2 /></button></div>
-      {operationHint && <output className="drawing-operation-hint" role="status">{operationHint.text}</output>}
+      {(operationHint || probeMenu) && <output className="drawing-operation-hint" role="status">
+        {probeMenu ? (probe.busy ? t("Testing for 5 seconds...") : probe.result
+          ? t(probe.result.error ?? "Test finished. Before and after reports saved.")
+          : t("Choose D or I to test one layer for 5 seconds.")) : operationHint?.text}
+      </output>}
       <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
         <Trash2 />
       </button>
       <div className="drawing-divider" />
       <div className="drawing-footer-actions">
+        {probeMenu ? <>
+          <button disabled={probe.busy} title={t("Test Display Layer")} onClick={() => void probe.run("display")}>D</button>
+          <button disabled={probe.busy} title={t("Test Input Layer")} onClick={() => void probe.run("input")}>I</button>
+          <button title={t("Back")} onClick={() => setProbeMenu(false)}><X /></button>
+        </> : <>
         <button
           className={!keyDisplayEnabled ? "active" : ""}
           aria-pressed={!keyDisplayEnabled}
@@ -714,10 +726,13 @@ export default function ScreenDrawing() {
         >
           <Settings />
         </button>
-      <button title={t("Restore Overlay Display")} onClick={() => {
+      <button title={t("Restore display; right-click for layer tests")} onContextMenu={(event) => {
+        event.preventDefault(); setProbeMenu(true);
+      }} onClick={() => {
         void invoke("drawing_recover").then(() => setOperationHint({ text: t("Display recovery requested") }))
           .catch(() => setOperationHint({ text: t("Display recovery failed") }));
       }}><RefreshCw /></button>
+      </>}
       </div>
     </aside>
   );
