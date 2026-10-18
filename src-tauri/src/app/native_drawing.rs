@@ -239,7 +239,10 @@ mod platform {
             toolbar_passthrough: Option<RECT>,
         },
         Hide,
-        SetTool(NativeTool),
+        SetTool {
+            tool: NativeTool,
+            ready: Option<Sender<Result<(), String>>>,
+        },
         SetHoverEdit(std::collections::HashMap<String, bool>),
         SetColor(String),
         SetWidth(i32),
@@ -643,7 +646,16 @@ mod platform {
             let Some(sender) = &self.sender else {
                 return;
             };
-            let _ = sender.send(DrawingCommand::SetTool(tool));
+            let _ = sender.send(DrawingCommand::SetTool { tool, ready: None });
+        }
+
+        pub fn prepare_for_settings(&self) -> Result<(), String> {
+            let sender = self.sender.as_ref().ok_or("Drawing input thread is unavailable")?;
+            let (ready, receiver) = mpsc::channel();
+            sender.send(DrawingCommand::SetTool { tool: NativeTool::Pointer, ready: Some(ready) })
+                .map_err(|error| error.to_string())?;
+            receiver.recv_timeout(Duration::from_secs(5))
+                .map_err(|error| format!("Drawing input release was not confirmed: {error}"))?
         }
 
         pub fn set_hover_edit(&self, preferences: std::collections::HashMap<String, bool>) {
@@ -1220,7 +1232,7 @@ mod platform {
                 emit_history(state);
                 emit_selection_state(state);
             }
-            DrawingCommand::SetTool(tool) => {
+            DrawingCommand::SetTool { tool, ready } => {
                 commit_text_editor(state);
                 finish_gesture_history(state);
                 remember_tool_width(state);
@@ -1240,6 +1252,14 @@ mod platform {
                 }
                 refresh_overlay(state);
                 emit_selection_state(state);
+                if let Some(ready) = ready {
+                    let result = if input_surfaces_released(&state.surfaces) {
+                        Ok(())
+                    } else {
+                        Err("Drawing input windows are still active".into())
+                    };
+                    let _ = ready.send(result);
+                }
             }
             DrawingCommand::SetColor(color) => {
                 state.color = parse_color(&color);
@@ -4146,6 +4166,13 @@ mod platform {
             .unwrap_or(true)
     }
 
+    unsafe fn input_surfaces_released(surfaces: &[OverlaySurface]) -> bool {
+        let capture = GetCapture();
+        surfaces.iter().all(|surface| {
+            !IsWindowVisible(surface.input_hwnd).as_bool() && capture != surface.input_hwnd
+        })
+    }
+
     unsafe fn sync_input_surface_visibility(state: &mut OverlayState) {
         if state.probe.is_some() { return; }
         let capture_input = state.visible && !state.click_through;
@@ -4638,6 +4665,36 @@ mod platform {
         use super::*;
 
         #[test]
+        fn settings_waits_for_native_pointer_transition() {
+            let (sender, receiver) = mpsc::channel();
+            let overlay = NativeDrawingOverlay { sender: Some(sender) };
+            let worker = std::thread::spawn(move || overlay.prepare_for_settings());
+            match receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
+                DrawingCommand::SetTool { tool: NativeTool::Pointer, ready: Some(ready) } => {
+                    assert!(!worker.is_finished());
+                    ready.send(Ok(())).unwrap();
+                }
+                _ => panic!("Settings must request an acknowledged pointer transition"),
+            }
+            assert!(worker.join().unwrap().is_ok());
+        }
+
+        #[test]
+        fn settings_does_not_ignore_input_release_failure() {
+            let (sender, receiver) = mpsc::channel();
+            let overlay = NativeDrawingOverlay { sender: Some(sender) };
+            let worker = std::thread::spawn(move || overlay.prepare_for_settings());
+            match receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
+                DrawingCommand::SetTool { ready: Some(ready), .. } => {
+                    ready.send(Err("Input window still visible".into())).unwrap();
+                }
+                _ => panic!("Missing input release acknowledgement"),
+            }
+            assert_eq!(worker.join().unwrap().unwrap_err(), "Input window still visible");
+            assert!(NativeDrawingOverlay { sender: None }.prepare_for_settings().is_err());
+        }
+
+        #[test]
         fn layer_probe_and_failure_isolation_use_separate_windows() {
             unsafe {
                 let class = wide("STATIC");
@@ -4655,11 +4712,13 @@ mod platform {
                 }];
                 ShowWindow(display, SW_SHOWNOACTIVATE);
                 ShowWindow(input, SW_SHOWNOACTIVATE);
+                assert!(!input_surfaces_released(&surfaces));
                 let targets = probe_windows(&surfaces, true);
                 assert_eq!(targets, vec![input]);
                 for hwnd in &targets { ShowWindow(*hwnd, SW_HIDE); }
                 assert!(IsWindowVisible(display).as_bool());
                 assert!(!IsWindowVisible(input).as_bool());
+                assert!(input_surfaces_released(&surfaces));
                 assert!(probe_windows(&surfaces, true).is_empty());
                 restore_probe_windows(&targets).unwrap();
                 assert!(IsWindowVisible(input).as_bool());
@@ -4927,6 +4986,7 @@ mod platform_stub {
         }
         pub fn hide(&self) {}
         pub fn set_tool(&self, _tool: NativeTool) {}
+        pub fn prepare_for_settings(&self) -> Result<(), String> { Ok(()) }
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}

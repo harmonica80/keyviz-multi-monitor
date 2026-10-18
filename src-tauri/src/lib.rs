@@ -44,6 +44,48 @@ fn build_settings_window(
 }
 
 fn show_settings_window(app: &AppHandle) {
+    // Native tool changes can send window messages to the main thread. Wait for
+    // input release on a worker so neither UI thread blocks the other.
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(error) = prepare_drawing_for_settings(&app) {
+            record_error(format!("Failed to release drawing input for settings: {error}"));
+            return;
+        }
+        let handle = app.clone();
+        if let Err(error) = app.run_on_main_thread(move || show_settings_window_ready(&handle)) {
+            record_error(format!("Failed to schedule settings window: {error}"));
+        }
+    });
+}
+
+fn prepare_drawing_for_settings(app: &AppHandle) -> Result<(), String> {
+    let drawing = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().map_err(|error| error.to_string())?;
+        state.drawing_visible.then(|| (state.drawing_overlay.clone(), state.drawing_session_id))
+    };
+    if let Some((overlay, session_id)) = drawing {
+        overlay.prepare_for_settings()?;
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().map_err(|error| error.to_string())?;
+            if !state.drawing_visible || state.drawing_session_id != session_id {
+                return Err("Drawing session changed while opening settings".into());
+            }
+            state.drawing_tool = "pointer".into();
+            state.drawing_input_passthrough = true;
+            state.drawing_pointer_down = false;
+            state.drawing_last_move = None;
+        }
+        app.emit("drawing-tool-changed", serde_json::json!({ "tool": "pointer" }))
+            .map_err(|error| error.to_string())?;
+        app::diagnostics::record_event("Drawing input released before opening settings");
+    }
+    Ok(())
+}
+
+fn show_settings_window_ready(app: &AppHandle) {
     let drawing_visible = app
         .try_state::<Mutex<AppState>>()
         .and_then(|state| state.lock().ok().map(|state| state.drawing_visible))
