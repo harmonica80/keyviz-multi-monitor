@@ -18,6 +18,7 @@ const RADIAL_TOOLS: [NativeTool; 12] = [
     NativeTool::Select,
     NativeTool::Pointer,
 ];
+const RADIAL_RADIUS: f64 = 78.0;
 static RADIAL_OPEN: AtomicBool = AtomicBool::new(false);
 static RADIAL_ESCAPE_UNTIL: AtomicU64 = AtomicU64::new(0);
 
@@ -35,6 +36,35 @@ pub fn radial_consumes_close() -> bool {
 struct RadialShortcut {
     key: u32,
     modifiers: u8,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RadialKeyAction {
+    Toggle,
+    Cancel,
+}
+
+fn radial_key_action(
+    shortcut: RadialShortcut,
+    open: bool,
+    key: u32,
+    modifiers: u8,
+    repeated: bool,
+    left_down: bool,
+) -> Option<RadialKeyAction> {
+    if repeated {
+        None
+    } else if open && key == 0x1b {
+        Some(RadialKeyAction::Cancel)
+    } else if !left_down
+        && shortcut.key != 0
+        && key == shortcut.key
+        && modifiers == shortcut.modifiers
+    {
+        Some(RadialKeyAction::Toggle)
+    } else {
+        None
+    }
 }
 
 fn radial_shortcut(keys: &[String]) -> Result<RadialShortcut, String> {
@@ -214,19 +244,22 @@ mod radial_keyboard {
                 | (u8::from(hook.down[0x10] || hook.down[0xa0] || hook.down[0xa1]) << 1)
                 | (u8::from(hook.down[0x12] || hook.down[0xa4] || hook.down[0xa5]) << 2)
                 | (u8::from(hook.down[0x5b] || hook.down[0x5c]) << 3);
-            let command = if gate.open && vk == 0x1b {
-                RADIAL_ESCAPE_UNTIL.store(radial_clock() + 150, Ordering::Relaxed);
-                DrawingCommand::CancelRadial
-            } else if gate.shortcut.key != 0
-                && vk as u32 == gate.shortcut.key
-                && modifiers == gate.shortcut.modifiers
-            {
-                if GetAsyncKeyState(1) < 0 {
-                    return false;
-                }
-                DrawingCommand::ToggleRadial
-            } else {
+            let Some(action) = radial_key_action(
+                gate.shortcut,
+                gate.open,
+                vk as u32,
+                modifiers,
+                repeated,
+                GetAsyncKeyState(1) < 0,
+            ) else {
                 return false;
+            };
+            let command = match action {
+                RadialKeyAction::Cancel => {
+                    RADIAL_ESCAPE_UNTIL.store(radial_clock() + 150, Ordering::Relaxed);
+                    DrawingCommand::CancelRadial
+                }
+                RadialKeyAction::Toggle => DrawingCommand::ToggleRadial,
             };
             drop(gate);
             if hook.sender.send(command).is_err() {
@@ -265,17 +298,64 @@ impl RadialMenu {
     }
 }
 
+fn radial_available(visible: bool, click_through: bool, editing: bool, probing: bool) -> bool {
+    visible && !click_through && !editing && !probing
+}
+
 fn sync_radial_gate(state: &OverlayState) {
     if let Ok(mut gate) = state.radial_gate.lock() {
-        gate.enabled = state.visible
-            && !state.click_through
-            && state.edit.is_none()
-            && state.active.is_none()
-            && state.selection.is_none()
-            && state.probe.is_none();
+        // Mouse-button state blocks live gestures. A missed mouse-up must not
+        // permanently disable the shortcut via a stale active/selection value.
+        gate.enabled = radial_available(
+            state.visible,
+            state.click_through,
+            state.edit.is_some(),
+            state.probe.is_some(),
+        );
         gate.open = state.radial.is_some();
     }
     RADIAL_OPEN.store(state.radial.is_some(), Ordering::Relaxed);
+}
+
+// Keys consumed by the global hook never arrive here. Handling the window's
+// own key messages also keeps Q working after drawing gives this window focus,
+// including when Windows has stopped delivering low-level hook callbacks.
+unsafe fn radial_window_key(state: &mut OverlayState, key: u32, lparam: LPARAM) -> bool {
+    if !radial_available(
+        state.visible,
+        state.click_through,
+        state.edit.is_some(),
+        state.probe.is_some(),
+    ) {
+        return false;
+    }
+    let shortcut = match state.radial_gate.lock() {
+        Ok(gate) => gate.shortcut,
+        Err(_) => return false,
+    };
+    let key_down = |key| windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState(key) < 0;
+    let modifiers = u8::from(key_down(0x11))
+        | (u8::from(key_down(0x10)) << 1)
+        | (u8::from(key_down(0x12)) << 2)
+        | (u8::from(key_down(0x5b) || key_down(0x5c)) << 3);
+    let Some(action) = radial_key_action(
+        shortcut,
+        state.radial.is_some(),
+        key,
+        modifiers,
+        lparam.0 & (1 << 30) != 0,
+        GetAsyncKeyState(1) < 0,
+    ) else {
+        return false;
+    };
+    match action {
+        RadialKeyAction::Toggle => toggle_radial(state),
+        RadialKeyAction::Cancel => {
+            RADIAL_ESCAPE_UNTIL.store(radial_clock() + 150, Ordering::Relaxed);
+            cancel_radial(state);
+        }
+    }
+    true
 }
 
 unsafe fn cancel_radial(state: &mut OverlayState) {
@@ -305,14 +385,18 @@ unsafe fn toggle_radial(state: &mut OverlayState) {
         cancel_radial(state);
         return;
     }
-    if !state.visible
-        || state.click_through
-        || state.edit.is_some()
-        || state.active.is_some()
-        || state.selection.is_some()
-        || state.probe.is_some()
+    if !radial_available(
+        state.visible,
+        state.click_through,
+        state.edit.is_some(),
+        state.probe.is_some(),
+    ) || GetAsyncKeyState(1) < 0
     {
         return;
+    }
+    if state.active.is_some() || state.selection.is_some() {
+        // Finish, rather than discard, a gesture whose button-up was lost.
+        finish_drawing_at(state, Point { x: 0, y: 0 });
     }
     let mut cursor = WinPoint::default();
     if !windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut cursor).as_bool() {
@@ -328,7 +412,7 @@ unsafe fn toggle_radial(state: &mut OverlayState) {
         return;
     };
     let dpi = windows::Win32::UI::HiDpi::GetDpiForWindow(surface.input_hwnd).max(96);
-    let radius = (156.0 * dpi as f64 / 96.0).min(
+    let radius = (RADIAL_RADIUS * dpi as f64 / 96.0).min(
         ((surface.bounds.right - surface.bounds.left)
             .min(surface.bounds.bottom - surface.bounds.top)
             - 12)
@@ -596,7 +680,7 @@ mod radial_hover_tests {
                 HDC(canvas.memory_dc.0),
                 &RadialMenu {
                     center: Point { x: 180, y: 180 },
-                    radius: 156.0,
+                    radius: RADIAL_RADIUS,
                     hovered: Some(1),
                 },
                 &RADIAL_TOOLS,
@@ -604,7 +688,9 @@ mod radial_hover_tests {
             assert!(GdiFlush().as_bool());
             assert_eq!(pixels[0], 0);
             assert_ne!(pixels[180 * 360 + 185], 0);
-            assert!(pixels.iter().filter(|pixel| **pixel != 0).count() > 70_000);
+            let painted = pixels.iter().filter(|pixel| **pixel != 0).count();
+            assert!((17_000..21_000).contains(&painted));
+            assert_eq!(pixels[180 * 360 + 270], 0);
             if let Ok(path) = std::env::var("KEYVIZ_RADIAL_PREVIEW") {
                 let bytes = std::slice::from_raw_parts(canvas.bits as *const u8, 360 * 360 * 4);
                 let mut bmp = Vec::new();
@@ -631,7 +717,7 @@ mod radial_hover_tests {
     fn two_rings_have_twelve_distinct_targets_and_neutral_center() {
         let menu = RadialMenu {
             center: Point { x: -600, y: 300 },
-            radius: 156.0,
+            radius: RADIAL_RADIUS,
             hovered: None,
         };
         assert!(menu.hit(menu.center).is_none());
@@ -639,7 +725,7 @@ mod radial_hover_tests {
         for index in 0..12 {
             let angle =
                 (index % 6) as f64 * std::f64::consts::PI / 3.0 - std::f64::consts::FRAC_PI_2;
-            let r = if index < 6 { 65.0 } else { 125.0 };
+            let r = menu.radius * if index < 6 { 0.415 } else { 0.805 };
             let point = Point {
                 x: menu.center.x + (r * angle.cos()).round() as i32,
                 y: menu.center.y + (r * angle.sin()).round() as i32,
@@ -686,5 +772,46 @@ mod radial_hover_tests {
         ] {
             assert!(radial_shortcut(&keys).is_err());
         }
+    }
+
+    #[test]
+    fn shortcut_actions_rearm_after_left_release_and_ignore_auto_repeat() {
+        let shortcut = RadialGate::default().shortcut;
+        for _ in 0..10 {
+            assert_eq!(
+                radial_key_action(shortcut, false, 0x51, 0, false, true),
+                None
+            );
+            assert_eq!(
+                radial_key_action(shortcut, false, 0x51, 0, false, false),
+                Some(RadialKeyAction::Toggle)
+            );
+            assert_eq!(
+                radial_key_action(shortcut, true, 0x51, 0, true, false),
+                None
+            );
+            assert_eq!(
+                radial_key_action(shortcut, true, 0x1b, 0, false, false),
+                Some(RadialKeyAction::Cancel)
+            );
+            assert_eq!(
+                radial_key_action(shortcut, false, 0x1b, 0, false, false),
+                None
+            );
+        }
+        assert_eq!(
+            radial_key_action(shortcut, false, 0x51, 1, false, false),
+            None
+        );
+    }
+
+    #[test]
+    fn shortcut_gate_excludes_pointer_text_probe_and_hidden_modes() {
+        assert!(radial_available(true, false, false, false));
+        assert!(!radial_available(false, false, false, false));
+        assert!(!radial_available(true, true, false, false));
+        assert!(!radial_available(true, false, true, false));
+        assert!(!radial_available(true, false, false, true));
+        assert_eq!(RADIAL_RADIUS * 2.0, 156.0);
     }
 }

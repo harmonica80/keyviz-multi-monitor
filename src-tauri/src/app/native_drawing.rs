@@ -1539,9 +1539,12 @@ mod platform {
                 on_mouse_wheel(hwnd, wparam, lparam);
                 LRESULT(0)
             }
-            WM_KEYDOWN => {
-                on_key_down(hwnd, wparam);
-                LRESULT(0)
+            WM_KEYDOWN | windows::Win32::UI::WindowsAndMessaging::WM_SYSKEYDOWN => {
+                if on_key_down(hwnd, wparam, lparam) || message == WM_KEYDOWN {
+                    LRESULT(0)
+                } else {
+                    DefWindowProcW(hwnd, message, wparam, lparam)
+                }
             }
             WM_CHAR => {
                 on_char(hwnd, wparam);
@@ -1978,16 +1981,19 @@ mod platform {
         }
     }
 
-    unsafe fn on_key_down(hwnd: HWND, wparam: WPARAM) {
+    unsafe fn on_key_down(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) -> bool {
         let Ok(mut state_guard) = overlay_state().lock() else {
-            return;
+            return false;
         };
         let Some(state) = state_guard.as_mut() else {
-            return;
+            return false;
         };
         if !is_surface_hwnd(state, hwnd) {
-            return;
+            return false;
         }
+        if radial_window_key(state, wparam.0 as u32, lparam) { return true; }
+        // Preserve system-key handling when an Alt shortcut was not consumed.
+        if lparam.0 & (1 << 29) != 0 { return false; }
 
         match wparam.0 as u32 {
             code if code == VK_RETURN.0 as u32 && state.edit.is_some() => {
@@ -2006,6 +2012,7 @@ mod platform {
             }
             _ => {}
         }
+        false
     }
 
     unsafe fn on_char(hwnd: HWND, wparam: WPARAM) {
