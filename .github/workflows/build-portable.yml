@@ -28,7 +28,12 @@ jobs:
       - name: Build portable executable
         run: npm run build:portable
 
+      - name: Test radial shortcut validation
+        run: node scripts/test-radial-shortcut.mjs
+
       - name: Test native object editing
+        env:
+          KEYVIZ_RADIAL_PREVIEW: release/radial-menu-preview.bmp
         run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib hover_tests
 
       - name: Prepare portable artifact
@@ -41,3 +46,8 @@ jobs:
         with:
           name: keyviz-portable
           path: release/keyviz-portable.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyviz-radial-preview
+          path: release/radial-menu-preview.bmp

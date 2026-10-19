@@ -509,7 +509,7 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
                         .map(|app_state| app_state.drawing_visible)
                         .unwrap_or(false)
                 };
-                if drawing_visible {
+                if drawing_visible && !crate::app::native_drawing::radial_consumes_close() {
                     if let Err(error) = crate::close_screen_drawing_impl(app_handle.clone()) {
                         record_error(format!(
                             "Failed to close screen drawing poller shortcut: {error}"

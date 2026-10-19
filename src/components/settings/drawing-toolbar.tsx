@@ -7,6 +7,9 @@ import {
   useDrawingToolbar,
 } from "@/stores/drawing_toolbar";
 import { Button } from "@/components/ui/button";
+import { ShortcutRecorder } from "@/components/shortcut-recorder";
+import { radialShortcutError } from "@/lib/radial-shortcut";
+import { useKeyEvent } from "@/stores/key_event";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -44,6 +47,9 @@ export const DrawingToolbarSettings = () => {
   const setToolVisible = useDrawingToolbar((state) => state.setToolVisible);
   const setSide = useDrawingToolbar((state) => state.setSide);
   const resetToolbar = useDrawingToolbar((state) => state.resetToolbar);
+  const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
+  const setRadialShortcut = useDrawingToolbar((state) => state.setRadialShortcut);
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
   const dragSession = useRef<ToolbarDragSession | null>(null);
@@ -99,11 +105,28 @@ export const DrawingToolbarSettings = () => {
             {t("Reorder drawing tools and choose which buttons appear in the toolbar.")}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={resetToolbar}>
+        <Button variant="outline" size="sm" onClick={() => { resetToolbar(); setShortcutError(null); }}>
           <RotateCcw className="mr-2 size-4" />
           {t("Restore Default Toolbar")}
         </Button>
       </div>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Circular Tool Menu Shortcut")}</ItemTitle>
+          <ItemDescription>{t("Press Q while drawing to open the two-ring icon menu beside the mouse. Click a tool to switch; press Esc or right-click to cancel. In pointer mode, settings or text entry, this shortcut is inactive.")}</ItemDescription>
+          <ShortcutRecorder value={radialShortcut} onChange={(keys) => {
+            const state = useKeyEvent.getState();
+            const error = radialShortcutError(keys, [state.toggleShortcut, state.drawingToggleShortcut,
+              state.drawingPointerShortcut, state.drawingClearShortcut, state.drawingUndoShortcut,
+              state.drawingCloseShortcut, ["ControlLeft", "ShiftLeft", "KeyZ"]]);
+            setShortcutError(error);
+            if (!error) setRadialShortcut(keys);
+          }} placeholder={t("Disabled (click to set)")} />
+          <ItemDescription>{t("Default: Q. Click to record a new shortcut; Backspace or Delete disables it. Hidden tools leave empty sectors to keep positions stable.")}</ItemDescription>
+          {shortcutError && <p role="alert" className="text-sm text-destructive">{t(shortcutError)}</p>}
+        </ItemContent>
+      </Item>
 
       <Item variant="muted">
         <ItemContent>

@@ -4,6 +4,13 @@ import { createJSONStorage, persist } from "zustand/middleware";
 export type Locale = "en" | "zh-TW";
 
 const zhTW: Record<string, string> = {
+  "Circular Tool Menu Shortcut": "圓形工具選單快捷鍵",
+  "Press Q while drawing to open the two-ring icon menu beside the mouse. Click a tool to switch; press Esc or right-click to cancel. In pointer mode, settings or text entry, this shortcut is inactive.": "使用繪圖工具時，按快捷鍵在滑鼠旁開啟雙圈圖示選單。點選工具即可切換；按 Esc 或滑鼠右鍵取消。在游標模式、設定視窗或文字輸入時不啟用。",
+  "Default: Q. Click to record a new shortcut; Backspace or Delete disables it. Hidden tools leave empty sectors to keep positions stable.": "預設為 Q。點選後按下新快捷鍵；按 Backspace 或 Delete 可停用。隱藏工具會保留空格，避免其他工具位置改變。",
+  "Disabled (click to set)": "已停用（點選可設定）",
+  "Use a letter, number, function key or punctuation, optionally with Ctrl, Shift or Alt.": "請使用英文字母、數字、功能鍵或標點符號，可搭配 Ctrl、Shift 或 Alt。",
+  "This shortcut is reserved by Windows.": "此快捷鍵由 Windows 保留，請選擇其他按鍵。",
+  "This combination conflicts with another Keyviz shortcut.": "此組合與 Keyviz 其他快捷鍵衝突，請選擇其他按鍵。",
   "Black Screen Layer Test": "黑幕分層測試",
   "Hide one layer for 5 seconds, then restore it automatically. Observe whether the black screen disappears. Keep the current tool unchanged during the test.": "暫時隱藏一層 5 秒後自動還原。請觀察黑幕是否消失；測試期間不要切換工具或點擊桌面。",
   "For an undisturbed test, right-click the toolbar recovery button. Opening settings may hide the input layer.": "建議直接在工具列恢復按鈕按右鍵測試。開啟設定可能先隱藏輸入層，影響判斷。",

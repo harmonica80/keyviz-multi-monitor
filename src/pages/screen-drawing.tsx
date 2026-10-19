@@ -246,6 +246,14 @@ export default function ScreenDrawing() {
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const toolbarItems = useDrawingToolbar((state) => state.items);
   const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
+  const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
+  useEffect(() => {
+    if (!isToolbar) return;
+    void invoke("set_drawing_radial_menu", {
+      shortcut: radialShortcut,
+      tools: toolbarItems.filter((item) => item.visible).map((item) => item.id),
+    }).catch(console.error);
+  }, [isToolbar, radialShortcut, toolbarItems]);
   useEffect(() => {
     void invoke("set_drawing_hover_edit", { preferences: hoverEdit }).catch(console.error);
   }, [hoverEdit]);

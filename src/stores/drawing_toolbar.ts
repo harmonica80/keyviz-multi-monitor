@@ -7,6 +7,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { createSyncedStore } from "./sync";
 import { tauriStorage } from "./storage";
+import { radialShortcutError } from "@/lib/radial-shortcut";
 
 export const DRAWING_TOOLBAR_STORE = "drawing_toolbar_store";
 
@@ -18,12 +19,14 @@ export interface DrawingToolbarItem {
 export type DrawingToolbarSide = "left" | "right";
 
 interface DrawingToolbarState {
+  radialShortcut: string[];
   hoverEdit: Partial<Record<DrawingTool, boolean>>;
   items: DrawingToolbarItem[];
   side: DrawingToolbarSide;
 }
 
 interface DrawingToolbarActions {
+  setRadialShortcut: (shortcut: string[]) => void;
   setHoverEdit: (id: DrawingTool, enabled: boolean) => void;
   setItems: (items: DrawingToolbarItem[]) => void;
   setToolVisible: (id: DrawingTool, visible: boolean) => void;
@@ -65,9 +68,15 @@ export const normalizeDrawingToolbarItems = (
 const normalizeDrawingToolbarSide = (side: unknown): DrawingToolbarSide =>
   side === "left" ? "left" : DEFAULT_DRAWING_TOOLBAR_SIDE;
 
+const normalizeRadialShortcut = (value: unknown): string[] =>
+  Array.isArray(value) && value.every((key) => typeof key === "string") && !radialShortcutError(value)
+    ? value : ["KeyQ"];
+
 const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
   DRAWING_TOOLBAR_STORE,
   (set) => ({
+    radialShortcut: ["KeyQ"],
+    setRadialShortcut: (shortcut) => set({ radialShortcut: normalizeRadialShortcut(shortcut) }),
     hoverEdit: {},
     setHoverEdit: (id, enabled) => set((state) => ({ hoverEdit: { ...state.hoverEdit, [id]: enabled } })),
     items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
@@ -84,6 +93,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     setSide: (side) => set({ side: normalizeDrawingToolbarSide(side) }),
     resetToolbar: () =>
       set({
+        radialShortcut: ["KeyQ"],
         hoverEdit: {},
         items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
         side: DEFAULT_DRAWING_TOOLBAR_SIDE,
@@ -93,10 +103,11 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 2,
+      version: 3,
       migrate: (persistedState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
+          radialShortcut: normalizeRadialShortcut(state.radialShortcut),
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
           hoverEdit: state.hoverEdit ?? {},
@@ -106,6 +117,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
           ...currentState,
+          radialShortcut: normalizeRadialShortcut(state.radialShortcut),
           hoverEdit: state.hoverEdit ?? {},
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),

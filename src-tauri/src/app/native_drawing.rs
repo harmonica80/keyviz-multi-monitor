@@ -64,6 +64,8 @@ mod platform {
     const SELECTION_HANDLE_SIZE: i32 = 7;
     const ROTATION_HANDLE_OFFSET: i32 = 24;
 
+    include!("drawing_radial.rs");
+
     #[repr(C)]
     struct GdiplusStartupInput {
         version: u32,
@@ -244,6 +246,9 @@ mod platform {
             ready: Option<Sender<Result<(), String>>>,
         },
         SetHoverEdit(std::collections::HashMap<String, bool>),
+        ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool> },
+        ToggleRadial,
+        CancelRadial,
         SetColor(String),
         SetWidth(i32),
         Clear,
@@ -397,6 +402,10 @@ mod platform {
     }
 
     struct OverlayState {
+        radial: Option<RadialMenu>,
+        radial_tools: Vec<NativeTool>,
+        radial_gate: Arc<Mutex<RadialGate>>,
+        radial_ignore_up: bool,
         probe: Option<LayerProbe>,
         history: DrawingHistory,
         gesture_before: Option<Vec<DrawingItem>>,
@@ -598,8 +607,10 @@ mod platform {
         pub fn new(app: &AppHandle) -> Self {
             let (sender, receiver) = mpsc::channel();
             let app_handle = app.clone();
+            let radial_gate = Arc::new(Mutex::new(RadialGate::default()));
+            radial_keyboard::start(radial_gate.clone(), sender.clone());
             thread::spawn(move || {
-                if let Err(error) = run_window(receiver, app_handle) {
+                if let Err(error) = run_window(receiver, app_handle, radial_gate) {
                     record_error(format!("Native drawing overlay failed: {error}"));
                 }
             });
@@ -662,6 +673,14 @@ mod platform {
             if let Some(sender) = &self.sender {
                 let _ = sender.send(DrawingCommand::SetHoverEdit(preferences));
             }
+        }
+
+        pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>) -> Result<(), String> {
+            let shortcut = radial_shortcut(&shortcut)?;
+            let tools = tools.iter().filter_map(|id| parse_tool(id)).collect();
+            self.sender.as_ref().ok_or("Drawing input thread is unavailable")?
+                .send(DrawingCommand::ConfigureRadial { shortcut, tools })
+                .map_err(|error| error.to_string())
         }
 
         pub fn set_color(&self, color: &str) {
@@ -814,7 +833,7 @@ mod platform {
         }
     }
 
-    fn run_window(receiver: Receiver<DrawingCommand>, app: AppHandle) -> Result<(), String> {
+    fn run_window(receiver: Receiver<DrawingCommand>, app: AppHandle, radial_gate: Arc<Mutex<RadialGate>>) -> Result<(), String> {
         let class_name = wide("KeyvizNativeDrawingOverlay");
 
         unsafe {
@@ -836,6 +855,10 @@ mod platform {
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
+                    radial: None,
+                    radial_tools: RADIAL_TOOLS.to_vec(),
+                    radial_gate,
+                    radial_ignore_up: false,
                     probe: None,
                     history: DrawingHistory::default(),
                     gesture_before: None,
@@ -1129,6 +1152,12 @@ mod platform {
             return;
         };
 
+        if state.radial.is_some() && !matches!(&command,
+            DrawingCommand::ToggleRadial | DrawingCommand::CancelRadial | DrawingCommand::Raise
+            | DrawingCommand::SetToolbarPassthrough(_) | DrawingCommand::PointerMove { .. }) {
+            cancel_radial(state);
+        }
+
         if state.probe.is_some() {
             match &command {
                 DrawingCommand::Raise | DrawingCommand::Focus | DrawingCommand::PointerDown { .. }
@@ -1146,6 +1175,18 @@ mod platform {
         }
 
         match command {
+            DrawingCommand::ConfigureRadial { shortcut, tools } => {
+                state.radial_tools = tools;
+                let settings = state.app.get_webview_window("settings")
+                    .and_then(|window| window.hwnd().ok()).map(|hwnd| hwnd.0 as isize).unwrap_or(0);
+                if let Ok(mut gate) = state.radial_gate.lock() {
+                    gate.shortcut = shortcut;
+                    gate.settings = settings;
+                }
+                sync_radial_gate(state);
+            }
+            DrawingCommand::ToggleRadial => toggle_radial(state),
+            DrawingCommand::CancelRadial => cancel_radial(state),
             DrawingCommand::Probe { input, reply } => {
                 if !state.visible || state.active.is_some() || state.selection.is_some() || state.edit.is_some() {
                     let _ = reply.send(Err("Open the drawing toolbar and finish the current gesture before testing".into()));
@@ -1227,6 +1268,7 @@ mod platform {
                     destroy_retired_cursors(state);
                 }
                 state.visible = false;
+                sync_radial_gate(state);
                 state.input_hwnd = None;
                 destroy_overlay_surfaces(&mut state.surfaces);
                 emit_history(state);
@@ -1437,6 +1479,7 @@ mod platform {
                 }
             }
         }
+        sync_radial_gate(state);
     }
 
     unsafe extern "system" fn window_proc(
@@ -1476,6 +1519,12 @@ mod platform {
             }
             WM_LBUTTONDOWN => {
                 on_left_button_down(hwnd, lparam);
+                LRESULT(0)
+            }
+            windows::Win32::UI::WindowsAndMessaging::WM_RBUTTONDOWN => {
+                if let Ok(mut guard) = overlay_state().lock() {
+                    if let Some(state) = guard.as_mut() { cancel_radial(state); }
+                }
                 LRESULT(0)
             }
             WM_MOUSEMOVE => {
@@ -1545,6 +1594,8 @@ mod platform {
     }
 
     unsafe fn begin_drawing_at(state: &mut OverlayState, point: Point, capture_hwnd: Option<HWND>) {
+        if radial_click(state, point) { return; }
+        state.radial_ignore_up = false;
         if !state.visible
             || matches!(state.tool, NativeTool::Pointer)
             || is_toolbar_passthrough_point(state, point, false)
@@ -1679,6 +1730,14 @@ mod platform {
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
             return;
         };
+        if let Some(menu) = state.radial.as_mut() {
+            let hovered = menu.hit(point);
+            if hovered != menu.hovered {
+                menu.hovered = hovered;
+                refresh_overlay(state);
+            }
+            return;
+        }
         if state.active.is_none() && state.selection.is_none() {
             if (wparam.0 & MK_LBUTTON_MASK) == 0 && update_hover_selection(state, point) {
                 refresh_overlay(state);
@@ -1722,6 +1781,10 @@ mod platform {
         if !is_surface_hwnd(state, hwnd) {
             return;
         }
+        if state.radial.is_some() || state.radial_ignore_up {
+            state.radial_ignore_up = false;
+            return;
+        }
         let point = virtual_point_from_client(state, hwnd, lparam_point(_lparam))
             .unwrap_or_else(|| lparam_point(_lparam));
         finish_drawing_at(state, point);
@@ -1751,6 +1814,7 @@ mod platform {
                 if points.len() < 2 {
                     state.gesture_before = None;
                     ReleaseCapture();
+                    sync_radial_gate(state);
                     return;
                 }
                 DrawingItem::Stroke {
@@ -1793,6 +1857,7 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
+        if state.radial.is_some() { return; }
         if !is_surface_hwnd(state, hwnd) || !state.visible {
             return;
         }
@@ -2075,6 +2140,7 @@ mod platform {
     }
 
     unsafe fn refresh_overlay(state: &mut OverlayState) {
+        sync_radial_gate(state);
         if !state.visible || state.surfaces.is_empty() || state.probe.is_some() {
             return;
         }
@@ -2163,6 +2229,7 @@ mod platform {
                 0.0,
             );
         }
+        if let Some(menu) = &state.radial { draw_radial(drawing_dc, menu, &state.radial_tools); }
         SetViewportOrgEx(drawing_dc, old_origin.x, old_origin.y, None);
 
         if !GdiFlush().as_bool() {
@@ -4320,7 +4387,11 @@ mod platform {
         if !is_surface_hwnd(state, hwnd) || !state.visible || state.cursor.0 == 0 {
             return false;
         }
-        SetCursor(state.cursor);
+        if state.radial.is_some() {
+            SetCursor(LoadCursorW(None, IDC_ARROW).unwrap_or_default());
+        } else {
+            SetCursor(state.cursor);
+        }
         true
     }
 
@@ -4987,6 +5058,7 @@ mod platform_stub {
         pub fn hide(&self) {}
         pub fn set_tool(&self, _tool: NativeTool) {}
         pub fn prepare_for_settings(&self) -> Result<(), String> { Ok(()) }
+        pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>) -> Result<(), String> { Ok(()) }
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}

@@ -547,6 +547,13 @@ fn set_drawing_hover_edit(app: AppHandle, preferences: std::collections::HashMap
 }
 
 #[tauri::command]
+fn set_drawing_radial_menu(app: AppHandle, shortcut: Vec<String>, tools: Vec<String>) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().map_err(|error| error.to_string())?;
+    state.drawing_overlay.configure_radial(shortcut, tools)
+}
+
+#[tauri::command]
 fn set_drawing_toolbar_side(app: AppHandle, side: String) -> Result<(), String> {
     let normalized_side = if side == "left" { "left" } else { "right" }.to_string();
     let drawing_visible = {
@@ -938,6 +945,7 @@ pub fn run() {
             get_key_display_enabled,
             toggle_key_display,
             open_settings_window,
+            set_drawing_radial_menu,
             set_drawing_toolbar_side,
             set_drawing_hover_edit,
             close_screen_drawing,
