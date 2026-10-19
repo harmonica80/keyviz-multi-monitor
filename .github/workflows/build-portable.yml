@@ -33,7 +33,7 @@ jobs:
 
       - name: Test native object editing
         env:
-          KEYVIZ_RADIAL_PREVIEW: release/radial-menu-preview.bmp
+          KEYVIZ_RADIAL_PREVIEW: ${{ github.workspace }}/release/radial-menu-preview.bmp
         run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib hover_tests
 
       - name: Prepare portable artifact
