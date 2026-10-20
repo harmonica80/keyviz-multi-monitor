@@ -5,6 +5,8 @@ export type Locale = "en" | "zh-TW";
 
 const zhTW: Record<string, string> = {
   "Circular Tool Menu Shortcut": "圓形工具選單快捷鍵",
+  "Right-click to Open Circular Menu": "滑鼠右鍵開啟圓形選單",
+  "While using a drawing tool, right-click the canvas to open the menu; right-click again to cancel. Pointer mode, text entry and toolbar context menus are unchanged. The keyboard shortcut remains available.": "使用繪圖工具時，在畫布按右鍵開啟選單；再按右鍵取消。游標模式、文字輸入與工具列的右鍵選單不變，鍵盤快捷鍵仍可使用。",
   "Press Q while drawing to open the two-ring icon menu beside the mouse. Click a tool to switch; press Esc or right-click to cancel. In pointer mode, settings or text entry, this shortcut is inactive.": "使用繪圖工具時，按快捷鍵在滑鼠旁開啟雙圈圖示選單。點選工具即可切換；按 Esc 或滑鼠右鍵取消。在游標模式、設定視窗或文字輸入時不啟用。",
   "Default: Q. Click to record a new shortcut; Backspace or Delete disables it. Hidden tools leave empty sectors to keep positions stable.": "預設為 Q。點選後按下新快捷鍵；按 Backspace 或 Delete 可停用。隱藏工具會保留空格，避免其他工具位置改變。",
   "Disabled (click to set)": "已停用（點選可設定）",

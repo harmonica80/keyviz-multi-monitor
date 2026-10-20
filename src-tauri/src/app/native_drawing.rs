@@ -246,7 +246,7 @@ mod platform {
             ready: Option<Sender<Result<(), String>>>,
         },
         SetHoverEdit(std::collections::HashMap<String, bool>),
-        ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool> },
+        ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool },
         ToggleRadial,
         CancelRadial,
         SetColor(String),
@@ -404,6 +404,7 @@ mod platform {
     struct OverlayState {
         radial: Option<RadialMenu>,
         radial_tools: Vec<NativeTool>,
+        radial_right_click: bool,
         radial_gate: Arc<Mutex<RadialGate>>,
         radial_ignore_up: bool,
         probe: Option<LayerProbe>,
@@ -675,11 +676,17 @@ mod platform {
             }
         }
 
-        pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>) -> Result<(), String> {
+        pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>, right_click: bool) -> Result<(), String> {
             let shortcut = radial_shortcut(&shortcut)?;
             let tools = tools.iter().filter_map(|id| parse_tool(id)).collect();
             self.sender.as_ref().ok_or("Drawing input thread is unavailable")?
-                .send(DrawingCommand::ConfigureRadial { shortcut, tools })
+                .send(DrawingCommand::ConfigureRadial { shortcut, tools, right_click })
+                .map_err(|error| error.to_string())
+        }
+
+        pub fn radial_menu_action(&self, cancel: bool) -> Result<(), String> {
+            self.sender.as_ref().ok_or("Drawing input thread is unavailable")?
+                .send(if cancel { DrawingCommand::CancelRadial } else { DrawingCommand::ToggleRadial })
                 .map_err(|error| error.to_string())
         }
 
@@ -857,6 +864,7 @@ mod platform {
                 *state = Some(OverlayState {
                     radial: None,
                     radial_tools: RADIAL_TOOLS.to_vec(),
+                    radial_right_click: true,
                     radial_gate,
                     radial_ignore_up: false,
                     probe: None,
@@ -1175,8 +1183,9 @@ mod platform {
         }
 
         match command {
-            DrawingCommand::ConfigureRadial { shortcut, tools } => {
+            DrawingCommand::ConfigureRadial { shortcut, tools, right_click } => {
                 state.radial_tools = tools;
+                state.radial_right_click = right_click;
                 let settings = state.app.get_webview_window("settings")
                     .and_then(|window| window.hwnd().ok()).map(|hwnd| hwnd.0 as isize).unwrap_or(0);
                 if let Ok(mut gate) = state.radial_gate.lock() {
@@ -1186,7 +1195,12 @@ mod platform {
                 sync_radial_gate(state);
             }
             DrawingCommand::ToggleRadial => toggle_radial(state),
-            DrawingCommand::CancelRadial => cancel_radial(state),
+            DrawingCommand::CancelRadial => {
+                if state.radial.is_some() {
+                    RADIAL_ESCAPE_UNTIL.store(radial_clock() + 150, Ordering::Relaxed);
+                    cancel_radial(state);
+                }
+            }
             DrawingCommand::Probe { input, reply } => {
                 if !state.visible || state.active.is_some() || state.selection.is_some() || state.edit.is_some() {
                     let _ = reply.send(Err("Open the drawing toolbar and finish the current gesture before testing".into()));
@@ -1523,7 +1537,15 @@ mod platform {
             }
             windows::Win32::UI::WindowsAndMessaging::WM_RBUTTONDOWN => {
                 if let Ok(mut guard) = overlay_state().lock() {
-                    if let Some(state) = guard.as_mut() { cancel_radial(state); }
+                    if let Some(state) = guard.as_mut() {
+                        if is_surface_hwnd(state, hwnd) {
+                            if let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) {
+                                if !is_toolbar_passthrough_point(state, point, false) {
+                                    radial_right_click(state);
+                                }
+                            }
+                        }
+                    }
                 }
                 LRESULT(0)
             }
@@ -5065,7 +5087,8 @@ mod platform_stub {
         pub fn hide(&self) {}
         pub fn set_tool(&self, _tool: NativeTool) {}
         pub fn prepare_for_settings(&self) -> Result<(), String> { Ok(()) }
-        pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>) -> Result<(), String> { Ok(()) }
+        pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>, _right_click: bool) -> Result<(), String> { Ok(()) }
+        pub fn radial_menu_action(&self, _cancel: bool) -> Result<(), String> { Ok(()) }
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}

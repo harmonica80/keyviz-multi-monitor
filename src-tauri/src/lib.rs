@@ -547,10 +547,21 @@ fn set_drawing_hover_edit(app: AppHandle, preferences: std::collections::HashMap
 }
 
 #[tauri::command]
-fn set_drawing_radial_menu(app: AppHandle, shortcut: Vec<String>, tools: Vec<String>) -> Result<(), String> {
+fn set_drawing_radial_menu(app: AppHandle, shortcut: Vec<String>, tools: Vec<String>, right_click: bool) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let state = state.lock().map_err(|error| error.to_string())?;
-    state.drawing_overlay.configure_radial(shortcut, tools)
+    state.drawing_overlay.configure_radial(shortcut, tools, right_click)
+}
+
+#[tauri::command]
+fn drawing_radial_menu_action(app: AppHandle, window: tauri::WebviewWindow, cancel: bool) -> Result<(), String> {
+    if window.label() != "drawing-toolbar" {
+        return Err("Radial menu input is only accepted from the drawing toolbar".into());
+    }
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().map_err(|error| error.to_string())?;
+    if !state.drawing_visible || state.drawing_tool == "pointer" { return Ok(()); }
+    state.drawing_overlay.radial_menu_action(cancel)
 }
 
 #[tauri::command]
@@ -946,6 +957,7 @@ pub fn run() {
             toggle_key_display,
             open_settings_window,
             set_drawing_radial_menu,
+            drawing_radial_menu_action,
             set_drawing_toolbar_side,
             set_drawing_hover_edit,
             close_screen_drawing,

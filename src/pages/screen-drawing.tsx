@@ -1,6 +1,7 @@
 import { useTranslation } from "@/lib/i18n";
 import { useOverlayProbe } from "@/lib/overlay-probe";
 import { keymaps } from "@/lib/keymaps";
+import { radialToolbarKeyAction } from "@/lib/radial-shortcut";
 import {
   DRAWING_TOOL_BY_ID,
   type DrawingTool,
@@ -247,13 +248,29 @@ export default function ScreenDrawing() {
   const toolbarItems = useDrawingToolbar((state) => state.items);
   const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
   const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
+  const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
   useEffect(() => {
     if (!isToolbar) return;
     void invoke("set_drawing_radial_menu", {
       shortcut: radialShortcut,
+      rightClick: radialRightClick,
       tools: toolbarItems.filter((item) => item.visible).map((item) => item.id),
     }).catch(console.error);
-  }, [isToolbar, radialShortcut, toolbarItems]);
+  }, [isToolbar, radialShortcut, radialRightClick, toolbarItems]);
+  useEffect(() => {
+    if (!isToolbar) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest("textarea, input:not([type='range']), [contenteditable='true']")) return;
+      const action = radialToolbarKeyAction(event, radialShortcut, tool === "pointer");
+      if (!action) return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Suppress browser button/slider defaults even on auto-repeat.
+      if (!event.repeat) void invoke("drawing_radial_menu_action", { cancel: action === "cancel" }).catch(console.error);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isToolbar, radialShortcut, tool]);
   useEffect(() => {
     void invoke("set_drawing_hover_edit", { preferences: hoverEdit }).catch(console.error);
   }, [hoverEdit]);

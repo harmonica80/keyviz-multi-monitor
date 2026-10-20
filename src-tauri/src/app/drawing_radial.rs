@@ -302,6 +302,40 @@ fn radial_available(visible: bool, click_through: bool, editing: bool, probing: 
     visible && !click_through && !editing && !probing
 }
 
+fn radial_right_action(
+    open: bool,
+    enabled: bool,
+    available: bool,
+    left_down: bool,
+) -> Option<RadialKeyAction> {
+    if open {
+        Some(RadialKeyAction::Cancel)
+    } else if enabled && available && !left_down {
+        Some(RadialKeyAction::Toggle)
+    } else {
+        None
+    }
+}
+
+unsafe fn radial_right_click(state: &mut OverlayState) {
+    let action = radial_right_action(
+        state.radial.is_some(),
+        state.radial_right_click,
+        radial_available(
+            state.visible,
+            state.click_through,
+            state.edit.is_some(),
+            state.probe.is_some(),
+        ),
+        GetAsyncKeyState(1) < 0,
+    );
+    match action {
+        Some(RadialKeyAction::Toggle) => toggle_radial(state),
+        Some(RadialKeyAction::Cancel) => cancel_radial(state),
+        None => {}
+    }
+}
+
 fn sync_radial_gate(state: &OverlayState) {
     if let Ok(mut gate) = state.radial_gate.lock() {
         // Mouse-button state blocks live gestures. A missed mouse-up must not
@@ -813,5 +847,56 @@ mod radial_hover_tests {
         assert!(!radial_available(true, false, true, false));
         assert!(!radial_available(true, false, false, true));
         assert_eq!(RADIAL_RADIUS * 2.0, 156.0);
+    }
+
+    #[test]
+    fn right_click_opens_cancels_and_respects_preference_and_mode() {
+        assert_eq!(
+            radial_right_action(false, true, true, false),
+            Some(RadialKeyAction::Toggle)
+        );
+        assert_eq!(
+            radial_right_action(true, true, true, false),
+            Some(RadialKeyAction::Cancel)
+        );
+        // Cancelling an existing menu stays possible even if opening is disabled.
+        assert_eq!(
+            radial_right_action(true, false, true, false),
+            Some(RadialKeyAction::Cancel)
+        );
+        assert_eq!(radial_right_action(false, false, true, false), None);
+        assert_eq!(radial_right_action(false, true, false, false), None);
+        assert_eq!(radial_right_action(false, true, true, true), None);
+    }
+
+    #[test]
+    fn toolbar_shortcut_queues_without_requiring_a_canvas_click() {
+        let (sender, receiver) = mpsc::channel();
+        let overlay = NativeDrawingOverlay {
+            sender: Some(sender),
+        };
+        overlay.radial_menu_action(false).unwrap();
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            DrawingCommand::ToggleRadial
+        ));
+        overlay.radial_menu_action(true).unwrap();
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            DrawingCommand::CancelRadial
+        ));
+        overlay
+            .configure_radial(vec!["KeyQ".into()], vec!["pen".into()], false)
+            .unwrap();
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            DrawingCommand::ConfigureRadial {
+                right_click: false,
+                ..
+            }
+        ));
+        assert!(NativeDrawingOverlay { sender: None }
+            .radial_menu_action(false)
+            .is_err());
     }
 }

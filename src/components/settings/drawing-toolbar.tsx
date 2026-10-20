@@ -49,6 +49,8 @@ export const DrawingToolbarSettings = () => {
   const resetToolbar = useDrawingToolbar((state) => state.resetToolbar);
   const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
   const setRadialShortcut = useDrawingToolbar((state) => state.setRadialShortcut);
+  const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
+  const setRadialRightClick = useDrawingToolbar((state) => state.setRadialRightClick);
   const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
@@ -125,6 +127,11 @@ export const DrawingToolbarSettings = () => {
           }} placeholder={t("Disabled (click to set)")} />
           <ItemDescription>{t("Default: Q. Click to record a new shortcut; Backspace or Delete disables it. Hidden tools leave empty sectors to keep positions stable.")}</ItemDescription>
           {shortcutError && <p role="alert" className="text-sm text-destructive">{t(shortcutError)}</p>}
+          <label className="mt-3 flex items-center justify-between gap-3 rounded-lg border p-3">
+            <span>{t("Right-click to Open Circular Menu")}</span>
+            <Switch checked={radialRightClick} onCheckedChange={setRadialRightClick} aria-label={t("Right-click to Open Circular Menu")} />
+          </label>
+          <ItemDescription>{t("While using a drawing tool, right-click the canvas to open the menu; right-click again to cancel. Pointer mode, text entry and toolbar context menus are unchanged. The keyboard shortcut remains available.")}</ItemDescription>
         </ItemContent>
       </Item>
 
