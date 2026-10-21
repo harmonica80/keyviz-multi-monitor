@@ -178,9 +178,10 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 }
                 if !cfg!(target_os = "windows")
                     && drawing_visible
+                    && app_state.drawing_tool != "pointer"
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_undo_shortcut)
                 {
-                    app_state.drawing_overlay.undo();
+                    app_state.drawing_overlay.history_shortcut(false);
                     return;
                 }
                 if !cfg!(target_os = "windows")
@@ -484,8 +485,8 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
             if undo_down && !undo_was_down && !redo_down {
                 let state = app_handle.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
-                    if app_state.drawing_visible {
-                        app_state.drawing_overlay.undo();
+                    if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
+                        app_state.drawing_overlay.history_shortcut(false);
                         app_state.pressed_keys.clear();
                     }
                 };
@@ -494,8 +495,8 @@ fn start_drawing_shortcut_poller(app_handle: AppHandle) {
             if redo_down && !redo_was_down {
                 let state = app_handle.state::<Mutex<AppState>>();
                 if let Ok(mut app_state) = state.lock() {
-                    if app_state.drawing_visible {
-                        app_state.drawing_overlay.redo();
+                    if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
+                        app_state.drawing_overlay.history_shortcut(true);
                         app_state.pressed_keys.clear();
                     }
                 };

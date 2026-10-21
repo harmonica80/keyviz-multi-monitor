@@ -254,6 +254,7 @@ mod platform {
         Clear,
         Undo,
         Redo,
+        HistoryShortcut { redo: bool },
         Recover,
         Probe { input: bool, reply: Sender<Result<(), String>> },
         ToggleGroup,
@@ -479,6 +480,15 @@ mod platform {
 
     fn drawing_delete_allowed(visible: bool, tool: NativeTool, editing_text: bool) -> bool {
         visible && tool != NativeTool::Pointer && !editing_text
+    }
+
+    fn history_shortcut_allowed(
+        visible: bool,
+        tool: NativeTool,
+        editing_text: bool,
+        settings_focused: bool,
+    ) -> bool {
+        visible && !matches!(tool, NativeTool::Pointer) && !editing_text && !settings_focused
     }
 
     fn record_change(state: &mut OverlayState, before: Vec<DrawingItem>) {
@@ -720,6 +730,12 @@ mod platform {
 
         pub fn redo(&self) {
             if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::Redo); }
+        }
+
+        pub fn history_shortcut(&self, redo: bool) {
+            if let Some(sender) = &self.sender {
+                let _ = sender.send(DrawingCommand::HistoryShortcut { redo });
+            }
         }
 
         pub fn recover(&self) {
@@ -1160,6 +1176,27 @@ mod platform {
             return;
         };
 
+        // Recheck queued shortcuts before changing any native drawing state.
+        // Explicit toolbar Undo/Redo commands remain available in pointer mode.
+        if matches!(&command, DrawingCommand::HistoryShortcut { .. }) {
+            use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GA_ROOTOWNER};
+            let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
+            let settings_focused = state
+                .app
+                .get_webview_window("settings")
+                .and_then(|window| window.hwnd().ok())
+                .map(|hwnd| hwnd.0 as isize == foreground.0)
+                .unwrap_or(false);
+            if !history_shortcut_allowed(
+                state.visible,
+                state.tool,
+                state.edit.is_some(),
+                settings_focused,
+            ) {
+                return;
+            }
+        }
+
         if state.radial.is_some() && !matches!(&command,
             DrawingCommand::ToggleRadial | DrawingCommand::CancelRadial | DrawingCommand::Raise
             | DrawingCommand::SetToolbarPassthrough(_) | DrawingCommand::PointerMove { .. }) {
@@ -1357,14 +1394,18 @@ mod platform {
                 emit_selection_state(state);
                 refresh_overlay(state);
             }
-            DrawingCommand::Undo | DrawingCommand::Redo => {
+            DrawingCommand::Undo | DrawingCommand::Redo | DrawingCommand::HistoryShortcut { .. } => {
                 if state.edit.is_none() {
                     finish_gesture_history(state);
                     ReleaseCapture();
                     state.active = None;
                     state.selected.clear();
                     state.selection = None;
-                    state.history.restore(&mut state.drawings, matches!(command, DrawingCommand::Redo));
+                    let redo = matches!(
+                        command,
+                        DrawingCommand::Redo | DrawingCommand::HistoryShortcut { redo: true }
+                    );
+                    state.history.restore(&mut state.drawings, redo);
                     sync_next_number(state);
                     state.next_group_id = state.drawings.iter().filter_map(drawing_group).max().unwrap_or(0).saturating_add(1);
                     if matches!(state.tool, NativeTool::Number) {
@@ -4765,6 +4806,41 @@ mod platform {
         use super::*;
 
         #[test]
+        fn history_shortcuts_only_apply_to_drawing_tools() {
+            assert!(!history_shortcut_allowed(
+                true, NativeTool::Pointer, false, false,
+            ));
+            for tool in [
+                NativeTool::Pen, NativeTool::Select, NativeTool::Eraser,
+                NativeTool::Line, NativeTool::Arrow, NativeTool::Rectangle, NativeTool::Ellipse,
+                NativeTool::Text, NativeTool::Number, NativeTool::CheckMark, NativeTool::CrossMark,
+            ] {
+                assert!(history_shortcut_allowed(true, tool, false, false));
+                assert!(!history_shortcut_allowed(false, tool, false, false));
+                assert!(!history_shortcut_allowed(true, tool, true, false));
+                assert!(!history_shortcut_allowed(true, tool, false, true));
+            }
+        }
+
+        #[test]
+        fn history_buttons_and_shortcuts_use_separate_commands() {
+            let (sender, receiver) = mpsc::channel();
+            let overlay = NativeDrawingOverlay { sender: Some(sender) };
+            overlay.undo();
+            overlay.redo();
+            overlay.history_shortcut(false);
+            overlay.history_shortcut(true);
+            assert!(matches!(receiver.try_recv().unwrap(), DrawingCommand::Undo));
+            assert!(matches!(receiver.try_recv().unwrap(), DrawingCommand::Redo));
+            assert!(matches!(
+                receiver.try_recv().unwrap(), DrawingCommand::HistoryShortcut { redo: false }
+            ));
+            assert!(matches!(
+                receiver.try_recv().unwrap(), DrawingCommand::HistoryShortcut { redo: true }
+            ));
+        }
+
+        #[test]
         fn settings_waits_for_native_pointer_transition() {
             let (sender, receiver) = mpsc::channel();
             let overlay = NativeDrawingOverlay { sender: Some(sender) };
@@ -5094,6 +5170,7 @@ mod platform_stub {
         pub fn set_width(&self, _width: i32) {}
         pub fn clear(&self) {}
         pub fn undo(&self) {}
+        pub fn history_shortcut(&self, _redo: bool) {}
         pub fn redo(&self) {}
         pub fn recover(&self) {}
         pub fn probe_layer(&self, _input: bool) -> Result<(), String> {
