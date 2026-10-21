@@ -10,12 +10,12 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 上方連結下載的是最新正式 Release，**不一定包含尚在測試的新功能**。
 
-雙圈圓形工具選單與右鍵操作目前提供於 **v1.0.14 測試版**：
+目前提供 **v1.0.15 測試版**，包含雙圈圓形工具選單、右鍵操作，以及游標模式下不再誤觸發繪圖復原／重做的修正：
 
-- [v1.0.14 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/39349157519)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.14`。Artifacts 有保存期限，並非永久的正式版下載位置。
-- [v1.0.14 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.14.md)
+- [v1.0.15 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/39631060143)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.15`。Artifacts 有保存期限，並非永久的正式版下載位置。
+- [v1.0.15 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.15.md)
 
-The download above is the latest stable Release, not necessarily the newest test build. The circular menu and right-click workflow described below are available in the **v1.0.14 test build** linked above. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
+The download above is the latest stable Release, not necessarily the newest test build. The **v1.0.15 test build** linked above includes the circular menu, right-click workflow, and the pointer-mode undo/redo shortcut fix. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
 
 ## 功能介紹
 
@@ -46,7 +46,14 @@ The download above is the latest stable Release, not necessarily the newest test
 - 工具列與關於頁提供「恢復透明顯示層」，重新建立繪圖及游標醒目視窗並保留標註。
 - 「設定 → 關於 → 匯出診斷資料」可匯出螢幕、繪圖狀態、視窗、滑鼠 hook 與近期錯誤資訊，協助排查教室電腦的顯示問題。
 
-## 雙圈圓形工具選單（v1.0.14 測試版）
+## 復原快捷鍵模式限制（v1.0.15 測試版）
+
+- 游標工具：Ctrl+Z 與 Ctrl+Shift+Z 由目前應用程式處理，不改變螢幕繪圖。
+- 繪圖工具：快捷鍵仍可復原／重做繪圖；設定視窗在前景或正在輸入文字標註時不觸發。
+- 工具列上的復原／重做按鈕仍可在游標模式使用；自訂復原快捷鍵也遵循上述限制。
+- [v1.0.15 操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.15.md)
+
+## 雙圈圓形工具選單（v1.0.14 起的測試版）
 
 使用繪圖工具時，無須記住每個工具的快捷鍵，也不用把滑鼠移回工具列：
 
@@ -97,7 +104,11 @@ This list describes the current development/test build. See each stable Release'
 - Undo/redo covers drawing and object edits; redo uses `Ctrl + Shift + Z`. Hold `Alt` to bypass hover editing temporarily.
 - Restore transparent overlays without discarding annotations, and export diagnostic JSON from Settings > About.
 
-### Two-Ring Circular Menu (v1.0.14 Test Build)
+### Undo/Redo Shortcut Scope (v1.0.15 Test Build)
+
+Since v1.0.15, undo/redo keyboard shortcuts only edit drawings with a drawing tool selected. Pointer mode leaves these keys to the current application. Foreground settings and active text annotation entry do not trigger drawing history shortcuts. Explicit toolbar undo/redo buttons still work in pointer mode.
+
+### Two-Ring Circular Menu (Test Builds Since v1.0.14)
 
 - Press the configurable shortcut (default `Q`) or right-click the drawing canvas to open a compact icon menu near the pointer. Q also works immediately after clicking a toolbar tool, without first clicking the canvas.
 - Click an icon to select a tool. Press the shortcut again, Esc, or the right mouse button, or click the center/outside area to dismiss the menu without drawing.
