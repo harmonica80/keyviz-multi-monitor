@@ -10,12 +10,12 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 上方連結下載的是最新正式 Release，**不一定包含尚在測試的新功能**。
 
-雙圈圓形工具選單與右鍵操作目前提供於 **v1.0.14 測試版**：
+目前提供 **v1.0.15 測試版**，包含雙圈圓形工具選單、右鍵操作，以及游標模式下不再誤觸發繪圖復原／重做的修正：
 
-- [v1.0.14 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/39349157519)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.14`。Artifacts 有保存期限，並非永久的正式版下載位置。
-- [v1.0.14 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.14.md)
+- [v1.0.15 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/39631060143)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.15`。Artifacts 有保存期限，並非永久的正式版下載位置。
+- [v1.0.15 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.15.md)
 
-The download above is the latest stable Release, not necessarily the newest test build. The circular menu and right-click workflow described below are available in the **v1.0.14 test build** linked above. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
+The download above is the latest stable Release, not necessarily the newest test build. The **v1.0.15 test build** linked above includes the circular menu, right-click workflow, and the pointer-mode undo/redo shortcut fix. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
 
 ## 功能介紹
 
