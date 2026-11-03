@@ -342,6 +342,9 @@ mod platform {
     }
 
     struct EditSession {
+        caret: usize,
+        anchor: usize,
+        dragging: bool,
         target: Option<usize>,
         rotation: f64,
         start: Point,
@@ -1402,17 +1405,29 @@ mod platform {
             }
             DrawingCommand::SetColor(color) => {
                 state.color = parse_color(&color);
+                if let Some(edit) = state.edit.as_mut() { edit.color = state.color; }
+                else if !state.selected.is_empty() {
+                    let before = state.drawings.clone();
+                    for index in &state.selected {
+                        if let Some(DrawingItem::Text { color, .. }) = state.drawings.get_mut(*index) {
+                            *color = state.color;
+                        }
+                    }
+                    record_change(state, before);
+                }
                 if matches!(
                     state.tool,
                     NativeTool::Number | NativeTool::CheckMark | NativeTool::CrossMark
                 ) {
                     replace_tool_cursor(state, false);
                 }
+                refresh_overlay(state);
             }
             DrawingCommand::SetWidth(width) => {
                 let width = width.clamp(1, 15);
                 state.width = width;
                 remember_tool_width(state);
+                if let Some(edit) = state.edit.as_mut() { edit.width = width; }
                 if matches!(
                     state.tool,
                     NativeTool::Eraser
@@ -1736,6 +1751,16 @@ mod platform {
             return;
         }
         state.input_epoch = state.input_epoch.wrapping_add(1);
+        if let Some(edit) = state.edit.as_mut() {
+            if text_edit_hit(edit, point) {
+                edit.caret = text_edit_index(edit, point);
+                edit.anchor = edit.caret;
+                edit.dragging = true;
+                if let Some(hwnd) = capture_hwnd { SetCapture(hwnd); let _ = SetFocus(hwnd); }
+                refresh_overlay(state);
+                return;
+            }
+        }
         if let Some(hwnd) = capture_hwnd {
             state.input_hwnd = Some(hwnd);
         }
@@ -1864,6 +1889,12 @@ mod platform {
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
             return;
         };
+        if let Some(edit) = state.edit.as_mut().filter(|edit| edit.dragging) {
+            edit.caret = text_edit_index(edit, point);
+            if (wparam.0 & MK_LBUTTON_MASK) == 0 { edit.dragging = false; ReleaseCapture(); }
+            refresh_overlay(state);
+            return;
+        }
         if let Some(menu) = state.radial.as_mut() {
             let hovered = menu.hit(point);
             if hovered != menu.hovered {
@@ -1926,6 +1957,12 @@ mod platform {
 
     unsafe fn finish_drawing_at(state: &mut OverlayState, _point: Point) {
         ReleaseCapture();
+        if let Some(edit) = state.edit.as_mut().filter(|edit| edit.dragging) {
+            edit.caret = text_edit_index(edit, _point);
+            edit.dragging = false;
+            refresh_overlay(state);
+            return;
+        }
         if state.selection.is_some() {
             finish_selection(state);
             finish_gesture_history(state);
@@ -2126,13 +2163,21 @@ mod platform {
         // Preserve system-key handling when an Alt shortcut was not consumed.
         if lparam.0 & (1 << 29) != 0 { return false; }
 
+        if let Some(edit) = state.edit.as_mut() {
+            use windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState;
+            if edit_key(edit, wparam.0 as u32, GetKeyState(0x10) < 0, GetKeyState(0x11) < 0) {
+                refresh_overlay(state);
+                return true;
+            }
+        }
+
         match wparam.0 as u32 {
             code if code == VK_RETURN.0 as u32 && state.edit.is_some() => {
                 commit_text_editor(state);
             }
             code if code == VK_BACK.0 as u32 && state.edit.is_some() => {
                 if let Some(edit) = state.edit.as_mut() {
-                    edit.text.pop();
+                    edit_key(edit, 8, false, false);
                 }
                 refresh_overlay(state);
             }
@@ -2185,7 +2230,7 @@ mod platform {
         }
         if let Some(ch) = char::from_u32(wparam.0 as u32) {
             if !ch.is_control() {
-                edit.text.push(ch);
+                replace_edit_selection(edit, &ch.to_string());
                 refresh_overlay(state);
             }
         }
@@ -2372,18 +2417,14 @@ mod platform {
             draw_active(drawing_dc, active);
         }
         if let Some(edit) = state.edit.as_ref() {
-            let preview = if edit.text.is_empty() {
-                "|".to_string()
-            } else {
-                format!("{}|", edit.text)
-            };
+            draw_edit_selection(drawing_dc, edit);
             draw_text(
                 drawing_dc,
                 Point {
                     x: edit.start.x + TEXT_PADDING,
                     y: edit.start.y + TEXT_PADDING,
                 },
-                &preview,
+                &edit.text,
                 edit.color,
                 edit.width,
                 edit.rotation,
@@ -4235,18 +4276,122 @@ mod platform {
         if matches!(tool, NativeTool::Text) { 8 } else { 5 }
     }
 
+    fn replace_edit_selection(edit: &mut EditSession, text: &str) {
+        let start = edit.anchor.min(edit.caret);
+        let end = edit.anchor.max(edit.caret);
+        edit.text.replace_range(start..end, text);
+        edit.caret = start + text.len();
+        edit.anchor = edit.caret;
+    }
+
+    fn edit_key(edit: &mut EditSession, key: u32, shift: bool, ctrl: bool) -> bool {
+        let previous = edit.text[..edit.caret].char_indices().last().map(|(i, _)| i).unwrap_or(0);
+        let next = edit.text[edit.caret..].chars().next().map(|ch| edit.caret + ch.len_utf8()).unwrap_or(edit.caret);
+        match key {
+            0x41 if ctrl => { edit.anchor = 0; edit.caret = edit.text.len(); }
+            0x25 | 0x27 | 0x24 | 0x23 => {
+                edit.caret = match key {
+                    0x24 => 0,
+                    0x23 => edit.text.len(),
+                    0x25 if !shift && edit.anchor != edit.caret => edit.anchor.min(edit.caret),
+                    0x27 if !shift && edit.anchor != edit.caret => edit.anchor.max(edit.caret),
+                    0x25 => previous,
+                    _ => next,
+                };
+                if !shift { edit.anchor = edit.caret; }
+            }
+            8 | 0x2e => {
+                if edit.anchor == edit.caret { edit.anchor = if key == 8 { previous } else { next }; }
+                replace_edit_selection(edit, "");
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    unsafe fn edit_positions(edit: &EditSession) -> Vec<(usize, i32)> {
+        let dc = GetDC(HWND(0));
+        let font = CreateFontW(-text_font_size(edit.width), 0, 0, 0, 400,
+            0, 0, 0, 0, 0, 0, NON_ANTIALIASED_FONT_QUALITY, 0,
+            PCWSTR(wide("Microsoft JhengHei").as_ptr()));
+        let old = SelectObject(dc, font);
+        let mut positions = vec![(0, 0)];
+        for (index, ch) in edit.text.char_indices() {
+            let end = index + ch.len_utf8();
+            let text: Vec<u16> = edit.text[..end].encode_utf16().collect();
+            let mut size = SIZE::default();
+            let _ = GetTextExtentPoint32W(dc, &text, &mut size);
+            positions.push((end, size.cx));
+        }
+        SelectObject(dc, old);
+        DeleteObject(font);
+        ReleaseDC(HWND(0), dc);
+        positions
+    }
+
+    fn edit_origin(edit: &EditSession) -> Point {
+        Point { x: edit.start.x + TEXT_PADDING, y: edit.start.y + TEXT_PADDING }
+    }
+
+    unsafe fn text_edit_index(edit: &EditSession, point: Point) -> usize {
+        let origin = edit_origin(edit);
+        let local = rotate_point(point, origin, -edit.rotation);
+        edit_positions(edit).into_iter().min_by_key(|(_, x)| (local.x - origin.x - x).abs())
+            .map(|(index, _)| index).unwrap_or(0)
+    }
+
+    unsafe fn text_edit_hit(edit: &EditSession, point: Point) -> bool {
+        let origin = edit_origin(edit);
+        let local = rotate_point(point, origin, -edit.rotation);
+        let width = edit_positions(edit).last().map(|(_, x)| *x).unwrap_or(0);
+        local.x >= origin.x - TEXT_PADDING && local.x <= origin.x + width + TEXT_PADDING
+            && local.y >= origin.y - TEXT_PADDING
+            && local.y <= origin.y + text_font_size(edit.width) + TEXT_PADDING
+    }
+
+    unsafe fn draw_edit_selection(dc: HDC, edit: &EditSession) {
+        let positions = edit_positions(edit);
+        let x = |index| positions.iter().find(|(i, _)| *i == index).map(|(_, x)| *x).unwrap_or(0);
+        let origin = edit_origin(edit);
+        let point = |x, y| rotate_point(Point { x: origin.x + x, y: origin.y + y }, origin, edit.rotation);
+        let height = text_font_size(edit.width);
+        if edit.anchor != edit.caret {
+            let left = x(edit.anchor.min(edit.caret));
+            let right = x(edit.anchor.max(edit.caret));
+            let points = [point(left, 0), point(right, 0), point(right, height), point(left, height)]
+                .map(|p| WinPoint { x: p.x, y: p.y });
+            let brush = CreateSolidBrush(COLORREF(0x00ff_d6ad));
+            let old_brush = SelectObject(dc, brush);
+            let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+            let _ = Polygon(dc, &points);
+            SelectObject(dc, old_pen);
+            SelectObject(dc, old_brush);
+            DeleteObject(brush);
+        }
+        let pen = CreatePen(PS_SOLID, 1, gdi_visible_color(edit.color));
+        let old = SelectObject(dc, pen);
+        let top = point(x(edit.caret), 0);
+        let bottom = point(x(edit.caret), height);
+        MoveToEx(dc, top.x, top.y, None);
+        LineTo(dc, bottom.x, bottom.y);
+        SelectObject(dc, old);
+        DeleteObject(pen);
+    }
+
     fn existing_text_session(index: usize, drawing: &DrawingItem) -> Option<EditSession> {
         if let DrawingItem::Text { start, text, color, width, rotation, .. } = drawing {
-            Some(EditSession { target: Some(index), rotation: *rotation,
+            Some(EditSession { caret: text.len(), anchor: 0, dragging: false,
+                target: Some(index), rotation: *rotation,
                 start: Point { x: start.x - TEXT_PADDING, y: start.y - TEXT_PADDING },
                 text: text.clone(), color: *color, width: *width })
         } else { None }
     }
 
-    fn replace_text_content(drawing: &mut DrawingItem, text: String, width: i32) {
-        if let DrawingItem::Text { text: content, width: size, .. } = drawing {
+    fn replace_text_content(drawing: &mut DrawingItem, text: String, width: i32, color: COLORREF) {
+        if let DrawingItem::Text { text: content, width: size, color: ink, .. } = drawing {
             *content = text;
             *size = width;
+            *ink = color;
         }
     }
 
@@ -4347,6 +4492,9 @@ mod platform {
     unsafe fn create_text_editor(state: &mut OverlayState, point: Point) {
         cancel_text_editor(state);
         state.edit = Some(EditSession {
+            caret: 0,
+            anchor: 0,
+            dragging: false,
             target: None,
             rotation: 0.0,
             start: point,
@@ -4374,7 +4522,7 @@ mod platform {
             if let Some(drawing) = state.drawings.get_mut(index) {
                 // Keep the original object and its group/transform until commit.
                 if text.is_empty() { state.drawings.remove(index); }
-                else { replace_text_content(drawing, text, edit.width); }
+                else { replace_text_content(drawing, text, edit.width, edit.color); }
                 record_change(state, before);
             }
             state.gesture_before = None;
@@ -4987,6 +5135,46 @@ mod platform {
         use super::*;
 
         #[test]
+        fn text_caret_selection_replacement_and_color_commit() {
+            let original = DrawingItem::Text { start: Point { x: 0, y: 0 },
+                text: "甲乙丙".into(), width: 8, color: COLORREF(1), rotation: 0.0, group: None };
+            let mut edit = existing_text_session(0, &original).unwrap();
+            edit_key(&mut edit, 0x27, false, false); // collapse initial select-all to end
+            edit_key(&mut edit, 0x25, false, false);
+            assert_eq!(edit.caret, "甲乙".len());
+            replace_edit_selection(&mut edit, "中");
+            assert_eq!(edit.text, "甲乙中丙");
+            edit_key(&mut edit, 0x25, true, false);
+            replace_edit_selection(&mut edit, "新");
+            assert_eq!(edit.text, "甲乙新丙");
+            edit_key(&mut edit, 0x2e, false, false);
+            assert_eq!(edit.text, "甲乙新");
+            edit_key(&mut edit, 0x24, false, false);
+            edit_key(&mut edit, 8, false, false);
+            assert_eq!(edit.text, "甲乙新");
+            edit_key(&mut edit, 0x41, false, true);
+            replace_edit_selection(&mut edit, "重寫");
+            let mut changed = original;
+            replace_text_content(&mut changed, edit.text, edit.width, COLORREF(99));
+            assert!(matches!(changed, DrawingItem::Text { color: COLORREF(99), ref text, .. } if text == "重寫"));
+        }
+
+        #[test]
+        fn text_mouse_selection_uses_measured_character_positions() {
+            let original = DrawingItem::Text { start: Point { x: 100, y: 100 },
+                text: "ABCDE".into(), width: 8, color: COLORREF(1), rotation: 0.0, group: None };
+            let mut edit = existing_text_session(0, &original).unwrap();
+            unsafe {
+                let positions = edit_positions(&edit);
+                edit.anchor = text_edit_index(&edit, Point { x: 100 + positions[1].1, y: 105 });
+                edit.caret = text_edit_index(&edit, Point { x: 100 + positions[4].1, y: 105 });
+                assert_eq!(&edit.text[edit.anchor..edit.caret], "BCD");
+                replace_edit_selection(&mut edit, "X");
+                assert_eq!(edit.text, "AXE");
+            }
+        }
+
+        #[test]
         fn text_default_increases_three_size_steps_only() {
             assert_eq!(default_tool_width(NativeTool::Text), 8);
             assert_eq!(text_font_size(8), text_font_size(5) + 12);
@@ -5002,7 +5190,7 @@ mod platform {
             assert_eq!(edit.start.x + TEXT_PADDING, 80);
             assert_eq!(edit.text, "old");
             let mut drawings = vec![original.clone()];
-            replace_text_content(&mut drawings[0], "new".into(), edit.width);
+            replace_text_content(&mut drawings[0], "new".into(), edit.width, edit.color);
             if let DrawingItem::Text { start, text, rotation, group, color, .. } = &drawings[0] {
                 assert_eq!(start.y, 90);
                 assert_eq!(text, "new");
