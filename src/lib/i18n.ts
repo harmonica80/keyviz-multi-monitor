@@ -4,6 +4,11 @@ import { createJSONStorage, persist } from "zustand/middleware";
 export type Locale = "en" | "zh-TW";
 
 const zhTW: Record<string, string> = {
+  "Press Alt to toggle object editing mode": "按Alt鍵切換編輯物件模式",
+  "Object editing enabled (Alt)": "移入編輯物件：開啟（Alt）",
+  "Object editing disabled (Alt)": "移入編輯物件：關閉（Alt）",
+  "Wait for settings to finish opening": "請稍候，設定視窗開啟中",
+  "Tap Alt to enable or disable hover editing for this drawing session. Sessions start with hover editing off. Enabled object types can be moved or resized with the wheel. Pointer mode never intercepts Alt; the selection tool still supports manual selection.": "單按 Alt 可開啟或關閉本次繪圖的移入編輯模式，剛開啟繪圖時預設關閉。開啟後，可移動或用滾輪縮放下方已啟用的物件類型。游標模式不處理 Alt；框選工具仍可手動選取。",
   "Circular Tool Menu Shortcut": "圓形工具選單快捷鍵",
   "Right-click to Open Circular Menu": "滑鼠右鍵開啟圓形選單",
   "While using a drawing tool, right-click the canvas to open the menu; right-click again to cancel. Pointer mode, text entry and toolbar context menus are unchanged. The keyboard shortcut remains available.": "使用繪圖工具時，在畫布按右鍵開啟選單；再按右鍵取消。游標模式、文字輸入與工具列的右鍵選單不變，鍵盤快捷鍵仍可使用。",
@@ -38,7 +43,6 @@ const zhTW: Record<string, string> = {
   "Display recovery failed": "恢復要求失敗",
   "Rebuild drawing and cursor display windows while preserving annotations.": "重新建立繪圖與游標醒目顯示視窗，保留目前標註。",
   "Hover to Edit Objects": "滑鼠移入編輯物件",
-  "Hover over an enabled object to show handles. Drag to move, or scroll to resize the object. Pointer and eraser modes are unchanged.": "移入已啟用的物件即可顯示控制點，拖曳可移動，滾輪可縮放物件。按住 Alt 可略過既有物件並繼續繪圖。游標模式與橡皮擦維持原有操作。",
   "Keyviz Keyboard Visualizer": "Keyviz 鍵盤按鍵顯示器與螢幕繪圖",
   "Teacher Chiu Learning Website": "述文老師學習網",
   "Keyviz Open Source Website": "Keyviz 開放原始碼網站",

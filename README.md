@@ -42,7 +42,9 @@ The download above is the latest stable Release, not necessarily the newest test
 - 在螢幕繪圖模式下按 `F7` 可切回游標/滑鼠模式。
 - `Delete` 只在繪圖工具狀態下作用：框選工具刪除選取物件，其他繪圖工具清空標註；游標工具不處理 Delete。文字輸入時也不刪除繪圖。
 - 支援繪製、移動、縮放、旋轉、序號加減、群組、刪除與清空的復原／重做，重做快捷鍵為 `Ctrl + Shift + Z`。
-- 按住 `Alt` 可暫時略過既有物件的滑過編輯，方便繼續繪圖；各工具獨立記住本次執行的大小。
+- v1.0.16 起，單按並放開 `Alt` 切換「滑鼠移入編輯物件」開／關，不必持續按住。每次開始繪圖及切回游標時關閉；各物件類型偏好仍生效，切換繪圖工具保留本次狀態。工具提示附有 Alt 操作說明。
+- 開啟或重新切回設定視窗時先切換游標工具，保留繪圖；開啟過程暫不接受切換繪圖工具，避免輸入層擋住設定。
+- 圓形選單下方偏左的垃圾桶可清除全部標註，之後可用復原取回；原有直線工具保留在相鄰的下方偏右區域。
 - 工具列與關於頁提供「恢復透明顯示層」，重新建立繪圖及游標醒目視窗並保留標註。
 - 「設定 → 關於 → 匯出診斷資料」可匯出螢幕、繪圖狀態、視窗、滑鼠 hook 與近期錯誤資訊，協助排查教室電腦的顯示問題。
 
@@ -72,7 +74,7 @@ The download above is the latest stable Release, not necessarily the newest test
 - **鍵盤快捷鍵**：預設 Q，可改為其他按鍵或搭配 Ctrl、Shift、Alt。點選錄製區後按 Backspace 或 Delete，可停用鍵盤觸發。
 - **滑鼠右鍵開啟圓形選單**：預設啟用，可獨立關閉；關閉右鍵觸發後，鍵盤快捷鍵仍可使用。設定會保存，恢復預設工具列時會還原為 Q 與右鍵啟用。
 
-選單保留固定的雙圈位置，隱藏的工具留下空格，不會讓其他工具重新排列。小尺寸選單直徑為 156 邏輯像素，依螢幕縮放比例調整，靠近邊緣時會向螢幕內側移動。
+選單保留固定的雙圈位置，隱藏的工具留下空格，不會讓其他工具重新排列。v1.0.16 將外圈底部區域分成直線與清除兩格，清除按鈕固定顯示。小尺寸選單直徑為 156 邏輯像素，依螢幕縮放比例調整，靠近邊緣時會向螢幕內側移動。
 
 **操作範圍：**游標模式、設定視窗、文字標註輸入、按住左鍵繪圖，以及黑幕分層測試期間，不開啟選單。右鍵開啟只適用於繪圖畫布，不改動工具列既有右鍵功能，例如恢復顯示按鈕的分層測試。
 
@@ -101,7 +103,8 @@ This list describes the current development/test build. See each stable Release'
 - Press `F8` to toggle screen drawing.
 - Press `F7` while screen drawing is active to return to pointer/mouse mode.
 - `Delete` only affects drawings while a drawing tool is active: the selection tool deletes selected objects, while other drawing tools clear annotations. Pointer mode and text entry do not delete drawings.
-- Undo/redo covers drawing and object edits; redo uses `Ctrl + Shift + Z`. Hold `Alt` to bypass hover editing temporarily.
+- Undo/redo covers drawing and object edits; redo uses `Ctrl + Shift + Z`. Since v1.0.16, tap and release `Alt` to toggle hover editing. New sessions and pointer mode reset it to off; object-type preferences still apply. Alt combinations do not toggle it.
+- Settings opening/focus returns to pointer mode before further drawing input. A clear-all button in the lower-left part of the circular menu shares the toolbar's undoable clear action; Line remains next to it.
 - Restore transparent overlays without discarding annotations, and export diagnostic JSON from Settings > About.
 
 ### Undo/Redo Shortcut Scope (v1.0.15 Test Build)

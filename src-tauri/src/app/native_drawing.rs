@@ -33,7 +33,7 @@ mod platform {
             System::LibraryLoader::GetModuleHandleW,
             UI::{
                 Input::KeyboardAndMouse::{
-                    GetAsyncKeyState, GetCapture, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN, VK_MENU,
+                    GetAsyncKeyState, GetCapture, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN,
                 },
                 WindowsAndMessaging::{
                     CreateIconIndirect, CreateWindowExW, DefWindowProcW, DestroyCursor,
@@ -246,6 +246,7 @@ mod platform {
             ready: Option<Sender<Result<(), String>>>,
         },
         SetHoverEdit(std::collections::HashMap<String, bool>),
+        ToggleHoverEdit { epoch: u64 },
         ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool },
         ToggleRadial,
         CancelRadial,
@@ -414,6 +415,8 @@ mod platform {
         last_wheel: Option<(Instant, Vec<usize>)>,
         tool_widths: std::collections::HashMap<String, i32>,
         hover_edit: std::collections::HashMap<String, bool>,
+        hover_edit_active: bool,
+        input_epoch: u64,
         app: AppHandle,
         surfaces: Vec<OverlaySurface>,
         input_hwnd: Option<HWND>,
@@ -889,6 +892,8 @@ mod platform {
                     last_wheel: None,
                     tool_widths: std::collections::HashMap::new(),
                     hover_edit: std::collections::HashMap::new(),
+                    hover_edit_active: false,
+                    input_epoch: 0,
                     app,
                     surfaces: Vec::new(),
                     input_hwnd: None,
@@ -1197,6 +1202,21 @@ mod platform {
             }
         }
 
+        if let DrawingCommand::ToggleHoverEdit { epoch } = &command {
+            if *epoch != state.input_epoch || !state.visible || state.click_through
+                || state.edit.is_some() || state.probe.is_some() || state.radial.is_some()
+                || state.active.is_some() || state.selection.is_some()
+                || GetAsyncKeyState(1) < 0 {
+                return;
+            }
+            use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GA_ROOTOWNER};
+            let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
+            if state.app.get_webview_window("settings").and_then(|window| window.hwnd().ok())
+                .map(|hwnd| hwnd.0 as isize == foreground.0).unwrap_or(false) {
+                return;
+            }
+        }
+
         if state.radial.is_some() && !matches!(&command,
             DrawingCommand::ToggleRadial | DrawingCommand::CancelRadial | DrawingCommand::Raise
             | DrawingCommand::SetToolbarPassthrough(_) | DrawingCommand::PointerMove { .. }) {
@@ -1265,6 +1285,22 @@ mod platform {
                     refresh_overlay(state);
                 }
             }
+            DrawingCommand::ToggleHoverEdit { .. } => {
+                state.hover_edit_active = !state.hover_edit_active;
+                state.selected.clear();
+                state.last_wheel = None;
+                if state.hover_edit_active {
+                    let mut cursor = WinPoint::default();
+                    if windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut cursor).as_bool() {
+                        update_hover_selection(state, Point {
+                            x: cursor.x - state.bounds.left, y: cursor.y - state.bounds.top,
+                        });
+                    }
+                }
+                emit_selection_state(state);
+                let _ = state.app.emit_to("drawing-toolbar", "drawing-hover-edit-toggled", state.hover_edit_active);
+                refresh_overlay(state);
+            }
             DrawingCommand::Show {
                 monitors,
                 toolbar_passthrough,
@@ -1275,6 +1311,8 @@ mod platform {
                 {
                     return;
                 }
+                if !state.visible { state.hover_edit_active = false; }
+                state.input_epoch = state.input_epoch.wrapping_add(1);
                 state.visible = true;
                 refresh_overlay(state);
                 for surface in &state.surfaces {
@@ -1306,6 +1344,8 @@ mod platform {
                 let _ = rebuild_overlay_surfaces(state, &monitors);
             }
             DrawingCommand::Hide => {
+                state.input_epoch = state.input_epoch.wrapping_add(1);
+                state.hover_edit_active = false;
                 cancel_text_editor(state);
                 state.history = DrawingHistory::default();
                 state.gesture_before = None;
@@ -1326,6 +1366,8 @@ mod platform {
                 emit_selection_state(state);
             }
             DrawingCommand::SetTool { tool, ready } => {
+                state.input_epoch = state.input_epoch.wrapping_add(1);
+                if matches!(tool, NativeTool::Pointer) { state.hover_edit_active = false; }
                 commit_text_editor(state);
                 finish_gesture_history(state);
                 remember_tool_width(state);
@@ -1377,23 +1419,7 @@ mod platform {
                     replace_tool_cursor(state, false);
                 }
             }
-            DrawingCommand::Clear => {
-                finish_gesture_history(state);
-                ReleaseCapture();
-                let before = state.drawings.clone();
-                cancel_text_editor(state);
-                state.drawings.clear();
-                state.active = None;
-                state.selected.clear();
-                state.selection = None;
-                state.next_number = 1;
-                if matches!(state.tool, NativeTool::Number) {
-                    replace_tool_cursor(state, false);
-                }
-                record_change(state, before);
-                emit_selection_state(state);
-                refresh_overlay(state);
-            }
+            DrawingCommand::Clear => clear_drawings(state),
             DrawingCommand::Undo | DrawingCommand::Redo | DrawingCommand::HistoryShortcut { .. } => {
                 if state.edit.is_none() {
                     finish_gesture_history(state);
@@ -1668,6 +1694,7 @@ mod platform {
         {
             return;
         }
+        state.input_epoch = state.input_epoch.wrapping_add(1);
         if let Some(hwnd) = capture_hwnd {
             state.input_hwnd = Some(hwnd);
         }
@@ -2452,9 +2479,28 @@ mod platform {
             .max(1);
     }
 
+    unsafe fn clear_drawings(state: &mut OverlayState) {
+        finish_gesture_history(state);
+        ReleaseCapture();
+        let before = state.drawings.clone();
+        cancel_text_editor(state);
+        state.drawings.clear();
+        state.active = None;
+        state.selected.clear();
+        state.selection = None;
+        state.next_number = 1;
+        if matches!(state.tool, NativeTool::Number) { replace_tool_cursor(state, false); }
+        record_change(state, before);
+        emit_selection_state(state);
+        refresh_overlay(state);
+    }
+
     fn hover_edit_mode(state: &OverlayState) -> bool {
-        !matches!(state.tool, NativeTool::Pointer | NativeTool::Select | NativeTool::Eraser)
-            && unsafe { GetAsyncKeyState(VK_MENU.0 as i32) >= 0 }
+        hover_edit_active_for_tool(state.hover_edit_active, state.tool)
+    }
+
+    fn hover_edit_active_for_tool(enabled: bool, tool: NativeTool) -> bool {
+        enabled && !matches!(tool, NativeTool::Pointer)
     }
 
     fn hover_edit_enabled(preferences: &std::collections::HashMap<String, bool>, drawing: &DrawingItem) -> bool {
@@ -2476,8 +2522,8 @@ mod platform {
 
     fn update_hover_selection(state: &mut OverlayState, point: Point) -> bool {
         if state.visible && state.active.is_none() && state.selection.is_none() && state.edit.is_none()
-            && !matches!(state.tool, NativeTool::Select | NativeTool::Pointer | NativeTool::Eraser)
-            && unsafe { GetAsyncKeyState(VK_MENU.0 as i32) < 0 } {
+            && !matches!(state.tool, NativeTool::Select | NativeTool::Pointer)
+            && !state.hover_edit_active {
             let changed = !state.selected.is_empty();
             state.selected.clear();
             if changed { emit_selection_state(state); }
@@ -4804,6 +4850,15 @@ mod platform {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn hover_toggle_gates_all_drawing_tools_without_replacing_manual_selection() {
+            for tool in RADIAL_TOOLS {
+                assert!(!hover_edit_active_for_tool(false, tool));
+                assert_eq!(hover_edit_active_for_tool(true, tool),
+                    !matches!(tool, NativeTool::Pointer));
+            }
+        }
 
         #[test]
         fn history_shortcuts_only_apply_to_drawing_tools() {

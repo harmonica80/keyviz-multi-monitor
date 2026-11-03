@@ -165,7 +165,7 @@ export const DrawingToolbarSettings = () => {
       <Item variant="muted">
         <ItemContent>
           <ItemTitle>{t("Hover to Edit Objects")}</ItemTitle>
-          <ItemDescription>{t("Hover over an enabled object to show handles. Drag to move, or scroll to resize the object. Pointer and eraser modes are unchanged.")}</ItemDescription>
+          <ItemDescription>{t("Tap Alt to enable or disable hover editing for this drawing session. Sessions start with hover editing off. Enabled object types can be moved or resized with the wheel. Pointer mode never intercepts Alt; the selection tool still supports manual selection.")}</ItemDescription>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {(["number", "check-mark", "cross-mark", "text", "ellipse", "rectangle", "line", "arrow", "pen"] as DrawingTool[]).map((id) => (
               <label key={id} className="flex items-center justify-between gap-3 rounded-lg border p-3">

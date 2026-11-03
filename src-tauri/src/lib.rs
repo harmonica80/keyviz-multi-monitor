@@ -44,17 +44,33 @@ fn build_settings_window(
 }
 
 fn show_settings_window(app: &AppHandle) {
+    request_settings_transition(app, true);
+}
+
+fn request_settings_transition(app: &AppHandle, show: bool) {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let Ok(mut state) = state.lock() else { return; };
+        if state.settings_opening { return; }
+        if !show && (!state.drawing_visible || state.drawing_tool == "pointer") { return; }
+        state.settings_opening = true;
+    }
     // Native tool changes can send window messages to the main thread. Wait for
     // input release on a worker so neither UI thread blocks the other.
     let app = app.clone();
     std::thread::spawn(move || {
         if let Err(error) = prepare_drawing_for_settings(&app) {
             record_error(format!("Failed to release drawing input for settings: {error}"));
+            if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() { state.settings_opening = false; }
             return;
         }
         let handle = app.clone();
-        if let Err(error) = app.run_on_main_thread(move || show_settings_window_ready(&handle)) {
+        if let Err(error) = app.run_on_main_thread(move || {
+            if show { show_settings_window_ready(&handle); }
+            if let Ok(mut state) = handle.state::<Mutex<AppState>>().lock() { state.settings_opening = false; };
+        }) {
             record_error(format!("Failed to schedule settings window: {error}"));
+            if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() { state.settings_opening = false; };
         }
     });
 }
@@ -387,6 +403,9 @@ fn schedule_drawing_toolbar_passthrough_sync(app: &AppHandle) {
 }
 
 pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
+    if app.state::<Mutex<AppState>>().lock().map_err(|error| error.to_string())?.settings_opening {
+        return Err("Wait for settings to finish opening".into());
+    }
     let monitors = app
         .available_monitors()
         .map_err(|error| error.to_string())?;
@@ -417,6 +436,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height)?;
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    if app_state.settings_opening { return Err("Wait for settings to finish opening".into()); }
     app_state.pressed_keys.clear();
     app_state.drawing_visible = true;
     app_state.drawing_tool = "pen".to_string();
@@ -895,6 +915,10 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() != "settings" {
                 return;
+            }
+
+            if let tauri::WindowEvent::Focused(true) = event {
+                request_settings_transition(window.app_handle(), false);
             }
 
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

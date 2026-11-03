@@ -19,6 +19,28 @@ const RADIAL_TOOLS: [NativeTool; 12] = [
     NativeTool::Pointer,
 ];
 const RADIAL_RADIUS: f64 = 78.0;
+const RADIAL_CLEAR_SLOT: usize = 12;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum RadialAction {
+    Tool(NativeTool),
+    Clear,
+}
+
+fn radial_action(index: usize, tools: &[NativeTool]) -> Option<RadialAction> {
+    if index == RADIAL_CLEAR_SLOT { return Some(RadialAction::Clear); }
+    RADIAL_TOOLS.get(index).copied().filter(|tool| tools.contains(tool)).map(RadialAction::Tool)
+}
+
+// Split only the bottom outer sector: keep Line on its right, Clear on its left.
+fn radial_sector(index: usize) -> (f64, f64) {
+    let pi = std::f64::consts::PI;
+    match index {
+        9 => (pi / 3.0, pi / 6.0),
+        RADIAL_CLEAR_SLOT => (pi / 2.0, pi / 6.0),
+        _ => ((index % 6) as f64 * pi / 3.0 - pi * 2.0 / 3.0, pi / 3.0),
+    }
+}
 static RADIAL_OPEN: AtomicBool = AtomicBool::new(false);
 static RADIAL_ESCAPE_UNTIL: AtomicU64 = AtomicU64::new(0);
 
@@ -131,6 +153,7 @@ struct RadialGate {
     open: bool,
     shortcut: RadialShortcut,
     settings: isize,
+    epoch: u64,
 }
 
 impl Default for RadialGate {
@@ -143,7 +166,32 @@ impl Default for RadialGate {
                 modifiers: 0,
             },
             settings: 0,
+            epoch: 0,
         }
+    }
+}
+
+#[derive(Default)]
+struct AltTapTracker {
+    candidate: Option<(u32, u64, isize)>,
+}
+
+impl AltTapTracker {
+    fn event(&mut self, key: u32, down: bool, repeated: bool,
+        context: Option<(u64, isize)>, other_down: bool) -> Option<u64> {
+        if !matches!(key, 0x12 | 0xa4 | 0xa5) {
+            if down { self.candidate = None; }
+            return None;
+        }
+        if down {
+            if !repeated {
+                self.candidate = context.filter(|_| !other_down)
+                    .map(|(epoch, foreground)| (key, epoch, foreground));
+            }
+            return None;
+        }
+        let (pressed, epoch, foreground) = self.candidate.take()?;
+        (pressed == key && !other_down && context == Some((epoch, foreground))).then_some(epoch)
     }
 }
 
@@ -161,6 +209,7 @@ mod radial_keyboard {
         sender: Sender<DrawingCommand>,
         down: [bool; 256],
         swallowed: [bool; 256],
+        alt: AltTapTracker,
     }
     thread_local! { static HOOK: RefCell<Option<HookState>> = const { RefCell::new(None) }; }
 
@@ -178,6 +227,7 @@ mod radial_keyboard {
                     sender,
                     down,
                     swallowed: [false; 256],
+                    alt: AltTapTracker::default(),
                 })
             });
             let hook = SetWindowsHookExW(
@@ -218,6 +268,17 @@ mod radial_keyboard {
             };
             let repeated = hook.down[vk];
             hook.down[vk] = down;
+            let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER).0;
+            let context = hook.gate.try_lock().ok().and_then(|gate| {
+                (gate.enabled && !gate.open && (gate.settings == 0 || foreground != gate.settings)
+                    && GetAsyncKeyState(1) >= 0 && GetAsyncKeyState(2) >= 0)
+                    .then_some((gate.epoch, foreground))
+            });
+            let other_down = hook.down.iter().enumerate().any(|(key, down)| *down && key != vk);
+            if let Some(epoch) = hook.alt.event(vk as u32, down, repeated, context, other_down) {
+                let _ = hook.sender.send(DrawingCommand::ToggleHoverEdit { epoch });
+            }
+            // Do not swallow Alt: Alt+Tab, Alt+F4 and AltGr must keep working.
             if hook.swallowed[vk] {
                 if vk == 0x1b {
                     RADIAL_ESCAPE_UNTIL.store(radial_clock() + 150, Ordering::Relaxed);
@@ -294,6 +355,7 @@ impl RadialMenu {
             .rem_euclid(std::f64::consts::TAU)
             / (std::f64::consts::PI / 3.0))
             .floor() as usize;
+        if r >= 0.61 && sector == 3 && x < 0.0 { return Some(RADIAL_CLEAR_SLOT); }
         Some(sector.min(5) + if r < 0.61 { 0 } else { 6 })
     }
 }
@@ -338,6 +400,7 @@ unsafe fn radial_right_click(state: &mut OverlayState) {
 
 fn sync_radial_gate(state: &OverlayState) {
     if let Ok(mut gate) = state.radial_gate.lock() {
+        gate.epoch = state.input_epoch;
         // Mouse-button state blocks live gestures. A missed mouse-up must not
         // permanently disable the shortcut via a stale active/selection value.
         gate.enabled = radial_available(
@@ -494,24 +557,19 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
     let Some(menu) = state.radial.as_ref() else {
         return false;
     };
-    let tool = menu
-        .hit(point)
-        .map(|index| RADIAL_TOOLS[index])
-        .filter(|tool| state.radial_tools.contains(tool));
+    let action = menu.hit(point).and_then(|index| radial_action(index, &state.radial_tools));
     cancel_radial(state);
     state.radial_ignore_up = true;
-    if let Some(tool) = tool {
+    if action == Some(RadialAction::Clear) {
+        clear_drawings(state);
+    }
+    if let Some(RadialAction::Tool(tool)) = action {
         let app = state.app.clone();
         thread::spawn(move || {
             if let Err(error) =
                 crate::app::commands::drawing_set_tool(app.clone(), tool.as_str().into())
             {
                 record_error(format!("Radial tool selection failed: {error}"));
-            } else {
-                let _ = app.emit(
-                    "drawing-tool-changed",
-                    serde_json::json!({ "tool": tool.as_str() }),
-                );
             }
         });
     }
@@ -532,18 +590,17 @@ unsafe fn draw_radial(dc: HDC, menu: &RadialMenu, tools: &[NativeTool]) {
             y: menu.center.y + (angle.sin() * radius).round() as i32,
         };
         if let Some(pen) = create_gdiplus_pen(0xffc4cad2, 1) {
-            for index in 0..12 {
+            for index in 0..=RADIAL_CLEAR_SLOT {
                 let inner = menu.radius * if index < 6 { 0.22 } else { 0.61 };
                 let outer = menu.radius * if index < 6 { 0.61 } else { 1.0 };
-                let angle = (index % 6) as f64 * std::f64::consts::PI / 3.0
-                    - std::f64::consts::PI * 2.0 / 3.0;
+                let (angle, sweep) = radial_sector(index);
                 let points: Vec<WinPoint> = (0..=20)
-                    .map(|step| point(angle + step as f64 * std::f64::consts::PI / 60.0, outer))
+                    .map(|step| point(angle + step as f64 * sweep / 20.0, outer))
                     .chain((0..=20).rev().map(|step| {
-                        point(angle + step as f64 * std::f64::consts::PI / 60.0, inner)
+                        point(angle + step as f64 * sweep / 20.0, inner)
                     }))
                     .collect();
-                let enabled = tools.contains(&RADIAL_TOOLS[index]);
+                let enabled = radial_action(index, tools).is_some();
                 fill(
                     &points,
                     if menu.hovered == Some(index) && enabled {
@@ -562,23 +619,19 @@ unsafe fn draw_radial(dc: HDC, menu: &RadialMenu, tools: &[NativeTool]) {
         fill(&hub, 0xffedf0f4);
         true
     });
-    for (index, tool) in RADIAL_TOOLS.iter().enumerate() {
-        if !tools.contains(tool) {
-            continue;
-        }
-        let angle = (index % 6) as f64 * std::f64::consts::PI / 3.0 - std::f64::consts::FRAC_PI_2;
+    for index in 0..=RADIAL_CLEAR_SLOT {
+        let Some(action) = radial_action(index, tools) else { continue; };
+        let (start, sweep) = radial_sector(index);
+        let angle = start + sweep / 2.0;
         let r = menu.radius * if index < 6 { 0.415 } else { 0.805 };
         let center = Point {
             x: menu.center.x + (r * angle.cos()).round() as i32,
             y: menu.center.y + (r * angle.sin()).round() as i32,
         };
-        draw_radial_icon(
-            dc,
-            *tool,
-            center,
-            menu.radius / 156.0,
-            menu.hovered == Some(index),
-        );
+        match action {
+            RadialAction::Tool(tool) => draw_radial_icon(dc, tool, center, menu.radius / 156.0, menu.hovered == Some(index)),
+            RadialAction::Clear => draw_radial_clear_icon(dc, center, menu.radius / 156.0, menu.hovered == Some(index)),
+        }
     }
     // The hub is cancellation, not another tool.
     draw_radial_icon(
@@ -588,6 +641,24 @@ unsafe fn draw_radial(dc: HDC, menu: &RadialMenu, tools: &[NativeTool]) {
         menu.radius / 240.0,
         false,
     );
+}
+
+unsafe fn draw_radial_clear_icon(dc: HDC, center: Point, scale: f64, hovered: bool) {
+    let color = if hovered { COLORREF(0x3020c0) } else { COLORREF(0x38332e) };
+    let point = |x: f64, y: f64| Point {
+        x: center.x + (x * scale).round() as i32,
+        y: center.y + (y * scale).round() as i32,
+    };
+    for (a, b) in [
+        ((-12.0, -8.0), (12.0, -8.0)), ((-4.0, -12.0), (4.0, -12.0)),
+        ((-4.0, -12.0), (-4.0, -8.0)), ((4.0, -12.0), (4.0, -8.0)),
+        ((-9.0, -8.0), (-7.0, 12.0)), ((9.0, -8.0), (7.0, 12.0)),
+        ((-7.0, 12.0), (7.0, 12.0)), ((-3.0, -3.0), (-3.0, 7.0)),
+        ((3.0, -3.0), (3.0, 7.0)),
+    ] {
+        draw_antialiased_shape(dc, &NativeTool::Line, point(a.0, a.1), point(b.0, b.1),
+            color, (2.0 * scale).round().max(1.0) as i32, 0.0);
+    }
 }
 
 unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64, hovered: bool) {
@@ -690,6 +761,48 @@ unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64,
 mod radial_hover_tests {
     use super::*;
     #[test]
+    fn alt_tap_toggles_once_on_release_not_on_repeat() {
+        let mut alt = AltTapTracker::default();
+        let context = Some((4, 42));
+        for key in [0xa4, 0xa5] {
+            assert_eq!(alt.event(key, true, false, context, false), None);
+            assert_eq!(alt.event(key, true, true, context, false), None);
+            assert_eq!(alt.event(key, false, false, context, false), Some(4));
+            assert_eq!(alt.event(key, false, false, context, false), None);
+        }
+    }
+
+    #[test]
+    fn alt_chords_and_context_changes_never_toggle() {
+        let context = Some((4, 42));
+        for key in [0x09, 0x73, 0x51, 0x11, 0x10] {
+            let mut alt = AltTapTracker::default();
+            alt.event(0xa4, true, false, context, false);
+            alt.event(key, true, false, context, true);
+            alt.event(key, false, false, context, true);
+            assert_eq!(alt.event(0xa4, false, false, context, false), None);
+        }
+        for release_context in [None, Some((5, 42)), Some((4, 43))] {
+            let mut alt = AltTapTracker::default();
+            alt.event(0xa4, true, false, context, false);
+            assert_eq!(alt.event(0xa4, false, false, release_context, false), None);
+        }
+        let mut alt = AltTapTracker::default();
+        alt.event(0xa5, true, false, context, true); // AltGr / pre-held Ctrl
+        assert_eq!(alt.event(0xa5, false, false, context, false), None);
+        alt.event(0xa4, true, false, None, false); // pointer, settings, text or drag
+        assert_eq!(alt.event(0xa4, false, false, context, false), None);
+    }
+
+    #[test]
+    fn radial_clear_is_always_present_and_line_remains_available() {
+        assert_eq!(radial_action(RADIAL_CLEAR_SLOT, &[]), Some(RadialAction::Clear));
+        assert_eq!(radial_action(9, &[NativeTool::Line]), Some(RadialAction::Tool(NativeTool::Line)));
+        assert_eq!(radial_action(9, &[]), None);
+        assert_eq!(radial_action(99, &RADIAL_TOOLS), None);
+    }
+
+    #[test]
     fn radial_menu_renders_without_filling_the_rest_of_the_canvas() {
         unsafe {
             let mut surface = OverlaySurface {
@@ -748,7 +861,7 @@ mod radial_hover_tests {
         }
     }
     #[test]
-    fn two_rings_have_twelve_distinct_targets_and_neutral_center() {
+    fn two_rings_keep_all_tools_and_add_clear_with_neutral_center() {
         let menu = RadialMenu {
             center: Point { x: -600, y: 300 },
             radius: RADIAL_RADIUS,
@@ -756,9 +869,9 @@ mod radial_hover_tests {
         };
         assert!(menu.hit(menu.center).is_none());
         assert!(menu.hit(Point { x: 0, y: 0 }).is_none());
-        for index in 0..12 {
-            let angle =
-                (index % 6) as f64 * std::f64::consts::PI / 3.0 - std::f64::consts::FRAC_PI_2;
+        for index in 0..=RADIAL_CLEAR_SLOT {
+            let (start, sweep) = radial_sector(index);
+            let angle = start + sweep / 2.0;
             let r = menu.radius * if index < 6 { 0.415 } else { 0.805 };
             let point = Point {
                 x: menu.center.x + (r * angle.cos()).round() as i32,

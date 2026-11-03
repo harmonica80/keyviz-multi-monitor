@@ -406,6 +406,9 @@ export default function ScreenDrawing() {
         setOperationHint({ text: event.payload.object ? t("Resizing Object")
           : `${t(DRAWING_TOOL_BY_ID[event.payload.tool].label)}: ${event.payload.width}` });
       });
+      const hoverToggleListener = listen<boolean>("drawing-hover-edit-toggled", (event) => {
+        setOperationHint({ text: t(event.payload ? "Object editing enabled (Alt)" : "Object editing disabled (Alt)") });
+      });
       const widthListener = listen<{ width: number }>("drawing-width-changed", (event) => {
         setWidth(event.payload.width);
       });
@@ -425,6 +428,7 @@ export default function ScreenDrawing() {
         void resizeRequestListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
         void hintListener.then((unlisten) => unlisten());
+        void hoverToggleListener.then((unlisten) => unlisten());
         void widthListener.then((unlisten) => unlisten());
         void selectionListener.then((unlisten) => unlisten());
         void nativeCloseListener.then((unlisten) => unlisten());
@@ -483,8 +487,10 @@ export default function ScreenDrawing() {
 
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {
-      setTool(command.value);
-      await invoke("drawing_set_tool", { tool: command.value });
+      await invoke("drawing_set_tool", { tool: command.value }).catch((error) => {
+        console.error(error);
+        setOperationHint({ text: t("Wait for settings to finish opening") });
+      });
       return;
     }
     if (command.type === "color") {
@@ -663,7 +669,7 @@ export default function ScreenDrawing() {
         <button
           key={id}
           className={tool === id ? "active" : ""}
-          title={t(label)}
+          title={`${t(label)}${id !== "pointer" ? ` (${t("Press Alt to toggle object editing mode")})` : ""}`}
           onClick={() => void sendCommand({ type: "tool", value: id })}
         >
           <Icon />

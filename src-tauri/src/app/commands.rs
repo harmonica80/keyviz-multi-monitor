@@ -1,7 +1,7 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 
 use crate::app::diagnostics::record_error;
@@ -272,6 +272,9 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     let passthrough = matches!(tool, NativeTool::Pointer);
+    if app_state.settings_opening && !passthrough {
+        return Err("Wait for settings to finish opening".into());
+    }
     app_state.drawing_tool = tool.as_str().to_string();
     app_state.drawing_input_passthrough = passthrough;
     if passthrough {
@@ -283,6 +286,8 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
     }
     app_state.drawing_overlay.set_tool(tool);
     app_state.drawing_overlay.set_click_through(passthrough);
+    app.emit("drawing-tool-changed", serde_json::json!({ "tool": tool.as_str() }))
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
