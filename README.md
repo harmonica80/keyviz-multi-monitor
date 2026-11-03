@@ -10,12 +10,12 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 上方連結下載的是最新正式 Release，**不一定包含尚在測試的新功能**。
 
-目前提供 **v1.0.16 測試版**，新增 Alt 單按切換物件編輯、開啟設定先切回游標，以及圓形選單清除畫面；也保留游標模式下不誤觸發繪圖復原／重做的修正：
+目前提供 **v1.0.17 測試版**，修正 Alt 在繪圖視窗取得焦點後的切換、文字輸入時的右鍵選單，以及工具列點擊被繪圖輸入層擋住的問題；也保留開啟設定先切回游標、圓形選單清除與游標模式的復原快捷鍵保護：
 
-- [v1.0.16 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41558199785)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.16`。Artifacts 有保存期限，並非永久的正式版下載位置。
-- [v1.0.16 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.16.md)
+- [v1.0.17 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41562333642)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.17`。Artifacts 有保存期限，並非永久的正式版下載位置。
+- [v1.0.17 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.17.md)
 
-The download above is the latest stable Release, not necessarily the newest test build. The **v1.0.16 test build** linked above adds an Alt tap toggle for object editing, pointer mode before opening settings, and circular-menu clear-all. It retains the pointer-mode undo/redo shortcut fix. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
+The download above is the latest stable Release, not necessarily the newest test build. The **v1.0.17 test build** linked above fixes focused drawing-window Alt handling, commits text before opening the right-click menu, and excludes the toolbar from native input regions. It retains pointer mode before opening settings, circular-menu clear-all, and the pointer-mode undo/redo shortcut fix. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
 
 ## 功能介紹
 
@@ -42,7 +42,8 @@ The download above is the latest stable Release, not necessarily the newest test
 - 在螢幕繪圖模式下按 `F7` 可切回游標/滑鼠模式。
 - `Delete` 只在繪圖工具狀態下作用：框選工具刪除選取物件，其他繪圖工具清空標註；游標工具不處理 Delete。文字輸入時也不刪除繪圖。
 - 支援繪製、移動、縮放、旋轉、序號加減、群組、刪除與清空的復原／重做，重做快捷鍵為 `Ctrl + Shift + Z`。
-- v1.0.16 起，單按並放開 `Alt` 切換「滑鼠移入編輯物件」開／關，不必持續按住。每次開始繪圖及切回游標時關閉；各物件類型偏好仍生效，切換繪圖工具保留本次狀態。工具提示附有 Alt 操作說明。
+- v1.0.16 起，單按並放開 `Alt` 切換「滑鼠移入編輯物件」開／關，不必持續按住。每次開始繪圖及切回游標時關閉；各物件類型偏好仍生效，切換繪圖工具保留本次狀態。繪圖工具提示附有 Alt 操作說明，游標與框選工具除外。v1.0.17 補上繪圖視窗取得焦點後的 Alt 處理。
+- v1.0.17 起，文字輸入時按右鍵會先完成文字再開啟圓形選單；工具列區域從繪圖輸入層排除，避免被文字工具取得焦點後的視窗擋住。
 - 開啟或重新切回設定視窗時先切換游標工具，保留繪圖；開啟過程暫不接受切換繪圖工具，避免輸入層擋住設定。
 - 圓形選單下方偏左的垃圾桶可清除全部標註，之後可用復原取回；原有直線工具保留在相鄰的下方偏右區域。
 - 工具列與關於頁提供「恢復透明顯示層」，重新建立繪圖及游標醒目視窗並保留標註。
@@ -76,7 +77,7 @@ The download above is the latest stable Release, not necessarily the newest test
 
 選單保留固定的雙圈位置，隱藏的工具留下空格，不會讓其他工具重新排列。v1.0.16 將外圈底部區域分成直線與清除兩格，清除按鈕固定顯示。小尺寸選單直徑為 156 邏輯像素，依螢幕縮放比例調整，靠近邊緣時會向螢幕內側移動。
 
-**操作範圍：**游標模式、設定視窗、文字標註輸入、按住左鍵繪圖，以及黑幕分層測試期間，不開啟選單。右鍵開啟只適用於繪圖畫布，不改動工具列既有右鍵功能，例如恢復顯示按鈕的分層測試。
+**操作範圍：**游標模式、設定視窗、按住左鍵繪圖，以及黑幕分層測試期間，不開啟選單。文字標註輸入期間不以鍵盤快捷鍵開啟選單；v1.0.17 起可按右鍵完成文字並開啟選單。右鍵開啟只適用於繪圖畫布，不改動工具列既有右鍵功能，例如恢復顯示按鈕的分層測試。
 
 測試版已通過自動化檢查，但不同教室電腦、多螢幕與錄影軟體的實際互動仍需驗證；此功能不代表所有黑幕或置頂問題均已解決。
 
@@ -105,6 +106,7 @@ This list describes the current development/test build. See each stable Release'
 - `Delete` only affects drawings while a drawing tool is active: the selection tool deletes selected objects, while other drawing tools clear annotations. Pointer mode and text entry do not delete drawings.
 - Undo/redo covers drawing and object edits; redo uses `Ctrl + Shift + Z`. Since v1.0.16, tap and release `Alt` to toggle hover editing. New sessions and pointer mode reset it to off; object-type preferences still apply. Alt combinations do not toggle it.
 - Settings opening/focus returns to pointer mode before further drawing input. A clear-all button in the lower-left part of the circular menu shares the toolbar's undoable clear action; Line remains next to it.
+- Since v1.0.17, right-clicking while typing commits text and opens the circular menu. The input surfaces exclude the toolbar region to keep its buttons clickable after canvas activation. Pointer and selection tooltips omit the Alt hint.
 - Restore transparent overlays without discarding annotations, and export diagnostic JSON from Settings > About.
 
 ### Undo/Redo Shortcut Scope (v1.0.15 Test Build)
