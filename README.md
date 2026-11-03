@@ -10,12 +10,12 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 上方連結下載的是最新正式 Release，**不一定包含尚在測試的新功能**。
 
-目前提供 **v1.0.16 測試版**，新增 Alt 單按切換物件編輯、開啟設定先切回游標，以及圓形選單清除畫面；也保留游標模式下不誤觸發繪圖復原／重做的修正：
+目前提供 **v1.0.17 測試版**，修正 Alt 在繪圖視窗取得焦點後的切換、文字輸入時的右鍵選單，以及工具列點擊被繪圖輸入層擋住的問題；也保留開啟設定先切回游標、圓形選單清除與游標模式的復原快捷鍵保護：
 
-- [v1.0.16 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41558199785)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.16`。Artifacts 有保存期限，並非永久的正式版下載位置。
-- [v1.0.16 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.16.md)
+- [v1.0.17 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41562333642)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.17`。Artifacts 有保存期限，並非永久的正式版下載位置。
+- [v1.0.17 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.17.md)
 
-The download above is the latest stable Release, not necessarily the newest test build. The **v1.0.16 test build** linked above adds an Alt tap toggle for object editing, pointer mode before opening settings, and circular-menu clear-all. It retains the pointer-mode undo/redo shortcut fix. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
+The download above is the latest stable Release, not necessarily the newest test build. The **v1.0.17 test build** linked above fixes focused drawing-window Alt handling, commits text before opening the right-click menu, and excludes the toolbar from native input regions. It retains pointer mode before opening settings, circular-menu clear-all, and the pointer-mode undo/redo shortcut fix. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
 
 ## 功能介紹
 
@@ -106,6 +106,7 @@ This list describes the current development/test build. See each stable Release'
 - `Delete` only affects drawings while a drawing tool is active: the selection tool deletes selected objects, while other drawing tools clear annotations. Pointer mode and text entry do not delete drawings.
 - Undo/redo covers drawing and object edits; redo uses `Ctrl + Shift + Z`. Since v1.0.16, tap and release `Alt` to toggle hover editing. New sessions and pointer mode reset it to off; object-type preferences still apply. Alt combinations do not toggle it.
 - Settings opening/focus returns to pointer mode before further drawing input. A clear-all button in the lower-left part of the circular menu shares the toolbar's undoable clear action; Line remains next to it.
+- Since v1.0.17, right-clicking while typing commits text and opens the circular menu. The input surfaces exclude the toolbar region to keep its buttons clickable after canvas activation. Pointer and selection tooltips omit the Alt hint.
 - Restore transparent overlays without discarding annotations, and export diagnostic JSON from Settings > About.
 
 ### Undo/Redo Shortcut Scope (v1.0.15 Test Build)

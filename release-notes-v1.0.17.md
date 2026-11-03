@@ -17,3 +17,14 @@
 6. 將工具列移至另一個螢幕，重測按鈕、工具列周圍繪圖與滑鼠穿透。按鈕以外的畫布仍應正常繪圖。
 
 此版僅修正輸入流程，不宣稱解決所有教室電腦的黑幕或顯示問題。正式 Release 不變。
+
+## 建置驗證
+
+- Windows 建置：[41562333642](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41562333642)，成功。
+- 建置來源：`1304574b07e5ffff75a65186f4b46ca98112d664`。
+- 32 項原生測試通過，47 項快捷鍵驗證／路由／右鍵偏好檢查通過。
+- 本機前端建置、Rust 語法格式解析與 `git diff --check` 通過。
+- 交付檔案：`keyviz-portable-v1.0.17-input-fix-test.exe`；Actions 中為同內容的 `keyviz-portable.exe`。
+- 檔案大小：6,369,792 bytes；FileVersion 與 ProductVersion 均為 `1.0.17`，PE 檔頭有效。
+- SHA-256：`5E5F9F62D3F8F3C5030FA54E02D8C00F60FDF83CE6766D0B449438B1874DA73D`。
+- 下載檔與交付檔雜湊一致。尚未完成使用者電腦上的實際鍵鼠、多螢幕與錄影互動測試。
