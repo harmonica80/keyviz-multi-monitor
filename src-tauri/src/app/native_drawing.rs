@@ -342,6 +342,8 @@ mod platform {
     }
 
     struct EditSession {
+        target: Option<usize>,
+        rotation: f64,
         start: Point,
         text: String,
         color: COLORREF,
@@ -866,7 +868,7 @@ mod platform {
         unsafe {
             let module = GetModuleHandleW(None).map_err(|error| error.to_string())?;
             let window_class = WNDCLASSW {
-                style: CS_HREDRAW | CS_VREDRAW,
+                style: CS_HREDRAW | CS_VREDRAW | windows::Win32::UI::WindowsAndMessaging::CS_DBLCLKS,
                 lpfnWndProc: Some(window_proc),
                 hInstance: module,
                 lpszClassName: PCWSTR(class_name.as_ptr()),
@@ -1377,7 +1379,7 @@ mod platform {
                 ReleaseCapture();
                 let click_through = matches!(tool, NativeTool::Pointer);
                 state.tool = tool;
-                state.width = *state.tool_widths.get(tool.as_str()).unwrap_or(&5);
+                state.width = state.tool_widths.get(tool.as_str()).copied().unwrap_or(default_tool_width(tool));
                 emit_width(&state.app, state.width);
                 state.selected.clear();
                 state.selection = None;
@@ -1614,6 +1616,10 @@ mod platform {
                 on_left_button_down(hwnd, lparam);
                 LRESULT(0)
             }
+            windows::Win32::UI::WindowsAndMessaging::WM_LBUTTONDBLCLK => {
+                if !on_text_double_click(hwnd, lparam) { on_left_button_down(hwnd, lparam); }
+                LRESULT(0)
+            }
             windows::Win32::UI::WindowsAndMessaging::WM_RBUTTONDOWN => {
                 if let Ok(mut guard) = overlay_state().lock() {
                     if let Some(state) = guard.as_mut() {
@@ -1695,6 +1701,29 @@ mod platform {
         };
         state.input_hwnd = Some(hwnd);
         begin_drawing_at(state, point, Some(hwnd));
+    }
+
+    unsafe fn on_text_double_click(hwnd: HWND, lparam: LPARAM) -> bool {
+        let Ok(mut guard) = overlay_state().lock() else { return false; };
+        let Some(state) = guard.as_mut() else { return false; };
+        if !state.visible || !hover_edit_mode(state) || state.edit.is_some()
+            || state.radial.is_some() || state.probe.is_some() { return false; }
+        let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else { return false; };
+        if is_toolbar_passthrough_point(state, point, false) { return false; }
+        let Some(index) = hit_test_drawing(state, point) else { return false; };
+        if !hover_edit_enabled(&state.hover_edit, &state.drawings[index]) { return false; }
+        let Some(edit) = existing_text_session(index, &state.drawings[index]) else { return false; };
+        finish_gesture_history(state);
+        ReleaseCapture();
+        state.active = None;
+        state.selection = None;
+        state.selected.clear();
+        state.input_hwnd = Some(hwnd);
+        state.edit = Some(edit);
+        let _ = SetFocus(hwnd);
+        emit_selection_state(state);
+        refresh_overlay(state);
+        true
     }
 
     unsafe fn begin_drawing_at(state: &mut OverlayState, point: Point, capture_hwnd: Option<HWND>) {
@@ -2324,7 +2353,8 @@ mod platform {
         let viewport_y = state.bounds.top - surface.bounds.top;
         SetViewportOrgEx(drawing_dc, viewport_x, viewport_y, Some(&mut old_origin));
         SetBkMode(drawing_dc, TRANSPARENT);
-        for drawing in state.drawings.iter() {
+        for (index, drawing) in state.drawings.iter().enumerate() {
+            if state.edit.as_ref().and_then(|edit| edit.target) == Some(index) { continue; }
             draw_item(drawing_dc, drawing);
         }
         if !state.selected.is_empty() {
@@ -2356,7 +2386,7 @@ mod platform {
                 &preview,
                 edit.color,
                 edit.width,
-                0.0,
+                edit.rotation,
             );
         }
         if let Some(menu) = &state.radial { draw_radial(drawing_dc, menu, &state.radial_tools); }
@@ -4201,6 +4231,25 @@ mod platform {
         18.max(width * 4)
     }
 
+    fn default_tool_width(tool: NativeTool) -> i32 {
+        if matches!(tool, NativeTool::Text) { 8 } else { 5 }
+    }
+
+    fn existing_text_session(index: usize, drawing: &DrawingItem) -> Option<EditSession> {
+        if let DrawingItem::Text { start, text, color, width, rotation, .. } = drawing {
+            Some(EditSession { target: Some(index), rotation: *rotation,
+                start: Point { x: start.x - TEXT_PADDING, y: start.y - TEXT_PADDING },
+                text: text.clone(), color: *color, width: *width })
+        } else { None }
+    }
+
+    fn replace_text_content(drawing: &mut DrawingItem, text: String, width: i32) {
+        if let DrawingItem::Text { text: content, width: size, .. } = drawing {
+            *content = text;
+            *size = width;
+        }
+    }
+
     fn gdi_visible_color(color: COLORREF) -> COLORREF {
         if color.0 & 0x00ff_ffff == 0 {
             COLORREF(0x0001_0101)
@@ -4298,6 +4347,8 @@ mod platform {
     unsafe fn create_text_editor(state: &mut OverlayState, point: Point) {
         cancel_text_editor(state);
         state.edit = Some(EditSession {
+            target: None,
+            rotation: 0.0,
             start: point,
             text: String::new(),
             color: state.color,
@@ -4318,6 +4369,18 @@ mod platform {
             return;
         };
         let text = edit.text.trim().to_string();
+        if let Some(index) = edit.target {
+            let before = state.drawings.clone();
+            if let Some(drawing) = state.drawings.get_mut(index) {
+                // Keep the original object and its group/transform until commit.
+                if text.is_empty() { state.drawings.remove(index); }
+                else { replace_text_content(drawing, text, edit.width); }
+                record_change(state, before);
+            }
+            state.gesture_before = None;
+            refresh_overlay(state);
+            return;
+        }
         if !text.is_empty() {
             let before = state.drawings.clone();
             state.drawings.push(DrawingItem::Text {
@@ -4922,6 +4985,36 @@ mod platform {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn text_default_increases_three_size_steps_only() {
+            assert_eq!(default_tool_width(NativeTool::Text), 8);
+            assert_eq!(text_font_size(8), text_font_size(5) + 12);
+            assert_eq!(default_tool_width(NativeTool::Pen), 5);
+        }
+
+        #[test]
+        fn existing_text_edit_preserves_transform_group_and_undo() {
+            let original = DrawingItem::Text { start: Point { x: 80, y: 90 },
+                text: "old".into(), color: COLORREF(123), width: 8, rotation: 0.4, group: Some(7) };
+            let edit = existing_text_session(0, &original).unwrap();
+            assert_eq!(edit.target, Some(0));
+            assert_eq!(edit.start.x + TEXT_PADDING, 80);
+            assert_eq!(edit.text, "old");
+            let mut drawings = vec![original.clone()];
+            replace_text_content(&mut drawings[0], "new".into(), edit.width);
+            if let DrawingItem::Text { start, text, rotation, group, color, .. } = &drawings[0] {
+                assert_eq!(start.y, 90);
+                assert_eq!(text, "new");
+                assert_eq!(*rotation, 0.4);
+                assert_eq!(*group, Some(7));
+                assert_eq!(color.0, 123);
+            } else { panic!("Text expected"); }
+            let mut history = DrawingHistory::default();
+            history.record(vec![original], &drawings);
+            assert!(history.restore(&mut drawings, false));
+            assert!(matches!(&drawings[0], DrawingItem::Text { text, .. } if text == "old"));
+        }
 
         #[test]
         fn toolbar_region_excludes_only_toolbar_on_negative_monitor() {
