@@ -20,12 +20,13 @@ The latest stable release is **v1.0.17**. The direct EXE download above does not
 
 ## 功能介紹
 
-### v1.0.18 文字功能測試版
+### v1.0.19 文字功能測試版
 
 - 新文字預設大小增加 3 級（5 → 8），不改變既有文字。
 - 啟用物件編輯與文字類型偏好後，可雙擊文字修改內容，保留位置、旋轉、顏色及群組，支援復原／重做。
-- [Windows 測試版建置與下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41599603305)：登入 GitHub，在 Artifacts 下載 `keyviz-portable`。結束舊版再執行，確認版本為 `v1.0.18`。測試產物有保存期限；上方正式版下載仍為 v1.0.17。
-- [測試說明](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.18.md)。已通過 34 項原生測試與 47 項快捷鍵相關檢查，實際鍵鼠操作仍需驗證。
+- 文字內容可點擊中間插入／刪除、拖曳選取、方向鍵移動、Shift 選取與 Ctrl+A 全選；文字物件可在編輯／選取時換色，顏色套用至整個文字物件。
+- [Windows 測試版建置與下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41603054559)：登入 GitHub，在 Artifacts 下載 `keyviz-portable`。結束舊版再執行，確認版本為 `v1.0.19`。測試產物有保存期限；上方正式版下載仍為 v1.0.17。
+- [測試說明](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.19.md)。已通過 36 項原生測試與 47 項快捷鍵相關檢查，實際鍵鼠操作仍需驗證。
 
 以下整理 v1.0.17 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
 
