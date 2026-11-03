@@ -416,6 +416,7 @@ mod platform {
         tool_widths: std::collections::HashMap<String, i32>,
         hover_edit: std::collections::HashMap<String, bool>,
         hover_edit_active: bool,
+        window_alt: AltTapTracker,
         input_epoch: u64,
         app: AppHandle,
         surfaces: Vec<OverlaySurface>,
@@ -893,6 +894,7 @@ mod platform {
                     tool_widths: std::collections::HashMap::new(),
                     hover_edit: std::collections::HashMap::new(),
                     hover_edit_active: false,
+                    window_alt: AltTapTracker::default(),
                     input_epoch: 0,
                     app,
                     surfaces: Vec::new(),
@@ -1505,6 +1507,7 @@ mod platform {
             }
             DrawingCommand::SetToolbarPassthrough(bounds) => {
                 state.toolbar_passthrough = bounds;
+                sync_input_surface_regions(state);
                 refresh_overlay(state);
             }
             DrawingCommand::Focus => {
@@ -1569,7 +1572,16 @@ mod platform {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_SYSCOMMAND, SC_KEYMENU,
+        };
+        if matches!(message, WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP) {
+            on_window_alt_key(hwnd, message, wparam, lparam);
+        }
         match message {
+            // The drawing surface has no system menu. Default Alt handling can
+            // enter a modal menu loop and stop our queued drawing commands.
+            WM_SYSCOMMAND if wparam.0 & 0xfff0 == SC_KEYMENU as usize => LRESULT(0),
             WM_CREATE => {
                 let createstruct = lparam.0 as *const CREATESTRUCTW;
                 if !createstruct.is_null() {
@@ -2103,6 +2115,27 @@ mod platform {
             _ => {}
         }
         false
+    }
+
+    unsafe fn on_window_alt_key(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) {
+        use windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState;
+        use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, WM_SYSKEYDOWN};
+        let Ok(mut guard) = overlay_state().try_lock() else { return; };
+        let Some(state) = guard.as_mut() else { return; };
+        if !is_surface_hwnd(state, hwnd) { return; }
+        let context = (GetForegroundWindow() == hwnd
+            && radial_available(state.visible, state.click_through, state.edit.is_some(), state.probe.is_some())
+            && state.radial.is_none() && state.active.is_none() && state.selection.is_none()
+            && GetAsyncKeyState(1) >= 0 && GetAsyncKeyState(2) >= 0)
+            .then_some((state.input_epoch, hwnd.0));
+        let other_down = (1..256).any(|key| !matches!(key, 0x12 | 0xa4 | 0xa5)
+            && key != wparam.0 as i32 && GetKeyState(key) < 0);
+        let toggle = state.window_alt.event(wparam.0 as u32,
+            matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN), lparam.0 & (1 << 30) != 0,
+            context, other_down).is_some();
+        let epoch = state.input_epoch;
+        drop(guard);
+        if toggle { apply_command(DrawingCommand::ToggleHoverEdit { epoch }); }
     }
 
     unsafe fn on_char(hwnd: HWND, wparam: WPARAM) {
@@ -4336,7 +4369,7 @@ mod platform {
     fn is_click_through_or_passthrough_point(hwnd: HWND, lparam: LPARAM) -> bool {
         let point = lparam_point(lparam);
         overlay_state()
-            .lock()
+            .try_lock()
             .ok()
             .and_then(|guard| {
                 guard
@@ -4356,8 +4389,47 @@ mod platform {
         })
     }
 
+    unsafe fn create_input_region(bounds: RECT, toolbar: Option<RECT>) -> Option<windows::Win32::Graphics::Gdi::HRGN> {
+        use windows::Win32::Graphics::Gdi::{CreateRectRgn, CombineRgn, RGN_DIFF};
+        let region = CreateRectRgn(0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top);
+        if region.0 == 0 { return None; }
+        if let Some(toolbar) = toolbar {
+            let hole = CreateRectRgn(toolbar.left - bounds.left, toolbar.top - bounds.top,
+                toolbar.right - bounds.left, toolbar.bottom - bounds.top);
+            if hole.0 == 0 {
+                DeleteObject(region);
+                return None;
+            }
+            let result = CombineRgn(region, region, hole, RGN_DIFF);
+            DeleteObject(hole);
+            if result.0 == 0 {
+                DeleteObject(region);
+                return None;
+            }
+        }
+        Some(region)
+    }
+
+    unsafe fn sync_input_surface_regions(state: &OverlayState) {
+        use windows::Win32::Graphics::Gdi::SetWindowRgn;
+        // HTTRANSPARENT only forwards within the same thread. Remove the
+        // toolbar rectangle from the input window instead, even when activated.
+        for surface in &state.surfaces {
+            let Some(region) = create_input_region(surface.bounds, state.toolbar_passthrough) else {
+                record_error("Failed to create toolbar input exclusion region");
+                continue;
+            };
+            if SetWindowRgn(surface.input_hwnd, region, false) == 0 {
+                DeleteObject(region);
+                record_error(format!("Failed to apply toolbar input exclusion: {}", std::io::Error::last_os_error()));
+            }
+            // Windows owns the region after a successful SetWindowRgn.
+        }
+    }
+
     unsafe fn sync_input_surface_visibility(state: &mut OverlayState) {
         if state.probe.is_some() { return; }
+        sync_input_surface_regions(state);
         let capture_input = state.visible && !state.click_through;
         if !capture_input {
             ReleaseCapture();
@@ -4494,7 +4566,7 @@ mod platform {
     }
 
     unsafe fn set_overlay_cursor(hwnd: HWND) -> bool {
-        let Ok(state_guard) = overlay_state().lock() else {
+        let Ok(state_guard) = overlay_state().try_lock() else {
             return false;
         };
         let Some(state) = state_guard.as_ref() else {
@@ -4850,6 +4922,29 @@ mod platform {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn toolbar_region_excludes_only_toolbar_on_negative_monitor() {
+            use windows::Win32::Graphics::Gdi::PtInRegion;
+            unsafe {
+                let bounds = RECT { left: -1920, top: -200, right: 0, bottom: 880 };
+                let toolbar = RECT { left: -1900, top: -100, right: -1840, bottom: 600 };
+                let region = create_input_region(bounds, Some(toolbar)).unwrap();
+                assert!(!PtInRegion(region, 30, 110).as_bool());
+                assert!(PtInRegion(region, 100, 110).as_bool());
+                assert!(PtInRegion(region, 30, 850).as_bool());
+                DeleteObject(region);
+                // Moving the toolbar off this monitor restores its whole input area.
+                let region = create_input_region(bounds, Some(RECT {
+                    left: 20, top: 100, right: 80, bottom: 800,
+                })).unwrap();
+                assert!(PtInRegion(region, 30, 110).as_bool());
+                DeleteObject(region);
+                let region = create_input_region(bounds, None).unwrap();
+                assert!(PtInRegion(region, 30, 110).as_bool());
+                DeleteObject(region);
+            }
+        }
 
         #[test]
         fn hover_toggle_gates_all_drawing_tools_without_replacing_manual_selection() {

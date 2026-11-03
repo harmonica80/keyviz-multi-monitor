@@ -669,7 +669,7 @@ export default function ScreenDrawing() {
         <button
           key={id}
           className={tool === id ? "active" : ""}
-          title={`${t(label)}${id !== "pointer" ? ` (${t("Press Alt to toggle object editing mode")})` : ""}`}
+          title={`${t(label)}${id !== "pointer" && id !== "select" ? ` (${t("Press Alt to toggle object editing mode")})` : ""}`}
           onClick={() => void sendCommand({ type: "tool", value: id })}
         >
           <Icon />

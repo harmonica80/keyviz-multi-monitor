@@ -154,6 +154,7 @@ struct RadialGate {
     shortcut: RadialShortcut,
     settings: isize,
     epoch: u64,
+    input_windows: Vec<isize>,
 }
 
 impl Default for RadialGate {
@@ -167,8 +168,15 @@ impl Default for RadialGate {
             },
             settings: 0,
             epoch: 0,
+            input_windows: Vec::new(),
         }
     }
+}
+
+fn alt_hook_context(gate: &RadialGate, foreground: isize, mouse_down: bool) -> Option<(u64, isize)> {
+    (gate.enabled && !gate.open && !gate.input_windows.contains(&foreground)
+        && (gate.settings == 0 || foreground != gate.settings) && !mouse_down)
+        .then_some((gate.epoch, foreground))
 }
 
 #[derive(Default)]
@@ -217,7 +225,7 @@ mod radial_keyboard {
         thread::spawn(move || unsafe {
             let mut down = [false; 256];
             for key in [
-                0x10, 0x11, 0x12, 0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0x5b, 0x5c,
+                0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0x5b, 0x5c,
             ] {
                 down[key] = GetAsyncKeyState(key as i32) < 0;
             }
@@ -270,9 +278,7 @@ mod radial_keyboard {
             hook.down[vk] = down;
             let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER).0;
             let context = hook.gate.try_lock().ok().and_then(|gate| {
-                (gate.enabled && !gate.open && (gate.settings == 0 || foreground != gate.settings)
-                    && GetAsyncKeyState(1) >= 0 && GetAsyncKeyState(2) >= 0)
-                    .then_some((gate.epoch, foreground))
+                alt_hook_context(&gate, foreground, GetAsyncKeyState(1) < 0 || GetAsyncKeyState(2) < 0)
             });
             let other_down = hook.down.iter().enumerate().any(|(key, down)| *down && key != vk);
             if let Some(epoch) = hook.alt.event(vk as u32, down, repeated, context, other_down) {
@@ -386,13 +392,17 @@ unsafe fn radial_right_click(state: &mut OverlayState) {
         radial_available(
             state.visible,
             state.click_through,
-            state.edit.is_some(),
+            false,
             state.probe.is_some(),
         ),
         GetAsyncKeyState(1) < 0,
     );
     match action {
-        Some(RadialKeyAction::Toggle) => toggle_radial(state),
+        Some(RadialKeyAction::Toggle) => {
+            // A deliberate right click finishes text, unlike Q while typing.
+            commit_text_editor(state);
+            toggle_radial(state);
+        }
         Some(RadialKeyAction::Cancel) => cancel_radial(state),
         None => {}
     }
@@ -401,6 +411,7 @@ unsafe fn radial_right_click(state: &mut OverlayState) {
 fn sync_radial_gate(state: &OverlayState) {
     if let Ok(mut gate) = state.radial_gate.lock() {
         gate.epoch = state.input_epoch;
+        gate.input_windows = state.surfaces.iter().map(|surface| surface.input_hwnd.0).collect();
         // Mouse-button state blocks live gestures. A missed mouse-up must not
         // permanently disable the shortcut via a stale active/selection value.
         gate.enabled = radial_available(
@@ -764,12 +775,45 @@ mod radial_hover_tests {
     fn alt_tap_toggles_once_on_release_not_on_repeat() {
         let mut alt = AltTapTracker::default();
         let context = Some((4, 42));
-        for key in [0xa4, 0xa5] {
+        for key in [0x12, 0xa4, 0xa5] {
             assert_eq!(alt.event(key, true, false, context, false), None);
             assert_eq!(alt.event(key, true, true, context, false), None);
             assert_eq!(alt.event(key, false, false, context, false), Some(4));
             assert_eq!(alt.event(key, false, false, context, false), None);
         }
+    }
+
+    #[test]
+    fn native_alt_uses_window_messages_without_duplicate_hook_toggle() {
+        let gate = RadialGate {
+            enabled: true, input_windows: vec![42, 43], settings: 99, epoch: 4,
+            ..RadialGate::default()
+        };
+        for foreground in [42, 43] {
+            let mut hook = AltTapTracker::default();
+            let mut window = AltTapTracker::default();
+            let hook_context = alt_hook_context(&gate, foreground, false);
+            let window_context = Some((4, foreground));
+            hook.event(0xa4, true, false, hook_context, false);
+            window.event(0x12, true, false, window_context, false);
+            assert_eq!(hook.event(0xa4, false, false, hook_context, false), None);
+            assert_eq!(window.event(0x12, false, true, window_context, false), Some(4));
+            assert_eq!(window.event(0x12, false, true, window_context, false), None);
+        }
+        assert_eq!(alt_hook_context(&gate, 77, false), Some((4, 77)));
+        assert_eq!(alt_hook_context(&gate, 99, false), None);
+        assert_eq!(alt_hook_context(&gate, 77, true), None);
+    }
+
+    #[test]
+    fn text_right_click_can_commit_then_open_without_enabling_typing_shortcuts() {
+        assert!(!radial_available(true, false, true, false));
+        // Right-click availability deliberately ignores the text edit session.
+        assert_eq!(radial_right_action(false, true, radial_available(true, false, false, false), false),
+            Some(RadialKeyAction::Toggle));
+        assert_eq!(radial_right_action(false, false, true, false), None);
+        assert_eq!(radial_right_action(false, true, radial_available(true, true, false, false), false), None);
+        assert_eq!(radial_right_action(false, true, radial_available(true, false, false, true), false), None);
     }
 
     #[test]
