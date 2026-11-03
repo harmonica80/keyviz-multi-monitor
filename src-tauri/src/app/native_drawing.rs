@@ -160,7 +160,7 @@ mod platform {
         sender: Option<Sender<DrawingCommand>>,
     }
 
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum NativeTool {
         Pointer,
         Select,
