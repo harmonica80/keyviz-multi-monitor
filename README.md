@@ -8,18 +8,19 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-上方連結下載的是最新正式 Release，**不一定包含尚在測試的新功能**。
+目前最新正式版為 **v1.0.17**。上方連結直接下載正式版 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
 
-目前提供 **v1.0.17 測試版**，修正 Alt 在繪圖視窗取得焦點後的切換、文字輸入時的右鍵選單，以及工具列點擊被繪圖輸入層擋住的問題；也保留開啟設定先切回游標、圓形選單清除與游標模式的復原快捷鍵保護：
+**v1.0.17** 修正 Alt 在繪圖視窗取得焦點後的切換、文字輸入時的右鍵選單，以及工具列點擊被繪圖輸入層擋住的問題；也保留開啟設定先切回游標、圓形選單清除與游標模式的復原快捷鍵保護。
 
-- [v1.0.17 Windows 建置與測試版下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41562333642)：登入 GitHub 後，在頁面下方 Artifacts 下載 `keyviz-portable`，解壓縮並執行其中的 `keyviz-portable.exe`。請先結束舊版，並確認標題列為 `v1.0.17`。Artifacts 有保存期限，並非永久的正式版下載位置。
-- [v1.0.17 測試說明與操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.17.md)
+- [v1.0.17 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.17)
+- [v1.0.17 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41562333642)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.17`。
 
-The download above is the latest stable Release, not necessarily the newest test build. The **v1.0.17 test build** linked above fixes focused drawing-window Alt handling, commits text before opening the right-click menu, and excludes the toolbar from native input regions. It retains pointer mode before opening settings, circular-menu clear-all, and the pointer-mode undo/redo shortcut fix. GitHub sign-in is required to download Actions artifacts, and artifacts expire.
+The latest stable release is **v1.0.17**. The direct EXE download above does not require GitHub sign-in. This release fixes focused drawing-window Alt handling, commits text before opening the right-click menu, and excludes the toolbar from native input regions. It retains pointer mode before opening settings, circular-menu clear-all, and the pointer-mode undo/redo shortcut fix. Exit the old version before running the new EXE and confirm `v1.0.17` in the title bar.
 
 ## 功能介紹
 
-以下整理目前開發／測試版的功能；正式版實際內容請以對應的 Release 說明為準。
+以下整理 v1.0.17 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
 
 - 即時顯示鍵盤按鍵與快速鍵，方便教學、簡報、錄影與直播。
 - 支援多螢幕環境，可選擇按鍵顯示所在螢幕與位置。
@@ -36,7 +37,7 @@ The download above is the latest stable Release, not necessarily the newest test
 - 繪圖工具列可移動，並可在設定中選擇開啟於主要螢幕的左側或右側（預設右側）。
 - 可拖曳調整工具列按鈕順序，並選擇要顯示或隱藏的工具；游標工具固定保留。
 - 可依物件類型開啟或關閉「滑鼠移入編輯物件」；移入物件後可拖曳移動、以滾輪縮放。畫筆、矩形與圓形只在線條附近觸發，方便在空白內部繼續繪圖。
-- 雙圈純圖示工具選單可在滑鼠附近開啟，支援自訂快捷鍵（預設 `Q`）及畫布右鍵操作，減少移動到工具列的距離（v1.0.14 測試版，詳見下方）。
+- 雙圈純圖示工具選單可在滑鼠附近開啟，支援自訂快捷鍵（預設 `Q`）及畫布右鍵操作，減少移動到工具列的距離（詳見下方）。
 - 繪圖色塊會在目前選取顏色上顯示勾選標記，並保留原本顏色。
 - 快速鍵 `F8` 可開啟或關閉螢幕繪圖。
 - 在螢幕繪圖模式下按 `F7` 可切回游標/滑鼠模式。
@@ -49,14 +50,14 @@ The download above is the latest stable Release, not necessarily the newest test
 - 工具列與關於頁提供「恢復透明顯示層」，重新建立繪圖及游標醒目視窗並保留標註。
 - 「設定 → 關於 → 匯出診斷資料」可匯出螢幕、繪圖狀態、視窗、滑鼠 hook 與近期錯誤資訊，協助排查教室電腦的顯示問題。
 
-## 復原快捷鍵模式限制（v1.0.15 測試版）
+## 復原快捷鍵模式限制
 
 - 游標工具：Ctrl+Z 與 Ctrl+Shift+Z 由目前應用程式處理，不改變螢幕繪圖。
 - 繪圖工具：快捷鍵仍可復原／重做繪圖；設定視窗在前景或正在輸入文字標註時不觸發。
 - 工具列上的復原／重做按鈕仍可在游標模式使用；自訂復原快捷鍵也遵循上述限制。
 - [v1.0.15 操作檢查項目](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.15.md)
 
-## 雙圈圓形工具選單（v1.0.14 起的測試版）
+## 雙圈圓形工具選單
 
 使用繪圖工具時，無須記住每個工具的快捷鍵，也不用把滑鼠移回工具列：
 
@@ -79,11 +80,11 @@ The download above is the latest stable Release, not necessarily the newest test
 
 **操作範圍：**游標模式、設定視窗、按住左鍵繪圖，以及黑幕分層測試期間，不開啟選單。文字標註輸入期間不以鍵盤快捷鍵開啟選單；v1.0.17 起可按右鍵完成文字並開啟選單。右鍵開啟只適用於繪圖畫布，不改動工具列既有右鍵功能，例如恢復顯示按鈕的分層測試。
 
-測試版已通過自動化檢查，但不同教室電腦、多螢幕與錄影軟體的實際互動仍需驗證；此功能不代表所有黑幕或置頂問題均已解決。
+此版本已通過自動化檢查，但不同教室電腦、多螢幕與錄影軟體的實際互動仍需驗證；此功能不代表所有黑幕或置頂問題均已解決。
 
 ## Features
 
-This list describes the current development/test build. See each stable Release's notes for its exact feature set.
+This list describes the v1.0.17 stable release. See each Release's notes for version-specific changes.
 
 - Real-time keyboard and shortcut visualization for tutorials, presentations, screen recording, and live demos.
 - Multi-monitor support with configurable display and overlay position.
@@ -109,11 +110,11 @@ This list describes the current development/test build. See each stable Release'
 - Since v1.0.17, right-clicking while typing commits text and opens the circular menu. The input surfaces exclude the toolbar region to keep its buttons clickable after canvas activation. Pointer and selection tooltips omit the Alt hint.
 - Restore transparent overlays without discarding annotations, and export diagnostic JSON from Settings > About.
 
-### Undo/Redo Shortcut Scope (v1.0.15 Test Build)
+### Undo/Redo Shortcut Scope
 
 Since v1.0.15, undo/redo keyboard shortcuts only edit drawings with a drawing tool selected. Pointer mode leaves these keys to the current application. Foreground settings and active text annotation entry do not trigger drawing history shortcuts. Explicit toolbar undo/redo buttons still work in pointer mode.
 
-### Two-Ring Circular Menu (Test Builds Since v1.0.14)
+### Two-Ring Circular Menu
 
 - Press the configurable shortcut (default `Q`) or right-click the drawing canvas to open a compact icon menu near the pointer. Q also works immediately after clicking a toolbar tool, without first clicking the canvas.
 - Click an icon to select a tool. Press the shortcut again, Esc, or the right mouse button, or click the center/outside area to dismiss the menu without drawing.
