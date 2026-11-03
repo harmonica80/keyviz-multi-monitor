@@ -19,3 +19,15 @@
 7. 重測 v1.0.15 的游標模式 Ctrl+Z 保護，以及多螢幕、螢幕邊界的圓形選單位置。
 
 實際 Windows 焦點切換、多螢幕與錄影互動仍需使用者實測。此版本未變更軟體授權與透明繪圖的渲染方式。
+
+## 建置與驗證
+
+- Windows 雲端建置：[41558199785](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41558199785)，成功。
+- 建置來源：`22b409e99733418cf2ff202d6ec94ece35df1d25`。
+- 29 項原生繪圖／選單測試通過；47 項快捷鍵驗證、路由與右鍵偏好檢查通過。
+- 原生選單預覽已確認下方偏左垃圾桶與下方偏右直線圖示皆保留。
+- 交付檔名：`keyviz-portable-v1.0.16-alt-edit-test.exe`；Actions 中的同一檔案名稱為 `keyviz-portable.exe`。
+- 檔案大小：6,376,960 bytes；FileVersion 與 ProductVersion 均為 `1.0.16`，Windows PE 檔頭有效。
+- SHA-256：`7B30AC9EF99C0F2F887D5F57CF15C96C195311C2A21CA70AD98A445B25747C7A`。
+- 下載來源與本機交付檔雜湊一致。尚未在使用者電腦上執行互動測試，請依上方步驟驗證。
+- 僅提供測試分支及 Actions 產物，正式 Release 不變。
