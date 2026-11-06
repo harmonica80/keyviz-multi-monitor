@@ -20,12 +20,12 @@ The latest stable release is **v1.0.19**. The direct EXE download above does not
 
 ## 功能介紹
 
-### v1.0.21 文字大小測試版
+### v1.0.22 文字大小測試版
 
-新文字預設大小改為文字工具上限 15（原為 11，字型像素高度 44 → 60），既有文字與其他工具預設大小不變，當次執行中手動調整的文字大小仍保留。
+文字預設與最小大小為 15，最大為 45（字型像素高度 60～180），可用滑鼠滾輪放大至原預設的 3 倍，工具列大小控制同步支援新範圍。既有文字不會自動改大小；調整時才套用新範圍，其他工具不變。
 
-- [Windows 測試版建置與下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42192645295)：登入 GitHub 後，在 Artifacts 下載 `keyviz-portable`。請先結束舊版再執行，確認版本為 `v1.0.21`。測試產物有保存期限；上方正式版下載仍為 v1.0.19。
-- [測試與驗證說明](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.21.md)。36 項原生測試及 47 項快捷鍵檢查通過，實際操作仍需驗證。
+- [Windows 測試版建置與下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42195106532)：登入 GitHub 後，在 Artifacts 下載 `keyviz-portable`。請先結束舊版再執行，確認版本為 `v1.0.22`。測試產物有保存期限；上方正式版下載仍為 v1.0.19。
+- [測試與驗證說明](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.22.md)。37 項原生測試及 47 項快捷鍵檢查通過，實際操作仍需驗證。
 
 ### 文字編輯功能
 
