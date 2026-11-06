@@ -8,33 +8,32 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-目前最新正式版為 **v1.0.19**。上方連結直接下載正式版 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+目前最新正式版為 **v1.0.22**。上方連結直接下載正式版 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
 
-**v1.0.19** 增加文字預設大小、雙擊編輯內容、文字游標與拖曳選取，以及文字物件換色；保留 Alt 編輯切換、文字右鍵選單、工具列點擊修正及游標模式的復原快捷鍵保護。
+**v1.0.22** 將文字預設與最小值設為 15，最大值為 45，可用滾輪放大至預設的 3 倍；保留雙擊編輯、文字選取與換色，以及其他既有功能。
 
-- [v1.0.19 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.19)
-- [v1.0.19 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/41603054559)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.19`。
+- [v1.0.22 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.22)
+- [v1.0.22 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42195106532)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.22`。
 
-The latest stable release is **v1.0.19**. The direct EXE download above does not require GitHub sign-in. This release adds larger default text, double-click content editing, caret movement, mouse text selection, and whole-text-object color changes. It retains the Alt, right-click menu, toolbar input, and pointer-mode undo/redo fixes. Exit the old version before running the new EXE and confirm `v1.0.19` in the title bar.
+The latest stable release is **v1.0.22**. The direct EXE download above does not require GitHub sign-in. Text now defaults to size 15, with a 15–45 range allowing wheel enlargement up to three times the default height. Existing text editing and other features remain available. Exit the old version before running the new EXE and confirm `v1.0.22` in the title bar.
 
 ## 功能介紹
 
-### v1.0.22 文字大小測試版
+### 文字大小
 
 文字預設與最小大小為 15，最大為 45（字型像素高度 60～180），可用滑鼠滾輪放大至原預設的 3 倍，工具列大小控制同步支援新範圍。既有文字不會自動改大小；調整時才套用新範圍，其他工具不變。
 
-- [Windows 測試版建置與下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42195106532)：登入 GitHub 後，在 Artifacts 下載 `keyviz-portable`。請先結束舊版再執行，確認版本為 `v1.0.22`。測試產物有保存期限；上方正式版下載仍為 v1.0.19。
-- [測試與驗證說明](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.22.md)。37 項原生測試及 47 項快捷鍵檢查通過，實際操作仍需驗證。
+- 37 項原生測試及 47 項快捷鍵檢查通過，不同電腦的實際操作仍需驗證。
 
 ### 文字編輯功能
 
-- 新文字預設大小增加 3 級（5 → 8），不改變既有文字。
+- 新文字預設大小為 15，可在 15～45 之間調整，不自動改變既有文字。
 - 啟用物件編輯與文字類型偏好後，可雙擊文字修改內容，保留位置、旋轉、顏色及群組，支援復原／重做。
 - 文字內容可點擊中間插入／刪除、拖曳選取、方向鍵移動、Shift 選取與 Ctrl+A 全選；文字物件可在編輯／選取時換色，顏色套用至整個文字物件。
-- 已通過 36 項原生測試與 47 項快捷鍵相關檢查；不同電腦的實際鍵鼠操作仍需驗證。
+- 已通過 37 項原生測試與 47 項快捷鍵相關檢查；不同電腦的實際鍵鼠操作仍需驗證。
 
-以下整理 v1.0.19 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
+以下整理 v1.0.22 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
 
 - 即時顯示鍵盤按鍵與快速鍵，方便教學、簡報、錄影與直播。
 - 支援多螢幕環境，可選擇按鍵顯示所在螢幕與位置。
@@ -98,7 +97,7 @@ The latest stable release is **v1.0.19**. The direct EXE download above does not
 
 ## Features
 
-This list describes the v1.0.19 stable release, including larger default text, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
+This list describes the v1.0.22 stable release, including text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
 
 - Real-time keyboard and shortcut visualization for tutorials, presentations, screen recording, and live demos.
 - Multi-monitor support with configurable display and overlay position.
