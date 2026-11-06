@@ -2014,7 +2014,7 @@ dependencies = [
 
 [[package]]
 name = "keyviz"
-version = "1.0.19"
+version = "1.0.20"
 dependencies = [
  "cocoa 0.25.0",
  "objc",
