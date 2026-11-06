@@ -4273,7 +4273,7 @@ mod platform {
     }
 
     fn default_tool_width(tool: NativeTool) -> i32 {
-        if matches!(tool, NativeTool::Text) { 11 } else { 5 }
+        if matches!(tool, NativeTool::Text) { 15 } else { 5 }
     }
 
     fn replace_edit_selection(edit: &mut EditSession, text: &str) {
@@ -5175,9 +5175,9 @@ mod platform {
         }
 
         #[test]
-        fn text_default_increases_three_size_steps_only() {
-            assert_eq!(default_tool_width(NativeTool::Text), 11);
-            assert_eq!(text_font_size(11), text_font_size(8) + 12);
+        fn text_default_uses_tool_maximum_size() {
+            assert_eq!(default_tool_width(NativeTool::Text), 15);
+            assert_eq!(text_font_size(default_tool_width(NativeTool::Text)), 60);
             assert_eq!(default_tool_width(NativeTool::Pen), 5);
         }
 
