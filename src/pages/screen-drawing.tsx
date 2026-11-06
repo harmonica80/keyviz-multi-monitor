@@ -229,6 +229,8 @@ export default function ScreenDrawing() {
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(WIDTHS[1]);
+  const minWidth = tool === "text" ? 15 : MIN_WIDTH;
+  const maxWidth = tool === "text" ? 45 : MAX_WIDTH;
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
   const [operationHint, setOperationHint] = useState<{ text: string } | null>(null);
@@ -633,8 +635,8 @@ export default function ScreenDrawing() {
             onWheel={(event) => {
               event.preventDefault();
               const nextWidth = Math.min(
-                MAX_WIDTH,
-                Math.max(MIN_WIDTH, textEditor.width + (event.deltaY < 0 ? 1 : -1)),
+                45,
+                Math.max(15, textEditor.width + (event.deltaY < 0 ? 1 : -1)),
               );
               setWidth(nextWidth);
               updateTextEditor({ ...textEditor, width: nextWidth });
@@ -705,12 +707,12 @@ export default function ScreenDrawing() {
         <input
           aria-label={t("Line Thickness")}
           type="range"
-          min={MIN_WIDTH}
-          max={MAX_WIDTH}
+          min={minWidth}
+          max={maxWidth}
           step={1}
           value={width}
           style={{
-            "--drawing-width-progress": `${((width - MIN_WIDTH) / (MAX_WIDTH - MIN_WIDTH)) * 100}%`,
+            "--drawing-width-progress": `${Math.min(100, Math.max(0, ((width - minWidth) / (maxWidth - minWidth)) * 100))}%`,
           } as CSSProperties}
           onChange={(event) => void sendCommand({ type: "width", value: Number(event.target.value) })}
         />

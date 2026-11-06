@@ -1382,7 +1382,8 @@ mod platform {
                 ReleaseCapture();
                 let click_through = matches!(tool, NativeTool::Pointer);
                 state.tool = tool;
-                state.width = state.tool_widths.get(tool.as_str()).copied().unwrap_or(default_tool_width(tool));
+                state.width = clamp_tool_width(tool, false,
+                    state.tool_widths.get(tool.as_str()).copied().unwrap_or(default_tool_width(tool)));
                 emit_width(&state.app, state.width);
                 state.selected.clear();
                 state.selection = None;
@@ -1424,7 +1425,7 @@ mod platform {
                 refresh_overlay(state);
             }
             DrawingCommand::SetWidth(width) => {
-                let width = width.clamp(1, 15);
+                let width = clamp_tool_width(state.tool, state.edit.is_some(), width);
                 state.width = width;
                 remember_tool_width(state);
                 if let Some(edit) = state.edit.as_mut() { edit.width = width; }
@@ -1437,6 +1438,7 @@ mod platform {
                 ) {
                     replace_tool_cursor(state, false);
                 }
+                refresh_overlay(state);
             }
             DrawingCommand::Clear => clear_drawings(state),
             DrawingCommand::Undo | DrawingCommand::Redo | DrawingCommand::HistoryShortcut { .. } => {
@@ -2054,16 +2056,16 @@ mod platform {
                     let item = &state.drawings[state.selected[0]];
                     let current = match item {
                         DrawingItem::Number { width, .. } => Some(*width),
-                        DrawingItem::Text { width, .. } => Some((*width).max(5)),
+                        DrawingItem::Text { width, .. } => Some(*width),
                         _ => None,
                     };
                     if let Some(current) = current {
-                        let minimum = if matches!(item, DrawingItem::Text { .. }) { 5 } else { 1 };
+                        let (minimum, maximum) = if matches!(item, DrawingItem::Text { .. }) { (15, 45) } else { (1, 100) };
                         let next = if step > 0 {
                             ((current as f64 * scale).round() as i32).max(current + 1)
                         } else {
                             ((current as f64 * scale).round() as i32).min(current - 1)
-                        }.clamp(minimum, 100);
+                        }.clamp(minimum, maximum);
                         scale = if matches!(item, DrawingItem::Text { .. }) {
                             text_font_size(next) as f64 / text_font_size(drawing_width(item)) as f64
                         } else {
@@ -2085,8 +2087,9 @@ mod platform {
                 return;
             }
         }
-        if matches!(state.tool, NativeTool::Text) && state.edit.is_some() {
-            let width = (state.width + step).clamp(1, 15);
+        if matches!(state.tool, NativeTool::Text) || state.edit.is_some() {
+            let current = state.edit.as_ref().map(|edit| edit.width).unwrap_or(state.width);
+            let width = clamp_tool_width(NativeTool::Text, true, current + step);
             state.width = width;
             remember_tool_width(state);
             emit_wheel_hint(state, false);
@@ -4276,6 +4279,11 @@ mod platform {
         if matches!(tool, NativeTool::Text) { 15 } else { 5 }
     }
 
+    fn clamp_tool_width(tool: NativeTool, editing_text: bool, width: i32) -> i32 {
+        if editing_text || matches!(tool, NativeTool::Text) { width.clamp(15, 45) }
+        else { width.clamp(1, 15) }
+    }
+
     fn replace_edit_selection(edit: &mut EditSession, text: &str) {
         let start = edit.anchor.min(edit.caret);
         let end = edit.anchor.max(edit.caret);
@@ -5175,10 +5183,21 @@ mod platform {
         }
 
         #[test]
-        fn text_default_uses_tool_maximum_size() {
+        fn text_default_uses_tool_minimum_size() {
             assert_eq!(default_tool_width(NativeTool::Text), 15);
             assert_eq!(text_font_size(default_tool_width(NativeTool::Text)), 60);
             assert_eq!(default_tool_width(NativeTool::Pen), 5);
+        }
+
+        #[test]
+        fn text_range_starts_at_default_and_reaches_triple_height() {
+            assert_eq!(clamp_tool_width(NativeTool::Text, false, 14), 15);
+            assert_eq!(clamp_tool_width(NativeTool::Text, false, 16), 16);
+            assert_eq!(clamp_tool_width(NativeTool::Text, false, 46), 45);
+            assert_eq!(text_font_size(45), text_font_size(15) * 3);
+            assert_eq!(clamp_tool_width(NativeTool::Pen, true, 30), 30);
+            assert_eq!(clamp_tool_width(NativeTool::Pen, false, 30), 15);
+            assert_eq!(clamp_tool_width(NativeTool::Number, false, 0), 1);
         }
 
         #[test]
