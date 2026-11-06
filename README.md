@@ -20,6 +20,13 @@ The latest stable release is **v1.0.19**. The direct EXE download above does not
 
 ## 功能介紹
 
+### v1.0.20 文字大小測試版
+
+新文字預設大小再增加 3 級（8 → 11，字型像素高度 32 → 44），既有文字與其他工具預設大小不變，當次執行中手動調整的文字大小仍保留。
+
+- [Windows 測試版建置與下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42189528261)：登入 GitHub 後，在 Artifacts 下載 `keyviz-portable`。請先結束舊版再執行，確認版本為 `v1.0.20`。測試產物有保存期限；上方正式版下載仍為 v1.0.19。
+- [測試與驗證說明](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.20.md)。36 項原生測試及 47 項快捷鍵檢查通過，實際操作仍需驗證。
+
 ### 文字編輯功能
 
 - 新文字預設大小增加 3 級（5 → 8），不改變既有文字。
