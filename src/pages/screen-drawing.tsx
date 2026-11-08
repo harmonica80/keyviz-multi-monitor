@@ -17,6 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
   Check,
+  EyeOff,
   GripHorizontal,
   Group,
   Keyboard,
@@ -251,14 +252,16 @@ export default function ScreenDrawing() {
   const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
   const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
   const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
+  const radialStyle = useDrawingToolbar((state) => state.radialStyle);
   useEffect(() => {
     if (!isToolbar) return;
     void invoke("set_drawing_radial_menu", {
       shortcut: radialShortcut,
       rightClick: radialRightClick,
+      style: radialStyle,
       tools: toolbarItems.filter((item) => item.visible).map((item) => item.id),
     }).catch(console.error);
-  }, [isToolbar, radialShortcut, radialRightClick, toolbarItems]);
+  }, [isToolbar, radialShortcut, radialRightClick, radialStyle, toolbarItems]);
   useEffect(() => {
     if (!isToolbar) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -414,6 +417,9 @@ export default function ScreenDrawing() {
       const widthListener = listen<{ width: number }>("drawing-width-changed", (event) => {
         setWidth(event.payload.width);
       });
+      const colorListener = listen<string>("drawing-color-changed", (event) => {
+        setColor(event.payload);
+      });
       const selectionListener = listen<DrawingSelectionPayload>(
         "drawing-selection-changed",
         (event) => setSelectionState(event.payload),
@@ -432,6 +438,7 @@ export default function ScreenDrawing() {
         void hintListener.then((unlisten) => unlisten());
         void hoverToggleListener.then((unlisten) => unlisten());
         void widthListener.then((unlisten) => unlisten());
+        void colorListener.then((unlisten) => unlisten());
         void selectionListener.then((unlisten) => unlisten());
         void nativeCloseListener.then((unlisten) => unlisten());
         void toolbarSettingsListener.then((unlisten) => unlisten());
@@ -660,13 +667,23 @@ export default function ScreenDrawing() {
       >
         <GripHorizontal />
       </button>
-      <button
-        className="drawing-close"
-        title={`${t("Exit Drawing")}${closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`}
-        onClick={() => void invoke("close_screen_drawing")}
-      >
-        <X />
-      </button>
+      <div className="drawing-window-actions">
+        <button
+          title={t("Hide toolbar (keep drawings and current tool)")}
+          aria-label={t("Hide toolbar (keep drawings and current tool)")}
+          onClick={() => void invoke("hide_drawing_toolbar").catch(console.error)}
+        >
+          <EyeOff />
+        </button>
+        <button
+          className="drawing-close"
+          title={`${t("Exit Drawing")}${closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`}
+          aria-label={t("Exit Drawing")}
+          onClick={() => void invoke("close_screen_drawing")}
+        >
+          <X />
+        </button>
+      </div>
       {toolButtons.map(({ id, label, icon: Icon }) => (
         <button
           key={id}

@@ -42,6 +42,11 @@ fn radial_sector(index: usize) -> (f64, f64) {
     }
 }
 static RADIAL_OPEN: AtomicBool = AtomicBool::new(false);
+static TOOLBAR_HIDDEN: AtomicBool = AtomicBool::new(false);
+
+fn normalize_radial_style(style: &str) -> &str {
+    match style { "gray" | "colorful" | "blue" | "classic" | "minimal" => style, _ => "original" }
+}
 static RADIAL_ESCAPE_UNTIL: AtomicU64 = AtomicU64::new(0);
 
 fn radial_clock() -> u64 {
@@ -149,6 +154,7 @@ fn radial_shortcut(keys: &[String]) -> Result<RadialShortcut, String> {
 
 #[derive(Clone)]
 struct RadialGate {
+    pointer: bool,
     enabled: bool,
     open: bool,
     shortcut: RadialShortcut,
@@ -160,6 +166,7 @@ struct RadialGate {
 impl Default for RadialGate {
     fn default() -> Self {
         Self {
+            pointer: false,
             enabled: false,
             open: false,
             shortcut: RadialShortcut {
@@ -213,6 +220,9 @@ mod radial_keyboard {
         GA_ROOTOWNER, HHOOK, KBDLLHOOKSTRUCT, WH_KEYBOARD_LL, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
     };
     struct HookState {
+        left_owned: bool,
+        right_owned: bool,
+        suppress_alt_release: bool,
         gate: Arc<Mutex<RadialGate>>,
         sender: Sender<DrawingCommand>,
         down: [bool; 256],
@@ -231,6 +241,9 @@ mod radial_keyboard {
             }
             HOOK.with(|slot| {
                 *slot.borrow_mut() = Some(HookState {
+                    left_owned: false,
+                    right_owned: false,
+                    suppress_alt_release: false,
                     gate,
                     sender,
                     down,
@@ -248,14 +261,63 @@ mod radial_keyboard {
                 record_error("Failed to install radial menu keyboard hook");
                 return;
             };
+            let mouse_hook = SetWindowsHookExW(
+                windows::Win32::UI::WindowsAndMessaging::WH_MOUSE_LL, Some(mouse_callback),
+                GetModuleHandleW(None).unwrap_or_default(), 0);
+            if mouse_hook.is_err() { record_error("Failed to install pointer radial mouse hook"); }
             let mut message = MSG::default();
             while GetMessageW(&mut message, HWND(0), 0, 0).0 > 0 {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
             let _ = UnhookWindowsHookEx(hook);
+            if let Ok(mouse_hook) = mouse_hook { let _ = UnhookWindowsHookEx(mouse_hook); }
             HOOK.with(|slot| *slot.borrow_mut() = None);
         });
+    }
+
+    unsafe extern "system" fn mouse_callback(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        use windows::Win32::UI::WindowsAndMessaging::{WM_RBUTTONDOWN, WM_RBUTTONUP, WM_LBUTTONDOWN, WM_LBUTTONUP, MSLLHOOKSTRUCT};
+        if code < 0 { return CallNextHookEx(HHOOK(0), code, wparam, lparam); }
+        let consumed = HOOK.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let Some(hook) = slot.as_mut() else { return false; };
+            if wparam.0 as u32 == WM_LBUTTONUP && hook.left_owned {
+                hook.left_owned = false;
+                return true;
+            }
+            if wparam.0 as u32 == WM_RBUTTONUP && hook.right_owned {
+                hook.right_owned = false;
+                return true;
+            }
+            if !matches!(wparam.0 as u32, WM_RBUTTONDOWN | WM_LBUTTONDOWN) { return false; }
+            // Mouse gestures must never later become a bare Alt tap.
+            hook.alt.candidate = None;
+            let Ok(gate) = hook.gate.try_lock() else { return false; };
+            if gate.open {
+                let command = if wparam.0 as u32 == WM_LBUTTONDOWN {
+                    let event = &*(lparam.0 as *const MSLLHOOKSTRUCT);
+                    DrawingCommand::RadialClick { x: event.pt.x, y: event.pt.y }
+                } else { DrawingCommand::CancelRadial };
+                drop(gate);
+                if hook.sender.send(command).is_err() { return false; }
+                if wparam.0 as u32 == WM_LBUTTONDOWN { hook.left_owned = true; }
+                else { hook.right_owned = true; }
+                return true;
+            }
+            if wparam.0 as u32 != WM_RBUTTONDOWN { return false; }
+            let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER).0;
+            let extra = [0x11, 0x10, 0xa5, 0x5b, 0x5c, 1].iter().any(|key| GetAsyncKeyState(*key) < 0);
+            if !pointer_radial_allowed(gate.pointer, gate.open, GetAsyncKeyState(0xa4) < 0,
+                extra, gate.settings != 0 && foreground == gate.settings) { return false; }
+            let epoch = gate.epoch;
+            drop(gate);
+            if hook.sender.send(DrawingCommand::OpenPointerRadial { epoch }).is_err() { return false; }
+            hook.right_owned = true;
+            hook.suppress_alt_release = true;
+            true
+        });
+        if consumed { LRESULT(1) } else { CallNextHookEx(HHOOK(0), code, wparam, lparam) }
     }
 
     unsafe extern "system" fn callback(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
@@ -276,6 +338,13 @@ mod radial_keyboard {
             };
             let repeated = hook.down[vk];
             hook.down[vk] = down;
+            if matches!(vk, 0x12 | 0xa4 | 0xa5) && up && hook.suppress_alt_release {
+                hook.suppress_alt_release = false;
+                hook.alt.candidate = None;
+                // Always deliver the release: swallowing it can leave another
+                // application's Alt state stuck after it received the press.
+                return false;
+            }
             let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER).0;
             let context = hook.gate.try_lock().ok().and_then(|gate| {
                 alt_hook_context(&gate, foreground, GetAsyncKeyState(1) < 0 || GetAsyncKeyState(2) < 0)
@@ -343,7 +412,9 @@ mod radial_keyboard {
     }
 }
 
+
 struct RadialMenu {
+    panel: [RECT; 5],
     center: Point,
     radius: f64,
     hovered: Option<usize>,
@@ -351,6 +422,9 @@ struct RadialMenu {
 
 impl RadialMenu {
     fn hit(&self, point: Point) -> Option<usize> {
+        if let Some(index) = self.panel.iter().position(|rect| point_in_rect(point, *rect)) {
+            return Some(13 + index);
+        }
         let x = (point.x - self.center.x) as f64;
         let y = (point.y - self.center.y) as f64;
         let r = x.hypot(y) / self.radius;
@@ -411,6 +485,7 @@ unsafe fn radial_right_click(state: &mut OverlayState) {
 fn sync_radial_gate(state: &OverlayState) {
     if let Ok(mut gate) = state.radial_gate.lock() {
         gate.epoch = state.input_epoch;
+        gate.pointer = state.visible && state.tool == NativeTool::Pointer && state.probe.is_none();
         gate.input_windows = state.surfaces.iter().map(|surface| surface.input_hwnd.0).collect();
         // Mouse-button state blocks live gestures. A missed mouse-up must not
         // permanently disable the shortcut via a stale active/selection value.
@@ -468,10 +543,38 @@ unsafe fn radial_window_key(state: &mut OverlayState, key: u32, lparam: LPARAM) 
 
 unsafe fn cancel_radial(state: &mut OverlayState) {
     if state.radial.take().is_some() {
+        if state.tool == NativeTool::Pointer {
+            state.click_through = true;
+            sync_input_surface_visibility(state);
+        }
         sync_radial_gate(state);
         replace_tool_cursor(state, true);
         refresh_overlay(state);
     }
+}
+
+fn pointer_radial_allowed(pointer: bool, open: bool, left_alt: bool, extra: bool, settings: bool) -> bool {
+    pointer && !open && left_alt && !extra && !settings
+}
+
+fn radial_panel_rects(menu: &RadialMenu) -> [RECT; 5] { menu.panel }
+
+fn make_radial_panel(center: Point, radius: f64, bounds: RECT) -> [RECT; 5] {
+    let size = (radius * 0.34).round().max(20.0) as i32;
+    let gap = 3;
+    let offset = (radius * 0.75).round() as i32;
+    let width = size * 2 + gap;
+    let height = size * 3 + gap * 2;
+    let x = if center.x + offset + width <= bounds.right { center.x + offset }
+        else { center.x - offset - width };
+    let y = if center.y + offset + height <= bounds.bottom { center.y + offset }
+        else { center.y - offset - height };
+    let x = x.clamp(bounds.left, (bounds.right - width).max(bounds.left));
+    let y = y.clamp(bounds.top, (bounds.bottom - height).max(bounds.top));
+    std::array::from_fn(|i| RECT { left: x + (i as i32 % 2) * (size + gap),
+        top: y + (i as i32 / 2) * (size + gap),
+        right: if i == 4 { x + width } else { x + (i as i32 % 2) * (size + gap) + size },
+        bottom: y + (i as i32 / 2) * (size + gap) + size })
 }
 
 fn radial_center(cursor: Point, bounds: RECT, radius: f64) -> Point {
@@ -549,7 +652,12 @@ unsafe fn toggle_radial(state: &mut OverlayState) {
             }
         }
     }
+    let panel = make_radial_panel(center, radius, surface.bounds).map(|rect| RECT {
+        left: rect.left - state.bounds.left, right: rect.right - state.bounds.left,
+        top: rect.top - state.bounds.top, bottom: rect.bottom - state.bounds.top,
+    });
     state.radial = Some(RadialMenu {
+        panel,
         center: Point {
             x: center.x - state.bounds.left,
             y: center.y - state.bounds.top,
@@ -568,7 +676,23 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
     let Some(menu) = state.radial.as_ref() else {
         return false;
     };
-    let action = menu.hit(point).and_then(|index| radial_action(index, &state.radial_tools));
+    let hit = menu.hit(point);
+    if let Some(index @ 13..=17) = hit {
+        state.radial_ignore_up = true;
+        let app = state.app.clone();
+        thread::spawn(move || {
+            let result = match index {
+                13 => crate::app::commands::drawing_set_color(app, "#ef2b2d".into()),
+                14 => crate::app::commands::drawing_set_color(app, "#000000".into()),
+                15 => crate::app::commands::drawing_undo(app),
+                16 => crate::app::commands::drawing_redo(app),
+                _ => crate::show_drawing_toolbar(&app),
+            };
+            if let Err(error) = result { record_error(format!("Radial panel action failed: {error}")); }
+        });
+        return true;
+    }
+    let action = hit.and_then(|index| radial_action(index, &state.radial_tools));
     cancel_radial(state);
     state.radial_ignore_up = true;
     if action == Some(RadialAction::Clear) {
@@ -587,72 +711,6 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
     true
 }
 
-unsafe fn draw_radial(dc: HDC, menu: &RadialMenu, tools: &[NativeTool]) {
-    with_gdiplus_graphics(dc, false, |graphics| {
-        let fill = |points: &[WinPoint], color| {
-            let mut brush = std::ptr::null_mut();
-            if GdipCreateSolidFill(color, &mut brush) == 0 {
-                GdipFillPolygonI(graphics, brush, points.as_ptr(), points.len() as i32, 0);
-                GdipDeleteBrush(brush);
-            }
-        };
-        let point = |angle: f64, radius: f64| WinPoint {
-            x: menu.center.x + (angle.cos() * radius).round() as i32,
-            y: menu.center.y + (angle.sin() * radius).round() as i32,
-        };
-        if let Some(pen) = create_gdiplus_pen(0xffc4cad2, 1) {
-            for index in 0..=RADIAL_CLEAR_SLOT {
-                let inner = menu.radius * if index < 6 { 0.22 } else { 0.61 };
-                let outer = menu.radius * if index < 6 { 0.61 } else { 1.0 };
-                let (angle, sweep) = radial_sector(index);
-                let points: Vec<WinPoint> = (0..=20)
-                    .map(|step| point(angle + step as f64 * sweep / 20.0, outer))
-                    .chain((0..=20).rev().map(|step| {
-                        point(angle + step as f64 * sweep / 20.0, inner)
-                    }))
-                    .collect();
-                let enabled = radial_action(index, tools).is_some();
-                fill(
-                    &points,
-                    if menu.hovered == Some(index) && enabled {
-                        0xffdcecff
-                    } else {
-                        0xfffafbfd
-                    },
-                );
-                GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32);
-            }
-            GdipDeletePen(pen);
-        }
-        let hub: Vec<WinPoint> = (0..96)
-            .map(|i| point(i as f64 * std::f64::consts::TAU / 96.0, menu.radius * 0.22))
-            .collect();
-        fill(&hub, 0xffedf0f4);
-        true
-    });
-    for index in 0..=RADIAL_CLEAR_SLOT {
-        let Some(action) = radial_action(index, tools) else { continue; };
-        let (start, sweep) = radial_sector(index);
-        let angle = start + sweep / 2.0;
-        let r = menu.radius * if index < 6 { 0.415 } else { 0.805 };
-        let center = Point {
-            x: menu.center.x + (r * angle.cos()).round() as i32,
-            y: menu.center.y + (r * angle.sin()).round() as i32,
-        };
-        match action {
-            RadialAction::Tool(tool) => draw_radial_icon(dc, tool, center, menu.radius / 156.0, menu.hovered == Some(index)),
-            RadialAction::Clear => draw_radial_clear_icon(dc, center, menu.radius / 156.0, menu.hovered == Some(index)),
-        }
-    }
-    // The hub is cancellation, not another tool.
-    draw_radial_icon(
-        dc,
-        NativeTool::CrossMark,
-        menu.center,
-        menu.radius / 240.0,
-        false,
-    );
-}
 
 unsafe fn draw_radial_clear_icon(dc: HDC, center: Point, scale: f64, hovered: bool) {
     let color = if hovered { COLORREF(0x3020c0) } else { COLORREF(0x38332e) };
@@ -772,6 +830,26 @@ unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64,
 mod radial_hover_tests {
     use super::*;
     #[test]
+    fn pointer_combo_is_exclusive_and_panel_flips_inside_monitors() {
+        assert!(pointer_radial_allowed(true, false, true, false, false));
+        assert!(!pointer_radial_allowed(false, false, true, false, false));
+        assert!(!pointer_radial_allowed(true, false, false, false, false));
+        assert!(!pointer_radial_allowed(true, false, true, true, false));
+        assert!(!pointer_radial_allowed(true, false, true, false, true));
+        assert!(!pointer_radial_allowed(true, true, true, false, false));
+        let bounds = RECT { left: -1920, top: -200, right: 0, bottom: 880 };
+        for center in [Point { x: -90, y: 790 }, Point { x: -1830, y: -110 }] {
+            for rect in make_radial_panel(center, 78.0, bounds) {
+                assert!(rect.left >= bounds.left && rect.right <= bounds.right);
+                assert!(rect.top >= bounds.top && rect.bottom <= bounds.bottom);
+            }
+        }
+        assert_eq!(normalize_radial_style("legacy"), "original");
+        for style in ["original", "gray", "colorful", "blue", "classic", "minimal"] {
+            assert_eq!(normalize_radial_style(style), style);
+        }
+    }
+    #[test]
     fn alt_tap_toggles_once_on_release_not_on_repeat() {
         let mut alt = AltTapTracker::default();
         let context = Some((4, 42));
@@ -867,21 +945,31 @@ mod radial_hover_tests {
             let canvas = surface.canvas.as_ref().unwrap();
             let pixels = std::slice::from_raw_parts_mut(canvas.bits as *mut u32, 360 * 360);
             pixels.fill(0);
-            draw_radial(
+            let panel = make_radial_panel(Point { x: 180, y: 180 }, RADIAL_RADIUS,
+                RECT { left: 0, top: 0, right: 360, bottom: 360 });
+            draw_radial_styled(
                 HDC(canvas.memory_dc.0),
                 &RadialMenu {
+                    panel,
                     center: Point { x: 180, y: 180 },
                     radius: RADIAL_RADIUS,
                     hovered: Some(1),
                 },
                 &RADIAL_TOOLS,
+                "original",
+                &panel,
+                true,
+                false,
+                true,
             );
             assert!(GdiFlush().as_bool());
             assert_eq!(pixels[0], 0);
             assert_ne!(pixels[180 * 360 + 185], 0);
             let painted = pixels.iter().filter(|pixel| **pixel != 0).count();
-            assert!((17_000..21_000).contains(&painted));
-            assert_eq!(pixels[180 * 360 + 270], 0);
+            let panel_area: i32 = panel.iter().map(|rect|
+                (rect.right - rect.left) * (rect.bottom - rect.top)).sum();
+            assert!((17_000 + panel_area as usize..21_000 + panel_area as usize).contains(&painted));
+            assert_eq!(pixels[180 * 360 + 350], 0);
             if let Ok(path) = std::env::var("KEYVIZ_RADIAL_PREVIEW") {
                 let bytes = std::slice::from_raw_parts(canvas.bits as *const u8, 360 * 360 * 4);
                 let mut bmp = Vec::new();
@@ -907,6 +995,8 @@ mod radial_hover_tests {
     #[test]
     fn two_rings_keep_all_tools_and_add_clear_with_neutral_center() {
         let menu = RadialMenu {
+            panel: make_radial_panel(Point { x: -600, y: 300 }, RADIAL_RADIUS,
+                RECT { left: -1920, top: 0, right: 0, bottom: 1080 }),
             center: Point { x: -600, y: 300 },
             radius: RADIAL_RADIUS,
             hovered: None,
@@ -1043,7 +1133,7 @@ mod radial_hover_tests {
             DrawingCommand::CancelRadial
         ));
         overlay
-            .configure_radial(vec!["KeyQ".into()], vec!["pen".into()], false)
+            .configure_radial(vec!["KeyQ".into()], vec!["pen".into()], false, "original".into())
             .unwrap();
         assert!(matches!(
             receiver.try_recv().unwrap(),

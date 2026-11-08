@@ -40,6 +40,7 @@ pub struct AppState {
     pub key_overlay: NativeKeyOverlay,
     pub drawing_overlay: NativeDrawingOverlay,
     pub drawing_visible: bool,
+    pub drawing_toolbar_hidden: bool,
     pub settings_opening: bool,
     pub drawing_tool: String,
     pub drawing_session_id: u64,
@@ -55,6 +56,7 @@ pub struct AppState {
 pub struct TrayMenuItems {
     pub toggle: MenuItem<Wry>,
     pub drawing: MenuItem<Wry>,
+    pub show_drawing_toolbar: MenuItem<Wry>,
     pub settings: MenuItem<Wry>,
     pub quit: MenuItem<Wry>,
 }
@@ -176,6 +178,7 @@ impl AppState {
             key_overlay: NativeKeyOverlay::new(),
             drawing_overlay: NativeDrawingOverlay::new(app),
             drawing_visible: false,
+            drawing_toolbar_hidden: false,
             settings_opening: false,
             drawing_tool: "pen".to_string(),
             drawing_session_id: 0,

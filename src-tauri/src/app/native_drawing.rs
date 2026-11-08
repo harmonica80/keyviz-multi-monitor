@@ -65,6 +65,7 @@ mod platform {
     const ROTATION_HANDLE_OFFSET: i32 = 24;
 
     include!("drawing_radial.rs");
+    include!("drawing_radial_render.rs");
 
     #[repr(C)]
     struct GdiplusStartupInput {
@@ -247,7 +248,10 @@ mod platform {
         },
         SetHoverEdit(std::collections::HashMap<String, bool>),
         ToggleHoverEdit { epoch: u64 },
-        ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool },
+        ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String },
+        SetToolbarHidden(bool),
+        OpenPointerRadial { epoch: u64 },
+        RadialClick { x: i32, y: i32 },
         ToggleRadial,
         CancelRadial,
         SetColor(String),
@@ -412,6 +416,8 @@ mod platform {
         radial: Option<RadialMenu>,
         radial_tools: Vec<NativeTool>,
         radial_right_click: bool,
+        radial_style: String,
+        toolbar_hidden: bool,
         radial_gate: Arc<Mutex<RadialGate>>,
         radial_ignore_up: bool,
         probe: Option<LayerProbe>,
@@ -695,11 +701,16 @@ mod platform {
             }
         }
 
-        pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>, right_click: bool) -> Result<(), String> {
+        pub fn set_toolbar_hidden(&self, hidden: bool) {
+            TOOLBAR_HIDDEN.store(hidden, Ordering::Relaxed);
+            if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::SetToolbarHidden(hidden)); }
+        }
+
+        pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: String) -> Result<(), String> {
             let shortcut = radial_shortcut(&shortcut)?;
             let tools = tools.iter().filter_map(|id| parse_tool(id)).collect();
             self.sender.as_ref().ok_or("Drawing input thread is unavailable")?
-                .send(DrawingCommand::ConfigureRadial { shortcut, tools, right_click })
+                .send(DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style })
                 .map_err(|error| error.to_string())
         }
 
@@ -890,6 +901,8 @@ mod platform {
                     radial: None,
                     radial_tools: RADIAL_TOOLS.to_vec(),
                     radial_right_click: true,
+                    radial_style: "original".into(),
+                    toolbar_hidden: false,
                     radial_gate,
                     radial_ignore_up: false,
                     probe: None,
@@ -1226,7 +1239,10 @@ mod platform {
 
         if state.radial.is_some() && !matches!(&command,
             DrawingCommand::ToggleRadial | DrawingCommand::CancelRadial | DrawingCommand::Raise
-            | DrawingCommand::SetToolbarPassthrough(_) | DrawingCommand::PointerMove { .. }) {
+            | DrawingCommand::SetToolbarPassthrough(_) | DrawingCommand::PointerMove { .. }
+            | DrawingCommand::SetColor(_) | DrawingCommand::Undo | DrawingCommand::Redo
+            | DrawingCommand::SetToolbarHidden(_) | DrawingCommand::RadialClick { .. }
+            | DrawingCommand::PointerDown { .. } | DrawingCommand::PointerUp { .. }) {
             cancel_radial(state);
         }
 
@@ -1247,7 +1263,33 @@ mod platform {
         }
 
         match command {
-            DrawingCommand::ConfigureRadial { shortcut, tools, right_click } => {
+            DrawingCommand::RadialClick { x, y } => {
+                if state.radial.is_some() {
+                    radial_click(state, Point { x: x - state.bounds.left, y: y - state.bounds.top });
+                }
+            }
+            DrawingCommand::SetToolbarHidden(hidden) => {
+                state.toolbar_hidden = hidden;
+                refresh_overlay(state);
+            }
+            DrawingCommand::OpenPointerRadial { epoch } => {
+                if epoch == state.input_epoch && state.visible && state.tool == NativeTool::Pointer
+                    && state.probe.is_none() && state.radial.is_none() {
+                    state.click_through = false;
+                    sync_input_surface_visibility(state);
+                    if let Some(hwnd) = first_surface_hwnd(state) {
+                        let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
+                        let _ = SetFocus(hwnd);
+                    }
+                    toggle_radial(state);
+                    if state.radial.is_none() {
+                        state.click_through = true;
+                        sync_input_surface_visibility(state);
+                    }
+                }
+            }
+            DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style } => {
+                state.radial_style = normalize_radial_style(&style).into();
                 state.radial_tools = tools;
                 state.radial_right_click = right_click;
                 let settings = state.app.get_webview_window("settings")
@@ -1406,6 +1448,7 @@ mod platform {
             }
             DrawingCommand::SetColor(color) => {
                 state.color = parse_color(&color);
+                let _ = state.app.emit_to("drawing-toolbar", "drawing-color-changed", &color);
                 if let Some(edit) = state.edit.as_mut() { edit.color = state.color; }
                 else if !state.selected.is_empty() {
                     let before = state.drawings.clone();
@@ -1566,6 +1609,7 @@ mod platform {
                 raise_toolbar(&state.app);
             }
             DrawingCommand::PointerDown { x, y } => {
+                if state.radial.is_some() { return; }
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     let capture_hwnd = surface_hwnd_for_point(state, point);
                     begin_drawing_at(state, point, capture_hwnd);
@@ -1577,6 +1621,7 @@ mod platform {
                 }
             }
             DrawingCommand::PointerUp { x, y } => {
+                if state.radial.is_some() { return; }
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     finish_drawing_at(state, point);
                 }
@@ -1640,6 +1685,7 @@ mod platform {
             windows::Win32::UI::WindowsAndMessaging::WM_RBUTTONDOWN => {
                 if let Ok(mut guard) = overlay_state().lock() {
                     if let Some(state) = guard.as_mut() {
+                        state.window_alt.candidate = None;
                         if is_surface_hwnd(state, hwnd) {
                             if let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) {
                                 if !is_toolbar_passthrough_point(state, point, false) {
@@ -2433,7 +2479,10 @@ mod platform {
                 edit.rotation,
             );
         }
-        if let Some(menu) = &state.radial { draw_radial(drawing_dc, menu, &state.radial_tools); }
+        if let Some(menu) = &state.radial {
+            draw_radial_styled(drawing_dc, menu, &state.radial_tools, &state.radial_style,
+                &radial_panel_rects(menu), !state.history.undo.is_empty(), !state.history.redo.is_empty(), state.toolbar_hidden);
+        }
         SetViewportOrgEx(drawing_dc, old_origin.x, old_origin.y, None);
 
         if !GdiFlush().as_bool() {
@@ -4563,6 +4612,7 @@ mod platform {
     }
 
     fn raise_toolbar(app: &AppHandle) {
+        if TOOLBAR_HIDDEN.load(Ordering::Relaxed) { return; }
         let Some(toolbar) = app.get_webview_window("drawing-toolbar") else {
             return;
         };
@@ -5613,7 +5663,8 @@ mod platform_stub {
         pub fn hide(&self) {}
         pub fn set_tool(&self, _tool: NativeTool) {}
         pub fn prepare_for_settings(&self) -> Result<(), String> { Ok(()) }
-        pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>, _right_click: bool) -> Result<(), String> { Ok(()) }
+        pub fn set_toolbar_hidden(&self, _hidden: bool) {}
+        pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>, _right_click: bool, _style: String) -> Result<(), String> { Ok(()) }
         pub fn radial_menu_action(&self, _cancel: bool) -> Result<(), String> { Ok(()) }
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}

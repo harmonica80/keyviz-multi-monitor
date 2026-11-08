@@ -263,6 +263,104 @@ body.drawing-page #root {
   background: #c83737;
 }
 
+.drawing-window-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  height: 38px;
+}
+
+.drawing-toolbar .drawing-window-actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+.radial-style-preview {
+  --radial-line: #b8bec5;
+  --radial-fill: #fff;
+  --radial-ink: #454b54;
+  position: relative;
+  display: block;
+  width: 104px;
+  height: 104px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  margin-inline: auto;
+  color: var(--radial-ink);
+}
+
+.radial-preview-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--radial-line);
+  border-radius: 50%;
+  background: repeating-conic-gradient(from -30deg, var(--radial-line) 0deg 0.6deg, transparent 0.6deg 60deg), var(--radial-fill);
+}
+
+.radial-preview-inner {
+  inset: 22%;
+  background: repeating-conic-gradient(from -30deg, var(--radial-line) 0deg 0.8deg, transparent 0.8deg 60deg), var(--radial-fill);
+}
+
+.radial-preview-icon {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+}
+
+.radial-preview-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.2;
+}
+
+.radial-preview-center {
+  position: absolute;
+  inset: 44%;
+  border: 1px solid var(--radial-line);
+  border-radius: 50%;
+  background: var(--radial-fill);
+}
+
+.radial-style-preview[data-style="gray"] {
+  --radial-fill: #e1e4e8;
+  --radial-line: #8b929b;
+  --radial-ink: #414750;
+}
+
+.radial-style-preview[data-style="colorful"] {
+  --radial-fill: #fff8e8;
+  --radial-line: #fff;
+  --radial-ink: #38465e;
+}
+
+.radial-style-preview[data-style="colorful"] .radial-preview-outer {
+  background: conic-gradient(from -30deg, #f8b4b4 0deg 60deg, #fed7aa 60deg 120deg, #fef08a 120deg 180deg, #bbf7d0 180deg 240deg, #bfdbfe 240deg 300deg, #ddd6fe 300deg);
+}
+
+.radial-style-preview[data-style="blue"] {
+  --radial-fill: #e8f3ff;
+  --radial-line: #6aa5df;
+  --radial-ink: #205a9c;
+}
+
+.radial-style-preview[data-style="classic"] {
+  --radial-fill: #fbf2df;
+  --radial-line: #aa926a;
+  --radial-ink: #624f35;
+}
+
+.radial-style-preview[data-style="classic"] .radial-preview-ring {
+  border-width: 2px;
+}
+
+.radial-style-preview[data-style="minimal"] {
+  --radial-fill: #fff;
+  --radial-line: #e1e5eb;
+  --radial-ink: #667085;
+}
+
 .drawing-toolbar .drawing-drag-handle {
   min-height: 24px;
   cursor: move;

@@ -197,6 +197,7 @@ export const GeneralSettings = () => {
                     />
                     <ShortcutRow
                         label={t("Return To Mouse Mode")}
+                        description={t("Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode without clearing drawings, even when the toolbar is hidden.")}
                         value={drawingPointerShortcut}
                         onChange={(shortcut) => {
                             setDrawingPointerShortcut(shortcut);
@@ -235,15 +236,17 @@ export const GeneralSettings = () => {
 
 const ShortcutRow = ({
     label,
+    description,
     value,
     onChange,
 }: {
     label: string;
+    description?: string;
     value: string[];
     onChange: (shortcut: string[]) => void;
 }) => (
-    <div className="grid gap-2 md:grid-cols-[10rem_1fr] md:items-center">
-        <span className="text-sm text-muted-foreground">{label}</span>
+    <div className="grid gap-2 md:grid-cols-[10rem_1fr] md:items-center" title={description}>
+        <span className="text-sm text-muted-foreground">{label}{description && <span className="mt-1 block text-xs">{description}</span>}</span>
         <ShortcutRecorder value={value} onChange={onChange} />
     </div>
 );

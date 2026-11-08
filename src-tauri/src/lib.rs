@@ -11,7 +11,7 @@ mod app;
 use app::commands::{
     drawing_clear, drawing_redo, drawing_recover, drawing_probe_layer, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
     drawing_undo, get_cursor_settings, hide_native_key_overlay, log, set_cursor_settings,
-    set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut, set_tray_locale,
+    set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut,
     update_native_key_overlay, update_overlay_window,
 };
 use app::diagnostics::{export_diagnostics, record_error};
@@ -295,6 +295,9 @@ fn drawing_toolbar_open_position(app: &AppHandle, side: &str) -> Result<(i32, i3
 }
 
 fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
+    if !drawing_toolbar_visible(app)? {
+        return Ok(());
+    }
     let toolbar = app
         .get_webview_window("drawing-toolbar")
         .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
@@ -332,12 +335,15 @@ fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
     }
 
     #[cfg(not(target_os = "windows"))]
-    toolbar.show().map_err(|error| error.to_string())?;
+    toolbar.set_always_on_top(true).map_err(|error| error.to_string())?;
 
     Ok(())
 }
 
 fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
+    if !drawing_toolbar_visible(app)? {
+        return Ok(());
+    }
     let toolbar = app
         .get_webview_window("drawing-toolbar")
         .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
@@ -363,6 +369,10 @@ fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
         let padding = 12;
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|error| error.to_string())?;
+        if !app_state.drawing_visible || app_state.drawing_toolbar_hidden {
+            app_state.drawing_overlay.set_toolbar_passthrough(None);
+            return Ok(());
+        }
         app_state.drawing_overlay.set_toolbar_passthrough(Some((
             rect.left - padding,
             rect.top - padding,
@@ -380,6 +390,10 @@ fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
         let padding = 12;
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|error| error.to_string())?;
+        if !app_state.drawing_visible || app_state.drawing_toolbar_hidden {
+            app_state.drawing_overlay.set_toolbar_passthrough(None);
+            return Ok(());
+        }
         app_state.drawing_overlay.set_toolbar_passthrough(Some((
             position.x - padding,
             position.y - padding,
@@ -389,6 +403,62 @@ fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn drawing_toolbar_visible(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().map_err(|error| error.to_string())?;
+    Ok(state.drawing_visible && !state.drawing_toolbar_hidden)
+}
+
+fn set_drawing_toolbar_visible(app: &AppHandle, visible: bool) -> Result<(), String> {
+    let toolbar = app.get_webview_window("drawing-toolbar")
+        .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, ShowWindow, GA_ROOT, SW_HIDE, SW_SHOWNOACTIVATE,
+        };
+        let hwnd = HWND(toolbar.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        let target = if root.0 == 0 { hwnd } else { root };
+        unsafe { let _ = ShowWindow(target, if visible { SW_SHOWNOACTIVATE } else { SW_HIDE }); }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if visible { toolbar.show() } else { toolbar.hide() }
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_drawing_toolbar(app: AppHandle) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().map_err(|error| error.to_string())?;
+        if !state.drawing_visible { return Ok(()); }
+        state.drawing_toolbar_hidden = true;
+        state.drawing_overlay.set_toolbar_hidden(true);
+        state.drawing_overlay.set_toolbar_passthrough(None);
+    }
+    set_drawing_toolbar_visible(&app, false)
+}
+
+pub(crate) fn show_drawing_toolbar(app: &AppHandle) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().map_err(|error| error.to_string())?;
+        if !state.drawing_visible { return Ok(()); }
+        state.drawing_toolbar_hidden = false;
+        state.drawing_overlay.set_toolbar_hidden(false);
+    }
+    set_drawing_toolbar_visible(app, true)?;
+    keep_drawing_toolbar_above_canvas(app)?;
+    sync_drawing_toolbar_passthrough(app)?;
+    app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ())
+        .map_err(|error| error.to_string())
 }
 
 fn schedule_drawing_toolbar_passthrough_sync(app: &AppHandle) {
@@ -439,6 +509,8 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     if app_state.settings_opening { return Err("Wait for settings to finish opening".into()); }
     app_state.pressed_keys.clear();
     app_state.drawing_visible = true;
+    app_state.drawing_toolbar_hidden = false;
+    app_state.drawing_overlay.set_toolbar_hidden(false);
     app_state.drawing_tool = "pen".to_string();
     app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
     let drawing_session_id = app_state.drawing_session_id;
@@ -453,6 +525,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     app_state.drawing_overlay.set_click_through(false);
     app_state.drawing_overlay.raise();
     drop(app_state);
+    set_drawing_toolbar_visible(app, true)?;
     let _ = app.emit("drawing-tool-changed", serde_json::json!({ "tool": "pen" }));
     let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ());
     keep_drawing_toolbar_above_canvas(app)?;
@@ -551,6 +624,22 @@ fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
     Ok(app_state.listening)
 }
 
+fn show_drawing_toolbar_label(is_chinese: bool) -> &'static str {
+    if is_chinese {
+        "\u{986f}\u{793a}\u{7e6a}\u{5716}\u{5de5}\u{5177}\u{5217}"
+    } else {
+        "Show Drawing Toolbar"
+    }
+}
+
+#[tauri::command]
+fn set_tray_locale(app: AppHandle, locale: String) -> Result<(), String> {
+    app.state::<TrayMenuItems>().show_drawing_toolbar
+        .set_text(show_drawing_toolbar_label(locale == "zh-TW"))
+        .map_err(|error| error.to_string())?;
+    app::commands::set_tray_locale(app, locale)
+}
+
 #[tauri::command]
 fn open_settings_window(app: AppHandle) -> Result<(), String> {
     let app_handle = app.clone();
@@ -567,10 +656,10 @@ fn set_drawing_hover_edit(app: AppHandle, preferences: std::collections::HashMap
 }
 
 #[tauri::command]
-fn set_drawing_radial_menu(app: AppHandle, shortcut: Vec<String>, tools: Vec<String>, right_click: bool) -> Result<(), String> {
-    let state = app.state::<Mutex<AppState>>();
-    let state = state.lock().map_err(|error| error.to_string())?;
-    state.drawing_overlay.configure_radial(shortcut, tools, right_click)
+fn set_drawing_radial_menu(app: AppHandle, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: Option<String>) -> Result<(), String> {
+    let overlay = app.state::<Mutex<AppState>>()
+        .lock().map_err(|error| error.to_string())?.drawing_overlay.clone();
+    overlay.configure_radial(shortcut, tools, right_click, style.unwrap_or_else(|| "original".into()))
 }
 
 #[tauri::command]
@@ -591,7 +680,7 @@ fn set_drawing_toolbar_side(app: AppHandle, side: String) -> Result<(), String> 
         let state = app.state::<Mutex<AppState>>();
         let mut app_state = state.lock().map_err(|error| error.to_string())?;
         app_state.drawing_toolbar_side.clone_from(&normalized_side);
-        app_state.drawing_visible
+        app_state.drawing_visible && !app_state.drawing_toolbar_hidden
     };
 
     if drawing_visible {
@@ -609,6 +698,9 @@ pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.pressed_keys.clear();
     app_state.drawing_visible = false;
+    app_state.drawing_toolbar_hidden = false;
+    app_state.drawing_overlay.set_toolbar_hidden(false);
+    app_state.drawing_overlay.set_toolbar_passthrough(None);
     app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
     app_state.drawing_input_passthrough = false;
     app_state.drawing_pointer_down = false;
@@ -658,11 +750,13 @@ fn set_drawing_click_through(app: AppHandle, enabled: bool) -> Result<(), String
         app_state.drawing_last_move = None;
     }
     app_state.drawing_overlay.set_click_through(enabled);
+    drop(app_state);
     keep_drawing_toolbar_above_canvas(&app)
 }
 
 #[tauri::command]
 fn activate_drawing_toolbar(app: AppHandle) -> Result<(), String> {
+    if !drawing_toolbar_visible(&app)? { return Ok(()); }
     keep_drawing_toolbar_above_canvas(&app)?;
     let toolbar = app
         .get_webview_window("drawing-toolbar")
@@ -675,6 +769,7 @@ fn activate_drawing_canvas(app: AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.drawing_overlay.focus();
+    drop(app_state);
     keep_drawing_toolbar_above_canvas(&app)
 }
 
@@ -714,12 +809,7 @@ fn start_drawing_toolbar_drag(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
-    let drawing_visible = app
-        .state::<Mutex<AppState>>()
-        .lock()
-        .map_err(|error| error.to_string())?
-        .drawing_visible;
-    if !drawing_visible {
+    if !drawing_toolbar_visible(&app)? {
         return Ok(());
     }
 
@@ -732,7 +822,6 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
             GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_SHOWWINDOW,
         };
 
         let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
@@ -749,7 +838,7 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
                 0,
                 physical_width,
                 physical_height,
-                SWP_NOACTIVATE | SWP_NOMOVE | SWP_SHOWWINDOW,
+                SWP_NOACTIVATE | SWP_NOMOVE,
             )
         };
         if !result.as_bool() {
@@ -861,6 +950,13 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let show_toolbar_item = MenuItem::with_id(
+                app,
+                "show-drawing-toolbar",
+                show_drawing_toolbar_label(is_chinese),
+                true,
+                None::<&str>,
+            )?;
             let quit_item = MenuItem::with_id(
                 app,
                 "quit",
@@ -875,6 +971,7 @@ pub fn run() {
             app.manage(TrayMenuItems {
                 toggle: toggle_item.clone(),
                 drawing: drawing_item.clone(),
+                show_drawing_toolbar: show_toolbar_item.clone(),
                 settings: settings_item.clone(),
                 quit: quit_item.clone(),
             });
@@ -885,7 +982,7 @@ pub fn run() {
             // setup tray menu
             let menu = Menu::with_items(
                 app,
-                &[&toggle_item, &drawing_item, &settings_item, &quit_item],
+                &[&toggle_item, &drawing_item, &show_toolbar_item, &settings_item, &quit_item],
             )?;
             let _ = TrayIconBuilder::with_id("keyviz-tray")
                 .icon(Image::from(include_image!("icons/tray.png")))
@@ -904,6 +1001,26 @@ pub fn run() {
                         if let Err(error) = show_drawing_window(app) {
                             record_error(format!("Failed to open screen drawing: {error}"));
                         }
+                    }
+                    "show-drawing-toolbar" => {
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            let active = match app.state::<Mutex<AppState>>().lock() {
+                                Ok(state) => state.drawing_visible,
+                                Err(error) => {
+                                    record_error(format!("Failed to read drawing state: {error}"));
+                                    return;
+                                }
+                            };
+                            let result = if active {
+                                show_drawing_toolbar(&app)
+                            } else {
+                                show_drawing_window(&app)
+                            };
+                            if let Err(error) = result {
+                                record_error(format!("Failed to show drawing toolbar: {error}"));
+                            }
+                        });
                     }
                     "quit" => std::process::exit(0),
                     _ => println!("um... what?"),
@@ -985,6 +1102,7 @@ pub fn run() {
             set_drawing_toolbar_side,
             set_drawing_hover_edit,
             close_screen_drawing,
+            hide_drawing_toolbar,
             set_drawing_click_through,
             activate_drawing_toolbar,
             activate_drawing_canvas,

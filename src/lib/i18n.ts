@@ -4,6 +4,17 @@ import { createJSONStorage, persist } from "zustand/middleware";
 export type Locale = "en" | "zh-TW";
 
 const zhTW: Record<string, string> = {
+  "Hide toolbar (keep drawings and current tool)": "隱藏工具列（保留筆跡與目前工具）",
+  "Circular Menu Style": "圓形選單樣式",
+  "Choose a two-ring menu style. Original is the default white fine-line style.": "選擇雙圈選單樣式。原始樣式為預設的白底細線樣式。",
+  "Original Style": "原始樣式",
+  "Gray Style": "極簡灰白",
+  "Colorful Style": "活潑彩色",
+  "Blue Style": "清新藍白",
+  "Classic Style": "經典立體",
+  "Minimal Style": "細線白底",
+  "Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode without clearing drawings, even when the toolbar is hidden.": "按 F7（或自訂的「回到滑鼠模式」快捷鍵）返回游標模式且不清除筆跡，工具列隱藏時仍有效。",
+  "In pointer mode, hold Left Alt and click the right mouse button to open the circular menu. Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode, even when the toolbar is hidden.": "游標模式下，按住左 Alt 並按滑鼠右鍵即可開啟圓形選單。按 F7（或自訂的「回到滑鼠模式」快捷鍵）可返回游標模式，工具列隱藏時仍有效。",
   "Press Alt to toggle object editing mode": "按Alt鍵切換編輯物件模式",
   "Object editing enabled (Alt)": "移入編輯物件：開啟（Alt）",
   "Object editing disabled (Alt)": "移入編輯物件：關閉（Alt）",

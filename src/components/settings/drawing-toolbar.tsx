@@ -4,6 +4,8 @@ import {
 } from "@/lib/drawing-tools";
 import { useTranslation } from "@/lib/i18n";
 import {
+  RADIAL_STYLES,
+  type RadialStyle,
   useDrawingToolbar,
 } from "@/stores/drawing_toolbar";
 import { Button } from "@/components/ui/button";
@@ -18,6 +20,7 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
+  EyeOff,
   GripHorizontal,
   GripVertical,
   KeyboardOff,
@@ -51,6 +54,8 @@ export const DrawingToolbarSettings = () => {
   const setRadialShortcut = useDrawingToolbar((state) => state.setRadialShortcut);
   const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
   const setRadialRightClick = useDrawingToolbar((state) => state.setRadialRightClick);
+  const radialStyle = useDrawingToolbar((state) => state.radialStyle);
+  const setRadialStyle = useDrawingToolbar((state) => state.setRadialStyle);
   const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
@@ -132,6 +137,31 @@ export const DrawingToolbarSettings = () => {
             <Switch checked={radialRightClick} onCheckedChange={setRadialRightClick} aria-label={t("Right-click to Open Circular Menu")} />
           </label>
           <ItemDescription>{t("While using a drawing tool, right-click the canvas to open the menu; right-click again to cancel. Pointer mode, text entry and toolbar context menus are unchanged. The keyboard shortcut remains available.")}</ItemDescription>
+          <ItemDescription>{t("In pointer mode, hold Left Alt and click the right mouse button to open the circular menu. Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode, even when the toolbar is hidden.")}</ItemDescription>
+        </ItemContent>
+      </Item>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Circular Menu Style")}</ItemTitle>
+          <ItemDescription>{t("Choose a two-ring menu style. Original is the default white fine-line style.")}</ItemDescription>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3" role="group" aria-label={t("Circular Menu Style")}>
+            {RADIAL_STYLES.map((style) => (
+              <button
+                key={style}
+                type="button"
+                aria-pressed={radialStyle === style}
+                onClick={() => setRadialStyle(style)}
+                className={`radial-style-card rounded-lg border p-3 text-sm transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-primary ${radialStyle === style ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-background"}`}
+              >
+                <RadialStylePreview style={style} />
+                <span className="mt-2 flex items-center justify-center gap-1">
+                  {t(RADIAL_STYLE_LABELS[style])}
+                  {radialStyle === style && <Check className="size-3" aria-hidden="true" />}
+                </span>
+              </button>
+            ))}
+          </div>
         </ItemContent>
       </Item>
 
@@ -289,9 +319,14 @@ export const DrawingToolbarSettings = () => {
             <PreviewButton className="min-h-6 bg-[#e8e8e8]">
               <GripHorizontal className="size-5" />
             </PreviewButton>
-            <PreviewButton className="bg-[#c83737] text-white">
-              <X />
-            </PreviewButton>
+            <div className="grid grid-cols-2 gap-px">
+              <PreviewButton title={t("Hide toolbar (keep drawings and current tool)")}>
+                <EyeOff className="!size-4" />
+              </PreviewButton>
+              <PreviewButton className="bg-[#c83737] text-white" title={t("Exit Drawing")}>
+                <X className="!size-4" />
+              </PreviewButton>
+            </div>
             {items.filter((item) => item.visible).map((item) => {
               const definition = DRAWING_TOOL_BY_ID[item.id];
               const Icon = definition.icon;
@@ -337,6 +372,36 @@ export const DrawingToolbarSettings = () => {
     </div>
   );
 };
+
+const RADIAL_STYLE_LABELS: Record<RadialStyle, string> = {
+  original: "Original Style",
+  gray: "Gray Style",
+  colorful: "Colorful Style",
+  blue: "Blue Style",
+  classic: "Classic Style",
+  minimal: "Minimal Style",
+};
+
+const PREVIEW_TOOLS: DrawingTool[] = ["pen", "arrow", "number", "eraser", "rectangle", "ellipse", "check-mark", "cross-mark", "text", "line", "select", "pointer"];
+
+const RadialStylePreview = ({ style }: { style: RadialStyle }) => (
+  <span className="radial-style-preview" data-style={style} aria-hidden="true">
+    <span className="radial-preview-ring radial-preview-outer" />
+    <span className="radial-preview-ring radial-preview-inner" />
+    {PREVIEW_TOOLS.map((id, index) => {
+      const outer = index >= 6;
+      const angle = (index % 6) * Math.PI / 3 - Math.PI / 2;
+      const radius = outer ? 41 : 20;
+      const Icon = DRAWING_TOOL_BY_ID[id].icon;
+      return (
+        <span key={id} className="radial-preview-icon" style={{ left: `${50 + Math.cos(angle) * radius}%`, top: `${50 + Math.sin(angle) * radius}%` }}>
+          <Icon />
+        </span>
+      );
+    })}
+    <span className="radial-preview-center" />
+  </span>
+);
 
 const PreviewButton = ({
   children,
