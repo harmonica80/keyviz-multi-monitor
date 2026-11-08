@@ -196,7 +196,7 @@ fn create_drawing_toolbar(
                 .decorations(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .shadow(true)
+                .shadow(false)
                 .visible(false)
                 .build()
                 .map_err(|error| error.to_string())?,
