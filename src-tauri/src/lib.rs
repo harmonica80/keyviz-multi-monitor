@@ -642,7 +642,7 @@ fn get_key_display_enabled(app: AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-pub(crate) fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
+fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
     let toggle_item = app.state::<TrayMenuItems>().toggle.clone();
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
@@ -659,7 +659,7 @@ fn show_drawing_toolbar_label(is_chinese: bool) -> &'static str {
 }
 
 #[tauri::command]
-pub(crate) fn open_settings_window(app: AppHandle) -> Result<(), String> {
+fn open_settings_window(app: AppHandle) -> Result<(), String> {
     let app_handle = app.clone();
     app.run_on_main_thread(move || show_settings_window(&app_handle))
         .map_err(|error| error.to_string())
