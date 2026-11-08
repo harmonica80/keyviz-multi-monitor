@@ -87,6 +87,9 @@ pub fn set_tray_locale(app: tauri::AppHandle, locale: String) -> Result<(), Stri
 
     let tray = app.state::<TrayMenuItems>();
     let is_chinese = locale == "zh-TW";
+    tray.show_drawing_toolbar
+        .set_text(crate::show_drawing_toolbar_label(is_chinese))
+        .map_err(|error| error.to_string())?;
     tray.toggle
         .set_text(if app_state.listening {
             if is_chinese {

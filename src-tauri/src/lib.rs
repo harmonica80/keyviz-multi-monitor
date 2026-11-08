@@ -11,7 +11,7 @@ mod app;
 use app::commands::{
     drawing_clear, drawing_redo, drawing_recover, drawing_probe_layer, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
     drawing_undo, get_cursor_settings, hide_native_key_overlay, log, set_cursor_settings,
-    set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut,
+    set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut, set_tray_locale,
     update_native_key_overlay, update_overlay_window,
 };
 use app::diagnostics::{export_diagnostics, record_error};
@@ -630,14 +630,6 @@ fn show_drawing_toolbar_label(is_chinese: bool) -> &'static str {
     } else {
         "Show Drawing Toolbar"
     }
-}
-
-#[tauri::command]
-fn set_tray_locale(app: AppHandle, locale: String) -> Result<(), String> {
-    app.state::<TrayMenuItems>().show_drawing_toolbar
-        .set_text(show_drawing_toolbar_label(locale == "zh-TW"))
-        .map_err(|error| error.to_string())?;
-    app::commands::set_tray_locale(app, locale)
 }
 
 #[tauri::command]
