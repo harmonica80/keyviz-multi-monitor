@@ -20,6 +20,18 @@ The latest stable release is **v1.0.22**. The direct EXE download above does not
 
 ## 功能介紹
 
+### v1.0.23 圓形選單與隱藏工具列測試版
+
+- 工具列原關閉列左右分為「隱藏」與「關閉」，不增加高度。隱藏保留目前工具與標註；關閉仍結束繪圖並清除標註。
+- 已啟用繪圖的游標模式下，左 Alt＋滑鼠右鍵可叫出選單；一般右鍵保持原功能，其他繪圖工具不使用此新增組合，維持原有右鍵選單及 Alt 編輯切換。
+- 選單增加紅色、黑色、復原、重做與顯示工具列面板；選色或復原／重做後保持開啟，選工具後關閉。系統匣也可顯示工具列。
+- 白底細線是新版「原始樣式」，舊外觀移除。可在設定 → 繪圖工具列 → 圓形選單樣式選擇六種外觀並保存。
+- 隱藏後可用 F7 或自訂回到游標快捷鍵返回正常滑鼠操作，再以左 Alt＋右鍵選工具。若尚未啟用繪圖工作階段，請先按 F8 或從系統匣開啟。
+- [Windows 測試版建置與下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42437087893)：登入 GitHub 後，在 Artifacts 下載 `keyviz-portable`。結束舊版再執行，確認標題為 v1.0.23。Artifacts 有保存期限，正式版下載仍為 v1.0.22。
+- [測試與驗證說明](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.23.md)。44 項原生測試及 47 項快捷鍵相關檢查通過，實際鍵鼠／焦點／多螢幕操作仍需驗證。
+
+The v1.0.23 test build adds a hidden-toolbar mode, pointer-mode Left Alt + right mouse circular menu, a color/history/restore-toolbar panel, and six persisted visual styles. Start a drawing session before hiding the toolbar. The stable download remains v1.0.22; Actions artifacts require GitHub sign-in and expire.
+
 ### 文字大小
 
 文字預設與最小大小為 15，最大為 45（字型像素高度 60～180），可用滑鼠滾輪放大至原預設的 3 倍，工具列大小控制同步支援新範圍。既有文字不會自動改大小；調整時才套用新範圍，其他工具不變。
