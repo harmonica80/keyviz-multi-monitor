@@ -1,4 +1,4 @@
-# Keyviz v1.0.24 本機開發版
+# Keyviz v1.0.24 測試版
 
 ## 本次變更
 
@@ -12,9 +12,13 @@
 ## 驗證狀態
 
 - 本機前端建置、47 項快捷鍵相關檢查、Rust 語法解析及 diff 空白檢查通過。
-- 新增／更新啟動前快捷鍵、命令佇列、七個面板按鈕、陰影邊界與透明區域測試，尚未執行 Windows 原生測試。
-- 本機缺少 MSVC link.exe，尚未完成 Windows 原生編譯、EXE 交付與實際鍵鼠／顯示驗證。
-- 依使用者要求僅在本機修改，未上傳 GitHub、未啟動雲端建置，正式 Release 維持原狀。
+- [Windows 建置 42440789082](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42440789082)：成功，46 項原生測試與 47 項快捷鍵檢查通過。
+- 建置來源：`144f79a40bba0ae8f3c1b96c77d7932b2b998200`。
+- 已核對眼睛、鍵盤與設定圖示原生預覽；陰影透明度與邊界測試通過。實際鍵鼠／顯示／焦點互動仍待使用者確認。
+- 交付檔：`keyviz-portable-v1.0.24-startup-menu-test.exe`；Actions 中為相同內容的 `keyviz-portable.exe`。
+- FileVersion / ProductVersion：`1.0.24`；大小 6,411,776 bytes。
+- SHA-256：`A6FAF0B3BB64AC98D9A76CBD9245E3906F36B42ECAFC983B254ABCD667F57F69`，下載來源與交付檔一致。
+- 使用者後續已授權上傳測試分支及雲端建置；正式 Release 保持 v1.0.22。
 
 ## 待實測
 
