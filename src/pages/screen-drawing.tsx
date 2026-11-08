@@ -16,6 +16,7 @@ import { useKeyEvent } from "@/stores/key_event";
 import { listenForUpdates } from "@/stores/sync";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   Check,
   EyeOff,
@@ -414,6 +415,9 @@ export default function ScreenDrawing() {
       const resizeRequestListener = listen("drawing-toolbar-resize-request", () => {
         resizeToolbar(true);
       });
+      const scaleListener = getCurrentWindow().onScaleChanged(() => {
+        window.requestAnimationFrame(() => resizeToolbar(true));
+      });
       const historyListener = listen<{ canUndo: boolean; canRedo: boolean }>("drawing-history", (event) => {
         setCanUndo(event.payload.canUndo);
         setCanRedo(event.payload.canRedo);
@@ -445,6 +449,7 @@ export default function ScreenDrawing() {
       return () => {
         observer.disconnect();
         void resizeRequestListener.then((unlisten) => unlisten());
+        void scaleListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
         void hintListener.then((unlisten) => unlisten());
         void hoverToggleListener.then((unlisten) => unlisten());
