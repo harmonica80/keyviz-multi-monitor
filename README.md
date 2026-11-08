@@ -8,26 +8,26 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-目前最新正式版為 **v1.0.25**。上方連結直接下載正式版 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+目前最新正式版為 **v1.0.26**。上方連結直接下載正式版 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
 
-**v1.0.25** 統一工具列與圓形選單的六款主題，預設為 01 珍珠白，並採用圓角工具列及圓形選取效果。保留左 Alt＋滑鼠右鍵、隱藏工具列繼續繪圖，以及鍵盤顯示與設定快捷入口。
+**v1.0.26** 更新與實際工具列一致的設定頁預覽；圓形選單的兩個快捷色預設為紅、藍，可自訂並保存；中央改為空白，仍可點擊關閉選單。六款統一主題與既有繪圖操作保留。
 
-- [v1.0.25 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.25)
-- [v1.0.25 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42447234949)
-- [v1.0.25 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.25)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.25`。
+- [v1.0.26 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.26)
+- [v1.0.26 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42452533922)
+- [v1.0.26 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.26)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.26`。
 
-The latest stable release is **v1.0.25**. The direct EXE download above does not require GitHub sign-in. It unifies toolbar and circular-menu themes with Pearl as the default and rounded controls. Left Alt + right mouse, hidden-toolbar drawing, keyboard-display and settings controls remain available. Exit the old version before running the new EXE and confirm `v1.0.25` in the title bar. The v1.0.25 tag contains the exact source used for this build.
+The latest stable release is **v1.0.26**. The direct EXE download above does not require GitHub sign-in. Settings preview uses the real toolbar renderer; the circular menu has customizable red/blue quick colors and a blank dismissible center. All six unified themes and existing drawing controls remain available. Exit the old version before running the new EXE and confirm `v1.0.26` in the title bar. The v1.0.26 tag contains the exact source used for this build.
 
-## v1.0.26 測試版：一致預覽與自訂圓形選單顏色
+## v1.0.26：一致預覽與自訂圓形選單顏色
 
 - 設定頁的工具列預覽與實際工具列共用顯示元件，主題、按鈕順序、顯示項目、色盤與底部功能保持一致；預覽不執行繪圖操作。
 - 「設定 → 繪圖工具列 → 圓形選單設定」可自訂兩個快捷顏色，預設為紅色與藍色，設定會保存；恢復預設工具列時一併還原。
 - 兩個快捷色不改動工具列的六色色盤，也不跟隨主題變色。
 - 選單中央移除叉號，改為空白，仍可點擊中央、按 Esc 或右鍵關閉；外圈叉號印章保留。
-- 本節為測試版功能，正式下載仍維持 v1.0.25。
+- 已晉升正式版，沿用測試通過的同一個 EXE；49 項原生測試、47 項快捷鍵檢查及主題／顏色偏好測試通過。
 
-The v1.0.26 test build shares the real toolbar renderer with the settings preview, adds two persistent customizable quick colors (red/blue defaults), and leaves the dismissible radial hub blank. The cross-mark drawing tool remains unchanged. Stable downloads remain v1.0.25.
+The v1.0.26 stable build shares the real toolbar renderer with the settings preview, adds two persistent customizable quick colors (red/blue defaults), and leaves the dismissible radial hub blank. The cross-mark drawing tool remains unchanged. The stable EXE is identical to the tested artifact.
 
 ## v1.0.25：統一繪圖主題
 
@@ -46,10 +46,10 @@ The v1.0.25 stable build unifies toolbar and circular-menu colors with six theme
 
 - 工具列原關閉列左右分為「隱藏」與「關閉」，不增加高度。隱藏保留目前工具與標註；關閉仍結束繪圖並清除標註。
 - 程式啟動後即可在游標模式按左 Alt＋滑鼠右鍵叫出選單，不必先開啟工具列；一般右鍵與其他繪圖工具的 Alt／右鍵操作維持原功能。
-- 選單面板包含紅色、黑色、復原、重做、眼睛圖示切換工具列、鍵盤按鍵顯示切換及設定入口；選色或復原／重做後保持開啟，選工具後關閉。
+- 選單面板包含兩個可自訂快捷色（預設紅、藍）、復原、重做、眼睛圖示切換工具列、鍵盤按鍵顯示切換及設定入口；選色或復原／重做後保持開啟，選工具後關閉。
 - 舊圓形選單專用樣式已由統一主題取代，可在設定 → 繪圖工具列 → 繪圖工具主題選擇六款配色並保存。
 - 隱藏後可用 F7 或自訂回到游標快捷鍵返回正常滑鼠操作，再以左 Alt＋右鍵選工具。六種樣式均有局部柔和陰影。
-- 47 項原生測試及 47 項快捷鍵相關檢查通過；不同電腦的鍵鼠、焦點、多螢幕及錄影互動仍需驗證。
+- 49 項原生測試及 47 項快捷鍵相關檢查通過；不同電腦的鍵鼠、焦點、多螢幕及錄影互動仍需驗證。
 
 The circular menu supports Left Alt + right mouse immediately after startup, hidden-toolbar drawing, an eye toggle, keyboard-display and settings controls, plus shadows on all six styles.
 
@@ -66,7 +66,7 @@ The circular menu supports Left Alt + right mouse immediately after startup, hid
 - 文字內容可點擊中間插入／刪除、拖曳選取、方向鍵移動、Shift 選取與 Ctrl+A 全選；文字物件可在編輯／選取時換色，顏色套用至整個文字物件。
 - 已通過 37 項原生測試與 47 項快捷鍵相關檢查；不同電腦的實際鍵鼠操作仍需驗證。
 
-以下整理 v1.0.25 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
+以下整理 v1.0.26 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
 
 - 即時顯示鍵盤按鍵與快速鍵，方便教學、簡報、錄影與直播。
 - 支援多螢幕環境，可選擇按鍵顯示所在螢幕與位置。
@@ -110,7 +110,7 @@ The circular menu supports Left Alt + right mouse immediately after startup, hid
 1. 按 `F8` 開啟繪圖工具列，選擇畫筆或其他繪圖工具。
 2. 按 `Q`，或在畫布按滑鼠右鍵，在滑鼠附近開啟雙圈選單。剛從工具列切換工具後，也可直接按 Q，不必先點畫布。
 3. 點選圖示切換工具並收起選單；只是移過圖示不會切換工具。
-4. 再按快捷鍵、按 `Esc`、按右鍵、點中央叉號或點選單外側，可取消選單，不會新增繪圖。選單開啟時 Esc 只取消選單，未開選單時 Esc 可離開繪圖工具列。
+4. 再按快捷鍵、按 `Esc`、按右鍵、點空白中央或點選單外側，可取消選單，不會新增繪圖。選單開啟時 Esc 只取消選單，未開選單時 Esc 可離開繪圖工具列。
 
 | 圈別 | 工具 |
 | --- | --- |
@@ -130,7 +130,7 @@ The circular menu supports Left Alt + right mouse immediately after startup, hid
 
 ## Features
 
-This list describes the v1.0.25 stable release, including unified drawing themes, the circular menu and hidden toolbar, text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
+This list describes the v1.0.26 stable release, including unified drawing themes, a matching toolbar preview, customizable radial quick colors, a blank radial hub, hidden-toolbar drawing, text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
 
 - Real-time keyboard and shortcut visualization for tutorials, presentations, screen recording, and live demos.
 - Multi-monitor support with configurable display and overlay position.
