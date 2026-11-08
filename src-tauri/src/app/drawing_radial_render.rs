@@ -388,7 +388,7 @@ mod radial_styled_renderer {
     }
 
     #[cfg(test)]
-    mod tests {
+    mod hover_tests {
         use super::*;
 
         #[test]
