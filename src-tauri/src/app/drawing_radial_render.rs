@@ -135,8 +135,9 @@ mod radial_styled_renderer {
             colors.ink
         } else {
             // Blend opaque ink with its fill: alpha is flattened by the native overlay.
-            let channel =
-                |shift| (((colors.ink >> shift) & 255) + ((colors.fill >> shift) & 255)) / 2;
+            let channel = |shift: u32| -> u32 {
+                (((colors.ink >> shift) & 255u32) + ((colors.fill >> shift) & 255u32)) / 2u32
+            };
             0xff000000 | (channel(16) << 16) | (channel(8) << 8) | channel(0)
         }
     }
