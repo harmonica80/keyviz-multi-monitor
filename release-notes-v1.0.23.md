@@ -21,3 +21,14 @@
 限制：左 Alt＋右鍵只在已啟用的繪圖工作階段內生效；隱藏不等於結束。程式啟動後若尚未啟用繪圖，請先按 F8 或使用系統匣開啟。
 
 本機前端建置、快捷鍵檢查及 Rust 語法解析已通過。本機缺少 MSVC link.exe，Windows 原生建置及硬體互動仍待驗證；此版不宣稱修復所有黑幕或置頂問題。
+
+## Windows 建置驗證
+
+- [完整建置 42437087893](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42437087893)：成功。
+- 建置來源：`84f5766ad5ccc67cf9a8137f4530bd93a77178c7`。
+- 44 項原生測試及 47 項快捷鍵相關檢查通過；包含六主題、透明區域、按鈕停用狀態、游標組合限制及負座標邊界測試。
+- 已查看六種主題原生預覽；18 張原生 BMP 另存於 Actions 的 `keyviz-radial-styles` 產物。
+- 交付檔：`keyviz-portable-v1.0.23-radial-test.exe`；Actions 中為同內容的 `keyviz-portable.exe`。
+- FileVersion / ProductVersion：`1.0.23`；大小 6,404,608 bytes。
+- SHA-256：`26047C89F8311CEE528AF2E42111EE0B0925C26BFF882FF95EFC2829E56BD64E`。
+- 下載來源與本機交付檔雜湊一致。尚未在使用者電腦上完成鍵鼠、焦點與錄影環境互動測試；正式 Release 保持 v1.0.22。
