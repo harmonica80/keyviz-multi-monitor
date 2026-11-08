@@ -8,29 +8,28 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-目前最新正式版為 **v1.0.22**。上方連結直接下載正式版 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+目前最新正式版為 **v1.0.24**。上方連結直接下載正式版 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
 
-**v1.0.22** 將文字預設與最小值設為 15，最大值為 45，可用滾輪放大至預設的 3 倍；保留雙擊編輯、文字選取與換色，以及其他既有功能。
+**v1.0.24** 支援啟動後直接以左 Alt＋滑鼠右鍵開啟圓形選單，工具列可隱藏並繼續繪圖；提供六種含陰影的選單樣式，以及眼睛、鍵盤顯示與設定快捷入口。
 
-- [v1.0.22 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.22)
-- [v1.0.22 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42195106532)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.22`。
+- [v1.0.24 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.24)
+- [v1.0.24 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42440789082)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.24`。
 
-The latest stable release is **v1.0.22**. The direct EXE download above does not require GitHub sign-in. Text now defaults to size 15, with a 15–45 range allowing wheel enlargement up to three times the default height. Existing text editing and other features remain available. Exit the old version before running the new EXE and confirm `v1.0.22` in the title bar.
+The latest stable release is **v1.0.24**. The direct EXE download above does not require GitHub sign-in. Use Left Alt + right mouse after startup to open the circular menu, hide the toolbar while drawing, and choose from six shadowed styles. The menu includes toolbar-eye, keyboard-display and settings controls. Exit the old version before running the new EXE and confirm `v1.0.24` in the title bar.
 
 ## 功能介紹
 
-### v1.0.24 圓形選單與隱藏工具列測試版
+### 圓形選單與隱藏工具列
 
 - 工具列原關閉列左右分為「隱藏」與「關閉」，不增加高度。隱藏保留目前工具與標註；關閉仍結束繪圖並清除標註。
 - 程式啟動後即可在游標模式按左 Alt＋滑鼠右鍵叫出選單，不必先開啟工具列；一般右鍵與其他繪圖工具的 Alt／右鍵操作維持原功能。
 - 選單面板包含紅色、黑色、復原、重做、眼睛圖示切換工具列、鍵盤按鍵顯示切換及設定入口；選色或復原／重做後保持開啟，選工具後關閉。
 - 白底細線是新版「原始樣式」，舊外觀移除。可在設定 → 繪圖工具列 → 圓形選單樣式選擇六種外觀並保存。
 - 隱藏後可用 F7 或自訂回到游標快捷鍵返回正常滑鼠操作，再以左 Alt＋右鍵選工具。六種樣式均有局部柔和陰影。
-- [Windows 測試版建置與下載](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42440789082)：登入 GitHub 後，在 Artifacts 下載 `keyviz-portable`。結束舊版再執行，確認標題為 v1.0.24。Artifacts 有保存期限，正式版下載仍為 v1.0.22。
-- [測試與驗證說明](https://github.com/harmonica80/keyviz-multi-monitor/blob/codex/fix-drawing-toolbar-editable/release-notes-v1.0.24.md)。46 項原生測試及 47 項快捷鍵相關檢查通過，實際鍵鼠／焦點／多螢幕操作仍需驗證。
+- 46 項原生測試及 47 項快捷鍵相關檢查通過；不同電腦的鍵鼠、焦點、多螢幕及錄影互動仍需驗證。
 
-The v1.0.24 test build enables Left Alt + right mouse immediately after startup, with hidden-toolbar drawing, an eye toggle, keyboard-display and settings controls, plus shadows on all six styles. The stable download remains v1.0.22; Actions artifacts require GitHub sign-in and expire.
+The circular menu supports Left Alt + right mouse immediately after startup, hidden-toolbar drawing, an eye toggle, keyboard-display and settings controls, plus shadows on all six styles.
 
 ### 文字大小
 
@@ -45,7 +44,7 @@ The v1.0.24 test build enables Left Alt + right mouse immediately after startup,
 - 文字內容可點擊中間插入／刪除、拖曳選取、方向鍵移動、Shift 選取與 Ctrl+A 全選；文字物件可在編輯／選取時換色，顏色套用至整個文字物件。
 - 已通過 37 項原生測試與 47 項快捷鍵相關檢查；不同電腦的實際鍵鼠操作仍需驗證。
 
-以下整理 v1.0.22 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
+以下整理 v1.0.24 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
 
 - 即時顯示鍵盤按鍵與快速鍵，方便教學、簡報、錄影與直播。
 - 支援多螢幕環境，可選擇按鍵顯示所在螢幕與位置。
@@ -109,7 +108,7 @@ The v1.0.24 test build enables Left Alt + right mouse immediately after startup,
 
 ## Features
 
-This list describes the v1.0.22 stable release, including text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
+This list describes the v1.0.24 stable release, including the circular menu and hidden toolbar, text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
 
 - Real-time keyboard and shortcut visualization for tutorials, presentations, screen recording, and live demos.
 - Multi-monitor support with configurable display and overlay position.
