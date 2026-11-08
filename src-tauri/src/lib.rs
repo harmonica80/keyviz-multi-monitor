@@ -674,10 +674,10 @@ fn set_drawing_hover_edit(app: AppHandle, preferences: std::collections::HashMap
 }
 
 #[tauri::command]
-fn set_drawing_radial_menu(app: AppHandle, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: Option<String>) -> Result<(), String> {
+fn set_drawing_radial_menu(app: AppHandle, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: Option<String>, colors: Option<Vec<String>>) -> Result<(), String> {
     let overlay = app.state::<Mutex<AppState>>()
         .lock().map_err(|error| error.to_string())?.drawing_overlay.clone();
-    overlay.configure_radial(shortcut, tools, right_click, style.unwrap_or_else(|| "pearl".into()))
+    overlay.configure_radial(shortcut, tools, right_click, style.unwrap_or_else(|| "pearl".into()), colors.unwrap_or_default())
 }
 
 #[tauri::command]

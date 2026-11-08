@@ -21,6 +21,21 @@ const RADIAL_TOOLS: [NativeTool; 12] = [
 const RADIAL_RADIUS: f64 = 78.0;
 const RADIAL_CLEAR_SLOT: usize = 12;
 
+fn default_radial_colors() -> [String; 2] {
+    ["#ef2b2d".into(), "#2d37d6".into()]
+}
+
+fn normalize_radial_colors(colors: &[String]) -> [String; 2] {
+    let mut result = default_radial_colors();
+    for (index, color) in colors.iter().take(2).enumerate() {
+        if color.len() == 7 && color.starts_with('#')
+            && color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit) {
+            result[index] = color.to_ascii_lowercase();
+        }
+    }
+    result
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum RadialAction {
     Tool(NativeTool),
@@ -699,10 +714,10 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
     if let Some(index @ 13..=19) = hit {
         state.radial_ignore_up = true;
         let app = state.app.clone();
+        let colors = state.radial_colors.clone();
         thread::spawn(move || {
             let result = match index {
-                13 => crate::app::commands::drawing_set_color(app, "#ef2b2d".into()),
-                14 => crate::app::commands::drawing_set_color(app, "#000000".into()),
+                13 | 14 => crate::app::commands::drawing_set_color(app, colors[index - 13].clone()),
                 15 => crate::app::commands::drawing_undo(app),
                 16 => crate::app::commands::drawing_redo(app),
                 17 => crate::toggle_drawing_toolbar(&app),
@@ -844,6 +859,16 @@ unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64,
 #[cfg(test)]
 mod radial_hover_tests {
     use super::*;
+
+    #[test]
+    fn quick_colors_default_to_red_blue_and_validate_each_slot() {
+        assert_eq!(normalize_radial_colors(&[]), default_radial_colors());
+        assert_eq!(normalize_radial_colors(&["#ABCDEF".into()]), ["#abcdef", "#2d37d6"]);
+        assert_eq!(normalize_radial_colors(&["bad".into(), "#123456".into()]), ["#ef2b2d", "#123456"]);
+        for invalid in ["#fff", "#00000000", "#zzzzzz", "#１２３", "123456", ""] {
+            assert_eq!(normalize_radial_colors(&[invalid.into(), invalid.into()]), default_radial_colors());
+        }
+    }
     #[test]
     fn pointer_combo_is_exclusive_and_panel_flips_inside_monitors() {
         assert!(RadialGate::default().pointer); // Available before the first session.
@@ -980,6 +1005,7 @@ mod radial_hover_tests {
                 false,
                 true,
                 true,
+                &default_radial_colors(),
             );
             assert!(GdiFlush().as_bool());
             assert_eq!(pixels[0], 0);
@@ -1152,14 +1178,15 @@ mod radial_hover_tests {
             DrawingCommand::CancelRadial
         ));
         overlay
-            .configure_radial(vec!["KeyQ".into()], vec!["pen".into()], false, "pearl".into())
+            .configure_radial(vec!["KeyQ".into()], vec!["pen".into()], false, "pearl".into(), vec!["#123456".into(), "#654321".into()])
             .unwrap();
         assert!(matches!(
             receiver.try_recv().unwrap(),
             DrawingCommand::ConfigureRadial {
                 right_click: false,
+                colors,
                 ..
-            }
+            } if colors == ["#123456", "#654321"]
         ));
         overlay.request_pointer_radial();
         assert!(matches!(receiver.try_recv().unwrap(), DrawingCommand::RequestPointerRadial));

@@ -9,6 +9,7 @@ import {
 } from "@/stores/drawing_toolbar";
 import { DRAWING_THEMES, drawingThemeVariables } from "@/lib/drawing-themes";
 import { Button } from "@/components/ui/button";
+import { DrawingToolbarView } from "@/components/drawing-toolbar-view";
 import { ShortcutRecorder } from "@/components/shortcut-recorder";
 import { radialShortcutError } from "@/lib/radial-shortcut";
 import { useKeyEvent } from "@/stores/key_event";
@@ -20,19 +21,12 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  EyeOff,
-  GripHorizontal,
   GripVertical,
-  KeyboardOff,
   PanelLeft,
   PanelRight,
-  Redo2,
   RotateCcw,
-  Settings,
-  Trash2,
-  X,
 } from "lucide-react";
-import { type ButtonHTMLAttributes, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface ToolbarDragSession {
   pointerId: number;
@@ -56,6 +50,8 @@ export const DrawingToolbarSettings = () => {
   const setRadialRightClick = useDrawingToolbar((state) => state.setRadialRightClick);
   const radialStyle = useDrawingToolbar((state) => state.radialStyle);
   const setRadialStyle = useDrawingToolbar((state) => state.setRadialStyle);
+  const radialColors = useDrawingToolbar((state) => state.radialColors);
+  const setRadialColor = useDrawingToolbar((state) => state.setRadialColor);
   const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
@@ -117,6 +113,28 @@ export const DrawingToolbarSettings = () => {
           {t("Restore Default Toolbar")}
         </Button>
       </div>
+
+      <h2 className="text-lg font-semibold">{t("Circular Menu Settings")}</h2>
+      <Item variant="muted">
+        <ItemContent>
+          <ItemDescription>{t("Choose the two quick colors shown in the circular menu. These colors do not change the toolbar palette.")}</ItemDescription>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {([0, 1] as const).map((index) => (
+              <label key={index} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                <span>{t(index === 0 ? "Quick Color 1" : "Quick Color 2")}</span>
+                <input
+                  type="color"
+                  value={radialColors[index]}
+                  onChange={(event) => setRadialColor(index, event.currentTarget.value)}
+                  aria-label={t(index === 0 ? "Quick Color 1" : "Quick Color 2")}
+                  className="h-9 w-12 cursor-pointer rounded border"
+                />
+              </label>
+            ))}
+          </div>
+          <ItemDescription>{t("Click the blank center to dismiss the circular menu.")}</ItemDescription>
+        </ItemContent>
+      </Item>
 
       <Item variant="muted">
         <ItemContent>
@@ -315,57 +333,8 @@ export const DrawingToolbarSettings = () => {
 
         <div className="sticky top-6 rounded-xl border bg-muted/40 p-4">
           <p className="mb-3 text-sm font-medium">{t("Toolbar Preview")}</p>
-          <div className="mx-auto flex w-14 flex-col gap-1 rounded-md bg-[#f7f7f7] p-1 shadow-sm">
-            <PreviewButton className="min-h-6 bg-[#e8e8e8]">
-              <GripHorizontal className="size-5" />
-            </PreviewButton>
-            <div className="grid grid-cols-2 gap-px">
-              <PreviewButton title={t("Hide toolbar (keep drawings and current tool)")}>
-                <EyeOff className="!size-4" />
-              </PreviewButton>
-              <PreviewButton className="bg-[#c83737] text-white" title={t("Exit Drawing")}>
-                <X className="!size-4" />
-              </PreviewButton>
-            </div>
-            {items.filter((item) => item.visible).map((item) => {
-              const definition = DRAWING_TOOL_BY_ID[item.id];
-              const Icon = definition.icon;
-              return (
-                <PreviewButton key={item.id} title={t(definition.label)}>
-                  <Icon />
-                </PreviewButton>
-              );
-            })}
-            <div className="grid grid-cols-2 justify-center gap-px py-1">
-              {["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"].map(
-                (color, index) => (
-                  <span
-                    key={color}
-                    className="relative block aspect-square border border-[#777]"
-                    style={{ background: color }}
-                  >
-                    {index === 0 && <Check className="absolute inset-0 size-full text-white" />}
-                  </span>
-                ),
-              )}
-            </div>
-            <div className="flex h-6 items-center rounded-sm border border-[#9a9a9a] bg-white px-1">
-              <div className="h-1.5 w-full rounded-full bg-gradient-to-r from-[#787d7d] from-40% to-white to-40%" />
-            </div>
-            <PreviewButton disabled>
-              <Redo2 className="scale-x-[-1]" />
-            </PreviewButton>
-            <PreviewButton>
-              <Trash2 />
-            </PreviewButton>
-            <div className="grid grid-cols-2 gap-px">
-              <PreviewButton className="min-h-7">
-                <KeyboardOff />
-              </PreviewButton>
-              <PreviewButton className="min-h-7">
-                <Settings />
-              </PreviewButton>
-            </div>
+          <div className="mx-auto w-12">
+            <DrawingToolbarView toolbarItems={items} radialStyle={radialStyle} preview />
           </div>
         </div>
       </div>
@@ -400,19 +369,4 @@ const RadialStylePreview = ({ style }: { style: RadialStyle }) => (
     <span className="radial-preview-center" />
     </span>
   </span>
-);
-
-const PreviewButton = ({
-  children,
-  className = "",
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) => (
-  <button
-    type="button"
-    tabIndex={-1}
-    className={`grid min-h-9 w-full place-items-center rounded-sm border border-[#9a9a9a] bg-white text-[#333] [&>svg]:size-6 ${className}`}
-    {...props}
-  >
-    {children}
-  </button>
 );

@@ -1,4 +1,5 @@
 import { useTranslation } from "@/lib/i18n";
+import { DrawingToolbarView, DRAWING_TOOLBAR_COLORS } from "@/components/drawing-toolbar-view";
 import { useOverlayProbe } from "@/lib/overlay-probe";
 import { keymaps } from "@/lib/keymaps";
 import { radialToolbarKeyAction } from "@/lib/radial-shortcut";
@@ -18,21 +19,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  Check,
-  EyeOff,
-  GripHorizontal,
-  Group,
-  Keyboard,
-  KeyboardOff,
-  Redo2,
-  Undo2,
-  RefreshCw,
-  Settings,
-  Trash2,
-  X,
-} from "lucide-react";
-import {
-  CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent,
   useCallback,
@@ -60,7 +46,7 @@ type DrawingCommand =
 type ToolChangedPayload = { tool: Tool };
 type DrawingSelectionPayload = { count: number; grouped: boolean };
 
-const COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
+const COLORS = DRAWING_TOOLBAR_COLORS;
 const WIDTHS = [2, 5, 9, 15];
 const MIN_WIDTH = 1;
 const MAX_WIDTH = WIDTHS[WIDTHS.length - 1];
@@ -255,6 +241,7 @@ export default function ScreenDrawing() {
   const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
   const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
   const radialStyle = useDrawingToolbar((state) => state.radialStyle);
+  const radialColors = useDrawingToolbar((state) => state.radialColors);
   useEffect(() => {
     if (!isToolbar) return;
     const variables = drawingThemeVariables(radialStyle);
@@ -271,9 +258,10 @@ export default function ScreenDrawing() {
       shortcut: radialShortcut,
       rightClick: radialRightClick,
       style: radialStyle,
+      colors: radialColors,
       tools: toolbarItems.filter((item) => item.visible).map((item) => item.id),
     }).catch(console.error);
-  }, [isToolbar, radialShortcut, radialRightClick, radialStyle, toolbarItems]);
+  }, [isToolbar, radialShortcut, radialRightClick, radialStyle, radialColors, toolbarItems]);
   useEffect(() => {
     if (!isToolbar) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -670,136 +658,40 @@ export default function ScreenDrawing() {
     );
   }
 
-  const toolButtons = toolbarItems
-    .filter((item) => item.visible)
-    .map((item) => DRAWING_TOOL_BY_ID[item.id]);
-
   return (
-    <aside ref={toolbarRef} className="drawing-toolbar" style={drawingThemeVariables(radialStyle)} aria-label={t("Screen Drawing")}>
-      <button
-        className="drawing-drag-handle"
-        title={t("Move Toolbar")}
-        onPointerDown={() => void invoke("start_drawing_toolbar_drag")}
-      >
-        <GripHorizontal />
-      </button>
-      <div className="drawing-window-actions">
-        <button
-          title={t("Hide toolbar (keep drawings and current tool)")}
-          aria-label={t("Hide toolbar (keep drawings and current tool)")}
-          onClick={() => void invoke("hide_drawing_toolbar").catch(console.error)}
-        >
-          <EyeOff />
-        </button>
-        <button
-          className="drawing-close"
-          title={`${t("Exit Drawing")}${closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`}
-          aria-label={t("Exit Drawing")}
-          onClick={() => void invoke("close_screen_drawing")}
-        >
-          <X />
-        </button>
-      </div>
-      {toolButtons.map(({ id, label, icon: Icon }) => (
-        <button
-          key={id}
-          className={tool === id ? "active" : ""}
-          title={`${t(label)}${id !== "pointer" && id !== "select" ? ` (${t("Press Alt to toggle object editing mode")})` : ""}`}
-          onClick={() => void sendCommand({ type: "tool", value: id })}
-        >
-          <Icon />
-        </button>
-      ))}
-      {tool === "select" && (
-        <button
-          className={selectionState.grouped ? "active" : ""}
-          disabled={selectionState.count < 2}
-          aria-pressed={selectionState.grouped}
-          title={t("Group / Ungroup")}
-          onClick={() => void sendCommand({ type: "group" })}
-        >
-          <Group />
-        </button>
-      )}
-      <div className="drawing-divider" />
-      <div className="drawing-colors">
-        {COLORS.map((value) => (
-          <button
-            key={value}
-            className={`drawing-color ${color === value ? "active" : ""}`}
-            title={value}
-            style={{ "--drawing-color": value } as CSSProperties}
-            onClick={() => void sendCommand({ type: "color", value })}
-          >
-            {color === value && <Check className="drawing-color-check" />}
-          </button>
-        ))}
-      </div>
-      <div className="drawing-divider" />
-      <label className="drawing-width-slider" title={`${t("Line Thickness")} ${width}`}>
-        <input
-          aria-label={t("Line Thickness")}
-          type="range"
-          min={minWidth}
-          max={maxWidth}
-          step={1}
-          value={width}
-          style={{
-            "--drawing-width-progress": `${Math.min(100, Math.max(0, ((width - minWidth) / (maxWidth - minWidth)) * 100))}%`,
-          } as CSSProperties}
-          onChange={(event) => void sendCommand({ type: "width", value: Number(event.target.value) })}
-        />
-      </label>
-      <div className="drawing-history-actions"><button
-        disabled={!canUndo}
-        title={`${t("Undo")}${undoShortcutLabel ? ` (${undoShortcutLabel})` : ""}`}
-        onClick={() => void sendCommand({ type: "undo" })}
-      >
-        <Undo2 />
-      </button>
-      <button disabled={!canRedo} title={`${t("Redo")} (Ctrl + Shift + Z)`}
-        onClick={() => void sendCommand({ type: "redo" })}><Redo2 /></button></div>
-      {(operationHint || probeMenu) && <output className="drawing-operation-hint" role="status">
-        {probeMenu ? (probe.busy ? t("Testing for 5 seconds...") : probe.result
-          ? t(probe.result.error ?? "Test finished. Before and after reports saved.")
-          : t("Choose D or I to test one layer for 5 seconds.")) : operationHint?.text}
-      </output>}
-      <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
-        <Trash2 />
-      </button>
-      <div className="drawing-divider" />
-      <div className="drawing-footer-actions">
-        {probeMenu ? <>
-          <button disabled={probe.busy} title={t("Test Display Layer")} onClick={() => void probe.run("display")}>D</button>
-          <button disabled={probe.busy} title={t("Test Input Layer")} onClick={() => void probe.run("input")}>I</button>
-          <button title={t("Back")} onClick={() => setProbeMenu(false)}><X /></button>
-        </> : <>
-        <button
-          className={!keyDisplayEnabled ? "active" : ""}
-          aria-pressed={!keyDisplayEnabled}
-          title={t(keyDisplayEnabled ? "Stop Key Display" : "Show Key Display")}
-          onClick={() => {
-            void invoke<boolean>("toggle_key_display")
-              .then(setKeyDisplayEnabled)
-              .catch((error) => console.error("Failed to toggle key display:", error));
-          }}
-        >
-          {keyDisplayEnabled ? <KeyboardOff /> : <Keyboard />}
-        </button>
-        <button
-          title={t("Open Settings")}
-          onClick={() => void invoke("open_settings_window")}
-        >
-          <Settings />
-        </button>
-      <button title={t("Restore display; right-click for layer tests")} onContextMenu={(event) => {
-        event.preventDefault(); setProbeMenu(true);
-      }} onClick={() => {
+    <DrawingToolbarView
+      toolbarRef={toolbarRef}
+      toolbarItems={toolbarItems}
+      radialStyle={radialStyle}
+      tool={tool}
+      color={color}
+      width={width}
+      minWidth={minWidth}
+      maxWidth={maxWidth}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      closeShortcutLabel={closeShortcutLabel}
+      undoShortcutLabel={undoShortcutLabel}
+      selectionState={selectionState}
+      operationHint={operationHint}
+      probeMenu={probeMenu}
+      probe={probe}
+      keyDisplayEnabled={keyDisplayEnabled}
+      sendCommand={sendCommand}
+      setProbeMenu={setProbeMenu}
+      onDrag={() => void invoke("start_drawing_toolbar_drag")}
+      onHide={() => void invoke("hide_drawing_toolbar").catch(console.error)}
+      onClose={() => void invoke("close_screen_drawing")}
+      onToggleKeyDisplay={() => {
+        void invoke<boolean>("toggle_key_display")
+          .then(setKeyDisplayEnabled)
+          .catch((error) => console.error("Failed to toggle key display:", error));
+      }}
+      onSettings={() => void invoke("open_settings_window")}
+      onRecover={() => {
         void invoke("drawing_recover").then(() => setOperationHint({ text: t("Display recovery requested") }))
           .catch(() => setOperationHint({ text: t("Display recovery failed") }));
-      }}><RefreshCw /></button>
-      </>}
-      </div>
-    </aside>
+      }}
+    />
   );
 }

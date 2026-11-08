@@ -9,6 +9,7 @@ import { createSyncedStore } from "./sync";
 import { tauriStorage } from "./storage";
 import { normalizeRadialRightClick, radialShortcutError } from "@/lib/radial-shortcut";
 import { normalizeDrawingTheme, type DrawingThemeId } from "@/lib/drawing-themes";
+import { DEFAULT_RADIAL_COLORS, normalizeRadialColors } from "@/lib/radial-colors";
 
 export const DRAWING_TOOLBAR_STORE = "drawing_toolbar_store";
 
@@ -26,6 +27,7 @@ interface DrawingToolbarState {
   radialShortcut: string[];
   radialRightClick: boolean;
   radialStyle: RadialStyle;
+  radialColors: [string, string];
   hoverEdit: Partial<Record<DrawingTool, boolean>>;
   items: DrawingToolbarItem[];
   side: DrawingToolbarSide;
@@ -35,6 +37,7 @@ interface DrawingToolbarActions {
   setRadialShortcut: (shortcut: string[]) => void;
   setRadialRightClick: (enabled: boolean) => void;
   setRadialStyle: (style: RadialStyle) => void;
+  setRadialColor: (index: 0 | 1, color: string) => void;
   setHoverEdit: (id: DrawingTool, enabled: boolean) => void;
   setItems: (items: DrawingToolbarItem[]) => void;
   setToolVisible: (id: DrawingTool, visible: boolean) => void;
@@ -86,6 +89,12 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     radialShortcut: ["KeyQ"],
     radialRightClick: true,
     radialStyle: "pearl",
+    radialColors: [...DEFAULT_RADIAL_COLORS],
+    setRadialColor: (index, color) => set((state) => {
+      const colors = [...state.radialColors];
+      colors[index] = color;
+      return { radialColors: normalizeRadialColors(colors) };
+    }),
     setRadialStyle: (style) => set({ radialStyle: normalizeRadialStyle(style) }),
     setRadialRightClick: (enabled) => set({ radialRightClick: enabled }),
     setRadialShortcut: (shortcut) => set({ radialShortcut: normalizeRadialShortcut(shortcut) }),
@@ -108,6 +117,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
         radialShortcut: ["KeyQ"],
         radialRightClick: true,
         radialStyle: "pearl",
+        radialColors: [...DEFAULT_RADIAL_COLORS],
         hoverEdit: {},
         items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
         side: DEFAULT_DRAWING_TOOLBAR_SIDE,
@@ -117,13 +127,14 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 6,
+      version: 7,
       migrate: (persistedState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
           radialShortcut: normalizeRadialShortcut(state.radialShortcut),
           radialRightClick: normalizeRadialRightClick(state.radialRightClick),
           radialStyle: normalizeRadialStyle(state.radialStyle),
+          radialColors: normalizeRadialColors(state.radialColors),
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
           hoverEdit: state.hoverEdit ?? {},
@@ -136,6 +147,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           radialShortcut: normalizeRadialShortcut(state.radialShortcut),
           radialRightClick: normalizeRadialRightClick(state.radialRightClick),
           radialStyle: normalizeRadialStyle(state.radialStyle),
+          radialColors: normalizeRadialColors(state.radialColors),
           hoverEdit: state.hoverEdit ?? {},
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),

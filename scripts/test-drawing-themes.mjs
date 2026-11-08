@@ -9,6 +9,14 @@ const source = read("src/lib/drawing-themes.ts").replace(
 );
 const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const { normalizeDrawingTheme, drawingThemeVariables } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
+const colorJs = ts.transpileModule(read("src/lib/radial-colors.ts"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const { DEFAULT_RADIAL_COLORS, normalizeRadialColors } = await import(`data:text/javascript;base64,${Buffer.from(colorJs).toString("base64")}`);
+assert.deepEqual(DEFAULT_RADIAL_COLORS, ["#ef2b2d", "#2d37d6"]);
+for (const value of [null, undefined, {}, [], ["invalid", "#fff"], [1, false]]) {
+  assert.deepEqual(normalizeRadialColors(value), DEFAULT_RADIAL_COLORS);
+}
+assert.deepEqual(normalizeRadialColors(["#ABCDEF", "#000000"]), ["#abcdef", "#000000"]);
+assert.deepEqual(normalizeRadialColors(["bad", "#123456"]), ["#ef2b2d", "#123456"]);
 assert.deepEqual(themes.map(({ id }) => id), ["pearl", "graphite", "ocean", "butter", "orange", "sand"]);
 for (const theme of themes) {
   assert.equal(normalizeDrawingTheme(theme.id), theme.id);
@@ -34,6 +42,8 @@ let storeSource = read("src/stores/drawing_toolbar.ts").replace(/^import[\s\S]*?
 storeSource = `
 const DRAWING_TOOLS = [{id: "pointer"}, {id: "pen"}, {id: "text"}];
 const normalizeDrawingTheme = ${normalizeDrawingTheme.toString()};
+const DEFAULT_RADIAL_COLORS = ${JSON.stringify(DEFAULT_RADIAL_COLORS)};
+const normalizeRadialColors = ${normalizeRadialColors.toString()};
 const themes = ${JSON.stringify(themes)};
 const getCurrentWindow = () => ({label: "settings"});
 const createJSONStorage = () => ({});
@@ -52,17 +62,24 @@ ${storeSource}`;
 const storeJs = ts.transpileModule(storeSource, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const { useDrawingToolbar: store } = await import(`data:text/javascript;base64,${Buffer.from(storeJs).toString("base64")}`);
 assert.equal(store.getState().radialStyle, "pearl");
+assert.deepEqual(store.getState().radialColors, DEFAULT_RADIAL_COLORS);
+store.getState().setRadialColor(0, "#ABCDEF");
+store.getState().setRadialColor(1, "#000000");
+assert.deepEqual(store.getState().radialColors, ["#abcdef", "#000000"]);
 store.getState().setRadialStyle("ocean");
 assert.equal(store.getState().radialStyle, "ocean");
 store.getState().resetToolbar();
 assert.equal(store.getState().radialStyle, "pearl");
+assert.deepEqual(store.getState().radialColors, DEFAULT_RADIAL_COLORS);
 const oldState = {radialStyle: "classic", items: [{id: "pen", visible: false}, {id: "pointer", visible: true}], side: "left", radialShortcut: ["KeyR"], hoverEdit: {pen: false}};
 const migrated = store.options.migrate(oldState);
 assert.equal(migrated.radialStyle, "pearl");
+assert.deepEqual(migrated.radialColors, DEFAULT_RADIAL_COLORS);
 assert.equal(migrated.items[0].id, "pen");
 assert.equal(migrated.items[0].visible, false);
 assert.equal(migrated.side, "left");
 assert.deepEqual(migrated.radialShortcut, ["KeyR"]);
 assert.deepEqual(migrated.hoverEdit, {pen: false});
 assert.equal(store.options.merge({...oldState, radialStyle: "orange"}, store.getState()).radialStyle, "orange");
+assert.deepEqual(store.options.merge({...oldState, radialColors: ["#123456", "#654321"]}, store.getState()).radialColors, ["#123456", "#654321"]);
 console.log("Drawing themes: six palettes, exact fills, legacy fallback, store reset/migration/merge passed.");

@@ -248,7 +248,7 @@ mod platform {
         },
         SetHoverEdit(std::collections::HashMap<String, bool>),
         ToggleHoverEdit { epoch: u64 },
-        ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String },
+        ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String, colors: [String; 2] },
         SetToolbarHidden(bool),
         OpenPointerRadial { epoch: u64 },
         RequestPointerRadial,
@@ -419,6 +419,7 @@ mod platform {
         radial_tools: Vec<NativeTool>,
         radial_right_click: bool,
         radial_style: String,
+        radial_colors: [String; 2],
         toolbar_hidden: bool,
         keyboard_visible: bool,
         radial_gate: Arc<Mutex<RadialGate>>,
@@ -717,11 +718,11 @@ mod platform {
             if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::SetKeyboardVisible(visible)); }
         }
 
-        pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: String) -> Result<(), String> {
+        pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: String, colors: Vec<String>) -> Result<(), String> {
             let shortcut = radial_shortcut(&shortcut)?;
             let tools = tools.iter().filter_map(|id| parse_tool(id)).collect();
             self.sender.as_ref().ok_or("Drawing input thread is unavailable")?
-                .send(DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style })
+                .send(DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style, colors: normalize_radial_colors(&colors) })
                 .map_err(|error| error.to_string())
         }
 
@@ -913,6 +914,7 @@ mod platform {
                     radial_tools: RADIAL_TOOLS.to_vec(),
                     radial_right_click: true,
                     radial_style: "pearl".into(),
+                    radial_colors: default_radial_colors(),
                     toolbar_hidden: false,
                     keyboard_visible: true,
                     radial_gate,
@@ -1305,8 +1307,9 @@ mod platform {
                     open_pointer_radial(state);
                 }
             }
-            DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style } => {
+            DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style, colors } => {
                 state.radial_style = normalize_radial_style(&style).into();
+                state.radial_colors = colors;
                 state.radial_tools = tools;
                 state.radial_right_click = right_click;
                 let settings = state.app.get_webview_window("settings")
@@ -2499,7 +2502,7 @@ mod platform {
         }
         if let Some(menu) = &state.radial {
             draw_radial_styled(drawing_dc, menu, &state.radial_tools, &state.radial_style,
-                &radial_panel_rects(menu), !state.history.undo.is_empty(), !state.history.redo.is_empty(), state.toolbar_hidden, state.keyboard_visible);
+                &radial_panel_rects(menu), !state.history.undo.is_empty(), !state.history.redo.is_empty(), state.toolbar_hidden, state.keyboard_visible, &state.radial_colors);
         }
         SetViewportOrgEx(drawing_dc, old_origin.x, old_origin.y, None);
 
@@ -5702,7 +5705,7 @@ mod platform_stub {
         pub fn set_toolbar_hidden(&self, _hidden: bool) {}
         pub fn request_pointer_radial(&self) {}
         pub fn set_keyboard_visible(&self, _visible: bool) {}
-        pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>, _right_click: bool, _style: String) -> Result<(), String> { Ok(()) }
+        pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>, _right_click: bool, _style: String, _colors: Vec<String>) -> Result<(), String> { Ok(()) }
         pub fn radial_menu_action(&self, _cancel: bool) -> Result<(), String> { Ok(()) }
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}

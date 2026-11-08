@@ -19,6 +19,16 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 The latest stable release is **v1.0.25**. The direct EXE download above does not require GitHub sign-in. It unifies toolbar and circular-menu themes with Pearl as the default and rounded controls. Left Alt + right mouse, hidden-toolbar drawing, keyboard-display and settings controls remain available. Exit the old version before running the new EXE and confirm `v1.0.25` in the title bar. The v1.0.25 tag contains the exact source used for this build.
 
+## v1.0.26 測試版：一致預覽與自訂圓形選單顏色
+
+- 設定頁的工具列預覽與實際工具列共用顯示元件，主題、按鈕順序、顯示項目、色盤與底部功能保持一致；預覽不執行繪圖操作。
+- 「設定 → 繪圖工具列 → 圓形選單設定」可自訂兩個快捷顏色，預設為紅色與藍色，設定會保存；恢復預設工具列時一併還原。
+- 兩個快捷色不改動工具列的六色色盤，也不跟隨主題變色。
+- 選單中央移除叉號，改為空白，仍可點擊中央、按 Esc 或右鍵關閉；外圈叉號印章保留。
+- 本節為測試版功能，正式下載仍維持 v1.0.25。
+
+The v1.0.26 test build shares the real toolbar renderer with the settings preview, adds two persistent customizable quick colors (red/blue defaults), and leaves the dismissible radial hub blank. The cross-mark drawing tool remains unchanged. Stable downloads remain v1.0.25.
+
 ## v1.0.25：統一繪圖主題
 
 - 設定 → 繪圖工具列 → 繪圖工具主題，可同步切換工具列與圓形選單配色。

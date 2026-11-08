@@ -6,6 +6,11 @@ export type Locale = "en" | "zh-TW";
 const zhTW: Record<string, string> = {
   "Hide toolbar (keep drawings and current tool)": "隱藏工具列（保留筆跡與目前工具）",
   "Drawing Theme": "繪圖工具主題",
+  "Circular Menu Settings": "圓形選單設定",
+  "Choose the two quick colors shown in the circular menu. These colors do not change the toolbar palette.": "自訂圓形選單中的兩個快捷顏色，預設為紅色與藍色，不會更動工具列的六色色盤。",
+  "Quick Color 1": "快捷顏色 1",
+  "Quick Color 2": "快捷顏色 2",
+  "Click the blank center to dismiss the circular menu.": "點擊空白中央可關閉圓形選單，亦可按 Esc 或右鍵關閉。",
   "Use one theme for the toolbar and circular menu. Default: 01 Pearl. Drawing colors are unchanged.": "統一套用於工具列與圓形選單，預設為 01 珍珠白。主題不會改變繪圖顏色。",
   "01 Pearl": "01 珍珠白",
   "02 Graphite": "02 石墨黑",

@@ -1,5 +1,5 @@
 // Include in native_drawing::platform alongside drawing_radial.rs.
-// Panel order is red, black, undo, redo, toolbar, keyboard, settings (13..=19).
+// Panel order is quick colors 1/2, undo, redo, toolbar, keyboard, settings (13..=19).
 // Keep shadows out of the DC: the overlay converts every nonzero RGB to opaque.
 pub(super) fn radial_shadow_alpha(menu: &RadialMenu, panel: &[RECT; 7], point: Point) -> u8 {
     if !menu.radius.is_finite() || menu.radius <= 0.0 {
@@ -42,6 +42,7 @@ unsafe fn draw_radial_styled(
     can_redo: bool,
     toolbar_hidden: bool,
     keyboard_visible: bool,
+    quick_colors: &[String; 2],
 ) {
     radial_styled_renderer::draw(
         dc,
@@ -53,6 +54,7 @@ unsafe fn draw_radial_styled(
         can_redo,
         toolbar_hidden,
         keyboard_visible,
+        quick_colors,
     );
 }
 
@@ -229,6 +231,7 @@ mod radial_styled_renderer {
         can_redo: bool,
         toolbar_hidden: bool,
         keyboard_visible: bool,
+        quick_colors: &[String; 2],
     ) {
         if !menu.radius.is_finite() || menu.radius <= 0.0 {
             return;
@@ -308,13 +311,7 @@ mod radial_styled_renderer {
                 ),
             }
         }
-        draw_radial_icon(
-            dc,
-            NativeTool::CrossMark,
-            menu.center,
-            menu.radius / 240.0,
-            colorref(colors.ink),
-        );
+        // The empty hub still dismisses the menu through the unchanged hit regions.
         for (index, rect) in panel.iter().enumerate() {
             if rect.right <= rect.left || rect.bottom <= rect.top {
                 continue;
@@ -331,8 +328,15 @@ mod radial_styled_renderer {
                 ),
                 toolbar_hidden,
                 keyboard_visible,
+                quick_colors,
             );
         }
+    }
+
+    fn swatch_argb(color: &str) -> u32 {
+        let rgb = u32::from_str_radix(color.trim_start_matches('#'), 16).unwrap_or(0xef2b2d);
+        // Pure RGB zero is the transparent key in the overlay's alpha conversion.
+        0xff000000 | if rgb == 0 { 0x010101 } else { rgb }
     }
 
     unsafe fn draw_panel_icon(
@@ -343,6 +347,7 @@ mod radial_styled_renderer {
         ink: u32,
         toolbar_hidden: bool,
         keyboard_visible: bool,
+        quick_colors: &[String; 2],
     ) {
         let center = Point {
             x: rect.left + (rect.right - rect.left) / 2,
@@ -371,7 +376,7 @@ mod radial_styled_renderer {
             0 | 1 => {
                 with_gdiplus_graphics(dc, false, |graphics| {
                     let mut brush = std::ptr::null_mut();
-                    let color = if index == 0 { 0xffe53935 } else { 0xff181818 };
+                    let color = swatch_argb(&quick_colors[index]);
                     if GdipCreateSolidFill(color, &mut brush) == 0 {
                         let size = (12.0 * scale).round().max(1.0) as i32;
                         GdipFillEllipseI(
@@ -384,8 +389,7 @@ mod radial_styled_renderer {
                         );
                         GdipDeleteBrush(brush);
                     }
-                    // Preserve red/black action swatches, but outline them with theme ink
-                    // so the black swatch stays visible against graphite and ocean.
+                    // Keep custom swatches legible against both dark and light themes.
                     if let Some(pen) = create_gdiplus_pen(ink, scale.round().max(1.0) as i32) {
                         let points: Vec<_> = (0..48)
                             .map(|step| {
@@ -494,6 +498,14 @@ mod radial_styled_renderer {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn quick_colors_render_custom_values_and_keep_black_opaque() {
+            assert_eq!(swatch_argb("#ef2b2d"), 0xffef2b2d);
+            assert_eq!(swatch_argb("#2d37d6"), 0xff2d37d6);
+            assert_eq!(swatch_argb("#12abcd"), 0xff12abcd);
+            assert_eq!(swatch_argb("#000000"), 0xff010101);
+        }
 
         #[test]
         fn shadow_is_bounded_feathered_and_only_outside_silhouettes() {
@@ -770,7 +782,8 @@ mod radial_styled_renderer {
                         ("ring", 1, true, false),
                         ("clear", RADIAL_CLEAR_SLOT, false, true),
                         ("red", 13, false, true),
-                        ("black", 14, false, true),
+                        ("blue", 14, false, true),
+                        ("custom-colors", 14, false, true),
                         ("panel", 15, false, true),
                         ("disabled", 16, true, true),
                         ("eye", 17, false, false),
@@ -779,6 +792,11 @@ mod radial_styled_renderer {
                     ] {
                         pixels.fill(0);
                         menu.hovered = Some(hovered);
+                        let quick_colors = if variant == "custom-colors" {
+                            ["#12abcd".into(), "#000000".into()]
+                        } else {
+                            default_radial_colors()
+                        };
                         draw_radial_styled(
                             HDC(canvas.memory_dc.0),
                             &menu,
@@ -789,8 +807,28 @@ mod radial_styled_renderer {
                             false,
                             toolbar_hidden,
                             keyboard_visible,
+                            &quick_colors,
                         );
                         assert!(GdiFlush().as_bool());
+                        for y in 175..186 {
+                            for x in 175..186 {
+                                assert_eq!(
+                                    pixels[y * 360 + x] & 0xffffff,
+                                    palette(style).fill & 0xffffff,
+                                    "The center must stay blank for {style}"
+                                );
+                            }
+                        }
+                        for index in 0..2 {
+                            let rect = panel[index];
+                            let center = ((rect.top + rect.bottom) / 2 * 360
+                                + (rect.left + rect.right) / 2)
+                                as usize;
+                            assert_eq!(
+                                pixels[center] & 0xffffff,
+                                swatch_argb(&quick_colors[index]) & 0xffffff
+                            );
+                        }
                         // Match production's premultiplied black shadow on transparent RGB only.
                         for (index, pixel) in pixels.iter_mut().enumerate() {
                             if *pixel & 0xffffff == 0 {
