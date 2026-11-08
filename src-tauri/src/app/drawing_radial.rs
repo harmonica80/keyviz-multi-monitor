@@ -45,7 +45,11 @@ static RADIAL_OPEN: AtomicBool = AtomicBool::new(false);
 static TOOLBAR_HIDDEN: AtomicBool = AtomicBool::new(false);
 
 fn normalize_radial_style(style: &str) -> &str {
-    match style { "gray" | "colorful" | "blue" | "classic" | "minimal" => style, _ => "original" }
+    if radial_styled_renderer::has_theme(style) {
+        style
+    } else {
+        "pearl"
+    }
 }
 static RADIAL_ESCAPE_UNTIL: AtomicU64 = AtomicU64::new(0);
 
@@ -729,8 +733,7 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
 }
 
 
-unsafe fn draw_radial_clear_icon(dc: HDC, center: Point, scale: f64, hovered: bool) {
-    let color = if hovered { COLORREF(0x3020c0) } else { COLORREF(0x38332e) };
+unsafe fn draw_radial_clear_icon(dc: HDC, center: Point, scale: f64, color: COLORREF) {
     let point = |x: f64, y: f64| Point {
         x: center.x + (x * scale).round() as i32,
         y: center.y + (y * scale).round() as i32,
@@ -747,12 +750,7 @@ unsafe fn draw_radial_clear_icon(dc: HDC, center: Point, scale: f64, hovered: bo
     }
 }
 
-unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64, hovered: bool) {
-    let color = if hovered {
-        COLORREF(0xd87b16)
-    } else {
-        COLORREF(0x38332e)
-    };
+unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64, color: COLORREF) {
     let p = |x: f64, y: f64| Point {
         x: center.x + (x * scale).round() as i32,
         y: center.y + (y * scale).round() as i32,
@@ -862,8 +860,10 @@ mod radial_hover_tests {
                 assert!(rect.top >= bounds.top && rect.bottom <= bounds.bottom);
             }
         }
-        assert_eq!(normalize_radial_style("legacy"), "original");
-        for style in ["original", "gray", "colorful", "blue", "classic", "minimal"] {
+        for style in ["", "legacy", "original", "gray", "colorful", "blue", "classic", "minimal"] {
+            assert_eq!(normalize_radial_style(style), "pearl");
+        }
+        for style in ["pearl", "graphite", "ocean", "butter", "orange", "sand"] {
             assert_eq!(normalize_radial_style(style), style);
         }
     }
@@ -974,7 +974,7 @@ mod radial_hover_tests {
                     hovered: Some(1),
                 },
                 &RADIAL_TOOLS,
-                "original",
+                "pearl",
                 &panel,
                 true,
                 false,
@@ -1152,7 +1152,7 @@ mod radial_hover_tests {
             DrawingCommand::CancelRadial
         ));
         overlay
-            .configure_radial(vec!["KeyQ".into()], vec!["pen".into()], false, "original".into())
+            .configure_radial(vec!["KeyQ".into()], vec!["pen".into()], false, "pearl".into())
             .unwrap();
         assert!(matches!(
             receiver.try_recv().unwrap(),

@@ -18,6 +18,17 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 The latest stable release is **v1.0.24**. The direct EXE download above does not require GitHub sign-in. Use Left Alt + right mouse after startup to open the circular menu, hide the toolbar while drawing, and choose from six shadowed styles. The menu includes toolbar-eye, keyboard-display and settings controls. Exit the old version before running the new EXE and confirm `v1.0.24` in the title bar.
 
+## v1.0.25 測試版：統一繪圖主題
+
+- 設定 → 繪圖工具列 → 繪圖工具主題，可同步切換工具列與圓形選單配色。
+- 六款依序為：01 珍珠白（預設）、02 石墨黑、03 深海藍、04 鵝黃色、05 亮橘色、06 暖沙色。
+- 珍珠白與鵝黃色底色為 `#fcfbfc`；亮橘色採淺粉紅底色搭配橘色重點。
+- 圓角工具列、圓形工具選取效果及圓角選單功能按鈕；不使用霧面模糊材質。
+- 舊圓形選單專用樣式已由統一主題取代，升級後預設為 01；工具順序、顯示項目、快捷鍵與繪圖顏色不變。
+- 本節是測試版功能，尚未取代上方 v1.0.24 正式下載。
+
+The v1.0.25 test build unifies toolbar and circular-menu colors with six themes (Pearl by default), rounded controls, and shared palette data. Legacy menu-only styles reset to Pearl; tool order, visibility, shortcuts and drawing colors are preserved. Stable downloads above remain v1.0.24 until testing is approved.
+
 ## 功能介紹
 
 ### 圓形選單與隱藏工具列

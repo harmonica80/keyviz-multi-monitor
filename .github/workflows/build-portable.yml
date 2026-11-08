@@ -29,7 +29,9 @@ jobs:
         run: npm run build:portable
 
       - name: Test radial shortcut validation
-        run: node scripts/test-radial-shortcut.mjs
+        run: |
+          node scripts/test-radial-shortcut.mjs
+          node scripts/test-drawing-themes.mjs
 
       - name: Test native object editing
         env:

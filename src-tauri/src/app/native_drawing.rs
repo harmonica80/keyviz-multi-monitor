@@ -912,7 +912,7 @@ mod platform {
                     radial: None,
                     radial_tools: RADIAL_TOOLS.to_vec(),
                     radial_right_click: true,
-                    radial_style: "original".into(),
+                    radial_style: "pearl".into(),
                     toolbar_hidden: false,
                     keyboard_visible: true,
                     radial_gate,

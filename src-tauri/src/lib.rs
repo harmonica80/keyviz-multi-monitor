@@ -196,7 +196,7 @@ fn create_drawing_toolbar(
                 .decorations(false)
                 .always_on_top(true)
                 .skip_taskbar(true)
-                .shadow(false)
+                .shadow(true)
                 .visible(false)
                 .build()
                 .map_err(|error| error.to_string())?,
@@ -871,6 +871,39 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
             height: height.clamp(32.0, 820.0),
         })
         .map_err(|error| error.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
+        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+
+        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        let target = if root.0 == 0 { hwnd } else { root };
+        let size = window.inner_size().map_err(|error| error.to_string())?;
+        let diameter = (48.0 * window.scale_factor().unwrap_or(1.0)).round() as i32;
+        unsafe {
+            // Clip the opaque WebView window, without enabling layered transparency.
+            let region = CreateRoundRectRgn(
+                0,
+                0,
+                size.width as i32 + 1,
+                size.height as i32 + 1,
+                diameter,
+                diameter,
+            );
+            if region.0 == 0 {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+            // Windows owns the region only when SetWindowRgn succeeds.
+            if SetWindowRgn(target, region, true) == 0 {
+                let error = std::io::Error::last_os_error().to_string();
+                let _ = DeleteObject(region);
+                return Err(error);
+            }
+        }
+    }
 
     keep_drawing_toolbar_above_canvas(&app)?;
     sync_drawing_toolbar_passthrough(&app)

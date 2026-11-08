@@ -61,68 +61,91 @@ mod radial_styled_renderer {
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     struct Palette {
-        sectors: [u32; 6],
-        hub: u32,
+        fill: u32,
+        ink: u32,
+        accent: u32,
+        selected_ink: u32,
         divider: u32,
-        panel: u32,
+    }
+
+    #[derive(serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Theme {
+        id: String,
+        fill: String,
+        ink: String,
+        accent: String,
+        selected_ink: String,
+        divider: String,
+    }
+
+    fn themes() -> &'static [(String, Palette)] {
+        static THEMES: OnceLock<Vec<(String, Palette)>> = OnceLock::new();
+        THEMES.get_or_init(|| {
+            let source: Vec<Theme> =
+                serde_json::from_str(include_str!("../../../src/lib/drawing-themes.json"))
+                    .expect("Shared drawing themes must be valid JSON");
+            let argb = |hex: &str| {
+                let digits = hex
+                    .strip_prefix('#')
+                    .filter(|value| value.len() == 6)
+                    .expect("Theme colors must be #RRGGBB");
+                0xff000000 | u32::from_str_radix(digits, 16).expect("Invalid theme color")
+            };
+            let themes: Vec<_> = source
+                .into_iter()
+                .map(|theme| {
+                    (
+                        theme.id,
+                        Palette {
+                            fill: argb(&theme.fill),
+                            ink: argb(&theme.ink),
+                            accent: argb(&theme.accent),
+                            selected_ink: argb(&theme.selected_ink),
+                            divider: argb(&theme.divider),
+                        },
+                    )
+                })
+                .collect();
+            assert!(
+                themes.iter().any(|(id, _)| id == "pearl"),
+                "Missing default pearl theme"
+            );
+            themes
+        })
+    }
+
+    pub(super) fn has_theme(style: &str) -> bool {
+        themes().iter().any(|(id, _)| id == style)
     }
 
     fn palette(style: &str) -> Palette {
-        match style {
-            "gray" => Palette {
-                sectors: [0xffe1e4e8; 6],
-                hub: 0xffc9ced5,
-                divider: 0xff9ba3ae,
-                panel: 0xffe1e4e8,
-            },
-            "colorful" => Palette {
-                sectors: [
-                    0xffffe0df, 0xffffedcb, 0xffe8f2cf, 0xffd9f1ed, 0xffdce8ff, 0xffecdfff,
-                ],
-                hub: 0xffffffff,
-                divider: 0xffb5bbc7,
-                panel: 0xfffffaf5,
-            },
-            "blue" => Palette {
-                sectors: [0xffe2edfb; 6],
-                hub: 0xffbed4f2,
-                divider: 0xff7e9fc8,
-                panel: 0xffe2edfb,
-            },
-            "classic" => Palette {
-                sectors: [0xffe4e8ed; 6],
-                hub: 0xffc9cfd6,
-                divider: 0xff7f8995,
-                panel: 0xffe4e8ed,
-            },
-            "minimal" => Palette {
-                sectors: [0xffffffff; 6],
-                hub: 0xffffffff,
-                divider: 0xff202020,
-                panel: 0xffffffff,
-            },
-            // Unknown persisted values deliberately use the new white default.
-            _ => Palette {
-                sectors: [0xffffffff; 6],
-                hub: 0xffffffff,
-                divider: 0xffc7cbd1,
-                panel: 0xffffffff,
-            },
+        let id = normalize_radial_style(style);
+        themes().iter().find(|(theme, _)| theme == id).unwrap().1
+    }
+
+    fn colorref(argb: u32) -> COLORREF {
+        COLORREF(((argb >> 16) & 255) | (argb & 0x00ff00) | ((argb & 255) << 16))
+    }
+
+    fn icon_ink(colors: Palette, hovered: bool, enabled: bool) -> u32 {
+        if hovered && enabled {
+            colors.selected_ink
+        } else if enabled {
+            colors.ink
+        } else {
+            // Blend opaque ink with its fill: alpha is flattened by the native overlay.
+            let channel =
+                |shift| (((colors.ink >> shift) & 255) + ((colors.fill >> shift) & 255)) / 2;
+            0xff000000 | (channel(16) << 16) | (channel(8) << 8) | channel(0)
         }
     }
 
-    const HOVER: u32 = 0xffcde5ff;
-    // Raised silver bevel: inset shadow, broad highlight, then a darker outer lip.
-    const SILVER_BANDS: [u32; 8] = [
-        0xffcbd1d7, 0xffeef1f4, 0xffffffff, 0xfff5f7f9, 0xffe4e8ed, 0xffd6dce3, 0xffc1c9d2,
-        0xffaeb9c5,
-    ];
-
-    fn sector_fill(colors: Palette, index: usize, hovered: bool) -> u32 {
+    fn sector_fill(colors: Palette, _index: usize, hovered: bool) -> u32 {
         if hovered {
-            HOVER
+            colors.accent
         } else {
-            colors.sectors[index % 6]
+            colors.fill
         }
     }
 
@@ -167,6 +190,34 @@ mod radial_styled_renderer {
         }
     }
 
+    fn panel_points(rect: &RECT, radius: f64) -> Vec<WinPoint> {
+        let left = f64::from(rect.left);
+        let top = f64::from(rect.top);
+        let right = f64::from(rect.right - 1);
+        let bottom = f64::from(rect.bottom - 1);
+        let corner = (6.0 * radius / 78.0)
+            .min((right - left) / 2.0)
+            .min((bottom - top) / 2.0);
+        [
+            (right - corner, top + corner),
+            (right - corner, bottom - corner),
+            (left + corner, bottom - corner),
+            (left + corner, top + corner),
+        ]
+        .iter()
+        .enumerate()
+        .flat_map(|(index, &(x, y))| {
+            (0..=8).map(move |step| {
+                let angle = (index as f64 - 1.0 + step as f64 / 8.0) * std::f64::consts::FRAC_PI_2;
+                WinPoint {
+                    x: (x + corner * angle.cos()).round() as i32,
+                    y: (y + corner * angle.sin()).round() as i32,
+                }
+            })
+        })
+        .collect()
+    }
+
     pub(super) unsafe fn draw(
         dc: HDC,
         menu: &RadialMenu,
@@ -189,15 +240,6 @@ mod radial_styled_renderer {
                 let points = sector_points(menu, index);
                 let hovered = menu.hovered == Some(index) && radial_action(index, tools).is_some();
                 fill(graphics, &points, sector_fill(colors, index, hovered));
-                if style == "classic" && !hovered {
-                    let inner = menu.radius * if index < 6 { 0.22 } else { 0.61 };
-                    let thickness = menu.radius * 0.39;
-                    for (band, color) in SILVER_BANDS.iter().enumerate() {
-                        let low = inner + thickness * band as f64 / 8.0;
-                        let high = inner + thickness * (band + 1) as f64 / 8.0;
-                        fill(graphics, &sector_band(menu, index, low, high), *color);
-                    }
-                }
                 if let Some(pen) = pen {
                     GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32);
                 }
@@ -211,7 +253,7 @@ mod radial_styled_renderer {
                     )
                 })
                 .collect();
-            fill(graphics, &hub, colors.hub);
+            fill(graphics, &hub, colors.fill);
             if let Some(pen) = pen {
                 GdipDrawPolygonI(graphics, pen, hub.as_ptr(), hub.len() as i32);
             }
@@ -219,57 +261,14 @@ mod radial_styled_renderer {
                 if rect.right <= rect.left || rect.bottom <= rect.top {
                     continue;
                 }
-                let points = [
-                    WinPoint {
-                        x: rect.left,
-                        y: rect.top,
-                    },
-                    WinPoint {
-                        x: rect.right - 1,
-                        y: rect.top,
-                    },
-                    WinPoint {
-                        x: rect.right - 1,
-                        y: rect.bottom - 1,
-                    },
-                    WinPoint {
-                        x: rect.left,
-                        y: rect.bottom - 1,
-                    },
-                ];
+                let points = panel_points(rect, menu.radius);
                 let hovered =
                     menu.hovered == Some(13 + index) && panel_enabled(index, can_undo, can_redo);
                 fill(
                     graphics,
                     &points,
-                    if hovered { HOVER } else { colors.panel },
+                    if hovered { colors.accent } else { colors.fill },
                 );
-                if style == "classic" && !hovered {
-                    let height = rect.bottom - rect.top - 1;
-                    for (band, color) in SILVER_BANDS.iter().enumerate() {
-                        let top = rect.top + height * band as i32 / 8;
-                        let bottom = rect.top + height * (band + 1) as i32 / 8;
-                        let stripe = [
-                            WinPoint {
-                                x: rect.left,
-                                y: top,
-                            },
-                            WinPoint {
-                                x: rect.right - 1,
-                                y: top,
-                            },
-                            WinPoint {
-                                x: rect.right - 1,
-                                y: bottom,
-                            },
-                            WinPoint {
-                                x: rect.left,
-                                y: bottom,
-                            },
-                        ];
-                        fill(graphics, &stripe, *color);
-                    }
-                }
                 if let Some(pen) = pen {
                     GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32);
                 }
@@ -298,12 +297,14 @@ mod radial_styled_renderer {
                     tool,
                     center,
                     menu.radius / 156.0,
-                    menu.hovered == Some(index),
+                    colorref(icon_ink(colors, menu.hovered == Some(index), true)),
                 ),
-                // The reused clear helper has a red hover; keep its neutral icon on blue fill.
-                RadialAction::Clear => {
-                    draw_radial_clear_icon(dc, center, menu.radius / 156.0, false)
-                }
+                RadialAction::Clear => draw_radial_clear_icon(
+                    dc,
+                    center,
+                    menu.radius / 156.0,
+                    colorref(icon_ink(colors, menu.hovered == Some(index), true)),
+                ),
             }
         }
         draw_radial_icon(
@@ -311,7 +312,7 @@ mod radial_styled_renderer {
             NativeTool::CrossMark,
             menu.center,
             menu.radius / 240.0,
-            false,
+            colorref(colors.ink),
         );
         for (index, rect) in panel.iter().enumerate() {
             if rect.right <= rect.left || rect.bottom <= rect.top {
@@ -322,7 +323,11 @@ mod radial_styled_renderer {
                 menu.radius,
                 rect,
                 index,
-                panel_enabled(index, can_undo, can_redo),
+                icon_ink(
+                    colors,
+                    menu.hovered == Some(13 + index),
+                    panel_enabled(index, can_undo, can_redo),
+                ),
                 toolbar_hidden,
                 keyboard_visible,
             );
@@ -334,7 +339,7 @@ mod radial_styled_renderer {
         radius: f64,
         rect: &RECT,
         index: usize,
-        enabled: bool,
+        ink: u32,
         toolbar_hidden: bool,
         keyboard_visible: bool,
     ) {
@@ -349,11 +354,7 @@ mod radial_styled_renderer {
             x: center.x + (x * scale).round() as i32,
             y: center.y + (y * scale).round() as i32,
         };
-        let color = if enabled {
-            COLORREF(0x181818)
-        } else {
-            COLORREF(0xa5a5a5)
-        };
+        let color = colorref(ink);
         let line = |a: (f64, f64), b: (f64, f64)| {
             draw_antialiased_shape(
                 dc,
@@ -381,6 +382,22 @@ mod radial_styled_renderer {
                             size,
                         );
                         GdipDeleteBrush(brush);
+                    }
+                    // Preserve red/black action swatches, but outline them with theme ink
+                    // so the black swatch stays visible against graphite and ocean.
+                    if let Some(pen) = create_gdiplus_pen(ink, scale.round().max(1.0) as i32) {
+                        let points: Vec<_> = (0..48)
+                            .map(|step| {
+                                let angle = step as f64 * std::f64::consts::TAU / 48.0;
+                                let point = p(angle.cos() * 7.0, angle.sin() * 7.0);
+                                WinPoint {
+                                    x: point.x,
+                                    y: point.y,
+                                }
+                            })
+                            .collect();
+                        GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32);
+                        GdipDeletePen(pen);
                     }
                 });
             }
@@ -543,41 +560,68 @@ mod radial_styled_renderer {
         }
 
         #[test]
-        fn original_is_white_with_fine_gray_not_minimal_black() {
-            let original = palette("original");
-            assert_eq!(original.sectors, [0xffffffff; 6]);
-            assert_eq!(original.hub, 0xffffffff);
-            assert_eq!(original.divider, 0xffc7cbd1);
-            assert_eq!(palette("minimal").divider, 0xff202020);
-            assert_eq!(palette(""), original);
-            assert_eq!(palette("unknown"), original);
-            assert_eq!(palette("legacy"), original);
-        }
-
-        #[test]
-        fn classic_silver_has_highlight_and_shadow_depth() {
-            assert_eq!(palette("classic").sectors, [0xffe4e8ed; 6]);
-            assert_eq!(SILVER_BANDS[2], 0xffffffff);
-            assert_ne!(SILVER_BANDS[0], SILVER_BANDS[2]);
-            assert_ne!(SILVER_BANDS[2], SILVER_BANDS[7]);
-            for color in SILVER_BANDS {
-                let red = (color >> 16) & 255;
-                let blue = color & 255;
-                assert!(blue >= red && blue - red <= 24);
+        fn shared_theme_values_and_legacy_fallback_are_exact() {
+            let expected = [
+                ("pearl", [0xfcfbfc, 0x292c30, 0x292c30, 0xffffff, 0xd8d5dc]),
+                (
+                    "graphite",
+                    [0x292d30, 0xffffff, 0xe4e7eb, 0x292d30, 0x555b62],
+                ),
+                ("ocean", [0x173b55, 0xffffff, 0x32a5f5, 0xffffff, 0x49657b]),
+                ("butter", [0xfcfbfc, 0x49331d, 0xe7b838, 0x49331d, 0xddd6ca]),
+                ("orange", [0xfce4ec, 0x372328, 0xff8a24, 0xffffff, 0xe9c7d2]),
+                ("sand", [0xf7ebdf, 0x513726, 0xb97555, 0xffffff, 0xdfcfc1]),
+            ];
+            assert_eq!(themes().len(), expected.len());
+            for (id, values) in expected {
+                let colors = palette(id);
+                assert_eq!(
+                    [
+                        colors.fill,
+                        colors.ink,
+                        colors.accent,
+                        colors.selected_ink,
+                        colors.divider
+                    ],
+                    values.map(|value| value | 0xff000000),
+                    "{id}"
+                );
+            }
+            for id in [
+                "", "unknown", "legacy", "original", "gray", "colorful", "blue", "classic",
+                "minimal",
+            ] {
+                assert_eq!(palette(id), palette("pearl"));
             }
         }
 
         #[test]
-        fn six_themes_are_distinct_and_hover_is_always_blue() {
-            let styles = ["original", "gray", "colorful", "blue", "classic", "minimal"];
+        fn dark_icons_and_disabled_panel_ink_follow_the_theme() {
+            assert_eq!(colorref(0xff173b55), COLORREF(0x553b17));
+            for id in ["graphite", "ocean"] {
+                let colors = palette(id);
+                assert_eq!(icon_ink(colors, false, true), 0xffffffff);
+                assert_eq!(icon_ink(colors, true, true), colors.selected_ink);
+                assert_eq!(
+                    icon_ink(colors, true, false),
+                    icon_ink(colors, false, false)
+                );
+                assert_ne!(icon_ink(colors, false, false), colors.fill);
+                assert_ne!(icon_ink(colors, false, false), colors.ink);
+            }
+        }
+
+        #[test]
+        fn six_themes_are_distinct_and_hover_uses_accent() {
+            let styles = ["pearl", "graphite", "ocean", "butter", "orange", "sand"];
             for (index, style) in styles.iter().enumerate() {
                 let colors = palette(style);
                 for other in &styles[index + 1..] {
                     assert_ne!(colors, palette(other));
                 }
                 for slot in 0..=RADIAL_CLEAR_SLOT {
-                    assert_eq!(sector_fill(colors, slot, true), HOVER);
-                    assert_eq!(sector_fill(colors, slot, false), colors.sectors[slot % 6]);
+                    assert_eq!(sector_fill(colors, slot, true), colors.accent);
+                    assert_eq!(sector_fill(colors, slot, false), colors.fill);
                 }
             }
         }
@@ -613,6 +657,26 @@ mod radial_styled_renderer {
                         let (inner, outer) = if index < 6 { (0.22, 0.61) } else { (0.61, 1.0) };
                         assert!(distance >= radius * inner - 1.0);
                         assert!(distance <= radius * outer + 1.0);
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn rounded_panel_silhouettes_stay_inside_unchanged_hit_rectangles() {
+            for radius in [78.0, 117.0, 156.0] {
+                for (width, height) in [(1, 1), (2, 3), (30, 30), (64, 30)] {
+                    let rect = RECT {
+                        left: -100,
+                        top: 50,
+                        right: -100 + width,
+                        bottom: 50 + height,
+                    };
+                    let points = panel_points(&rect, radius);
+                    assert_eq!(points.len(), 36);
+                    for point in points {
+                        assert!(point.x >= rect.left && point.x < rect.right);
+                        assert!(point.y >= rect.top && point.y < rect.bottom);
                     }
                 }
             }
@@ -700,9 +764,12 @@ mod radial_styled_renderer {
                 };
                 let pixels = std::slice::from_raw_parts_mut(canvas.bits as *mut u32, 360 * 360);
                 let mut snapshots = Vec::new();
-                for style in ["original", "gray", "colorful", "blue", "classic", "minimal"] {
+                for style in ["pearl", "graphite", "ocean", "butter", "orange", "sand"] {
                     for (variant, hovered, toolbar_hidden, keyboard_visible) in [
                         ("ring", 1, true, false),
+                        ("clear", RADIAL_CLEAR_SLOT, false, true),
+                        ("red", 13, false, true),
+                        ("black", 14, false, true),
                         ("panel", 15, false, true),
                         ("disabled", 16, true, true),
                         ("eye", 17, false, false),
@@ -749,29 +816,24 @@ mod radial_styled_renderer {
                                 assert_eq!(
                                     pixels[((rect.top + 3) * 360 + rect.left + 3) as usize]
                                         & 0xffffff,
-                                    HOVER & 0xffffff
+                                    palette(style).accent & 0xffffff
                                 );
                             }
                         }
                         let undo_bg = pixels[177 * 360 + 273] & 0xffffff;
                         let redo_bg = pixels[177 * 360 + 307] & 0xffffff;
                         if hovered == 15 {
-                            assert_eq!(undo_bg, HOVER & 0xffffff);
-                        } else if style != "classic" {
-                            assert_eq!(undo_bg, palette(style).panel & 0xffffff);
-                        }
-                        if style == "classic" {
-                            assert_ne!(redo_bg, HOVER & 0xffffff);
-                            assert_ne!(redo_bg, pixels[200 * 360 + 307] & 0xffffff);
+                            assert_eq!(undo_bg, palette(style).accent & 0xffffff);
                         } else {
-                            assert_eq!(redo_bg, palette(style).panel & 0xffffff);
+                            assert_eq!(undo_bg, palette(style).fill & 0xffffff);
                         }
+                        assert_eq!(redo_bg, palette(style).fill & 0xffffff);
                         if hovered == 1 {
                             let (start, sweep) = radial_sector(1);
                             let sample = point(&menu, start + sweep / 2.0, menu.radius * 0.54);
                             assert_eq!(
                                 pixels[(sample.y * 360 + sample.x) as usize] & 0xffffff,
-                                HOVER & 0xffffff
+                                palette(style).accent & 0xffffff
                             );
                         }
                         if variant == "ring" {

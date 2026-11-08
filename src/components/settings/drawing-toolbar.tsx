@@ -4,10 +4,10 @@ import {
 } from "@/lib/drawing-tools";
 import { useTranslation } from "@/lib/i18n";
 import {
-  RADIAL_STYLES,
   type RadialStyle,
   useDrawingToolbar,
 } from "@/stores/drawing_toolbar";
+import { DRAWING_THEMES, drawingThemeVariables } from "@/lib/drawing-themes";
 import { Button } from "@/components/ui/button";
 import { ShortcutRecorder } from "@/components/shortcut-recorder";
 import { radialShortcutError } from "@/lib/radial-shortcut";
@@ -143,21 +143,21 @@ export const DrawingToolbarSettings = () => {
 
       <Item variant="muted">
         <ItemContent>
-          <ItemTitle>{t("Circular Menu Style")}</ItemTitle>
-          <ItemDescription>{t("Choose a two-ring menu style. Original is the default white fine-line style.")}</ItemDescription>
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3" role="group" aria-label={t("Circular Menu Style")}>
-            {RADIAL_STYLES.map((style) => (
+          <ItemTitle>{t("Drawing Theme")}</ItemTitle>
+          <ItemDescription>{t("Use one theme for the toolbar and circular menu. Default: 01 Pearl. Drawing colors are unchanged.")}</ItemDescription>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3" role="group" aria-label={t("Drawing Theme")}>
+            {DRAWING_THEMES.map(({ id, label }) => (
               <button
-                key={style}
+                key={id}
                 type="button"
-                aria-pressed={radialStyle === style}
-                onClick={() => setRadialStyle(style)}
-                className={`radial-style-card rounded-lg border p-3 text-sm transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-primary ${radialStyle === style ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-background"}`}
+                aria-pressed={radialStyle === id}
+                onClick={() => setRadialStyle(id as RadialStyle)}
+                className={`radial-style-card rounded-lg border p-3 text-sm transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-primary ${radialStyle === id ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-background"}`}
               >
-                <RadialStylePreview style={style} />
+                <RadialStylePreview style={id as RadialStyle} />
                 <span className="mt-2 flex items-center justify-center gap-1">
-                  {t(RADIAL_STYLE_LABELS[style])}
-                  {radialStyle === style && <Check className="size-3" aria-hidden="true" />}
+                  {t(label)}
+                  {radialStyle === id && <Check className="size-3" aria-hidden="true" />}
                 </span>
               </button>
             ))}
@@ -373,19 +373,17 @@ export const DrawingToolbarSettings = () => {
   );
 };
 
-const RADIAL_STYLE_LABELS: Record<RadialStyle, string> = {
-  original: "Original Style",
-  gray: "Gray Style",
-  colorful: "Colorful Style",
-  blue: "Blue Style",
-  classic: "Classic Style",
-  minimal: "Minimal Style",
-};
-
 const PREVIEW_TOOLS: DrawingTool[] = ["pen", "arrow", "number", "eraser", "rectangle", "ellipse", "check-mark", "cross-mark", "text", "line", "select", "pointer"];
 
 const RadialStylePreview = ({ style }: { style: RadialStyle }) => (
-  <span className="radial-style-preview" data-style={style} aria-hidden="true">
+  <span className="drawing-theme-preview" style={drawingThemeVariables(style)} aria-hidden="true">
+    <span className="theme-preview-toolbar">
+      {["pointer", "pen", "arrow", "number", "rectangle"].map((id) => {
+        const Icon = DRAWING_TOOL_BY_ID[id as DrawingTool].icon;
+        return <span key={id} className={id === "pen" ? "active" : ""}><Icon /></span>;
+      })}
+    </span>
+    <span className="radial-style-preview">
     <span className="radial-preview-ring radial-preview-outer" />
     <span className="radial-preview-ring radial-preview-inner" />
     {PREVIEW_TOOLS.map((id, index) => {
@@ -400,6 +398,7 @@ const RadialStylePreview = ({ style }: { style: RadialStyle }) => (
       );
     })}
     <span className="radial-preview-center" />
+    </span>
   </span>
 );
 

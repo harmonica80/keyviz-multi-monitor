@@ -2,6 +2,7 @@ import { useTranslation } from "@/lib/i18n";
 import { useOverlayProbe } from "@/lib/overlay-probe";
 import { keymaps } from "@/lib/keymaps";
 import { radialToolbarKeyAction } from "@/lib/radial-shortcut";
+import { drawingThemeVariables } from "@/lib/drawing-themes";
 import {
   DRAWING_TOOL_BY_ID,
   type DrawingTool,
@@ -253,6 +254,16 @@ export default function ScreenDrawing() {
   const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
   const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
   const radialStyle = useDrawingToolbar((state) => state.radialStyle);
+  useEffect(() => {
+    if (!isToolbar) return;
+    const variables = drawingThemeVariables(radialStyle);
+    for (const [key, value] of Object.entries(variables)) {
+      document.documentElement.style.setProperty(key, String(value));
+    }
+    return () => {
+      for (const key of Object.keys(variables)) document.documentElement.style.removeProperty(key);
+    };
+  }, [isToolbar, radialStyle]);
   useEffect(() => {
     if (!isToolbar) return;
     void invoke("set_drawing_radial_menu", {
@@ -659,7 +670,7 @@ export default function ScreenDrawing() {
     .map((item) => DRAWING_TOOL_BY_ID[item.id]);
 
   return (
-    <aside ref={toolbarRef} className="drawing-toolbar" aria-label={t("Screen Drawing")}>
+    <aside ref={toolbarRef} className="drawing-toolbar" style={drawingThemeVariables(radialStyle)} aria-label={t("Screen Drawing")}>
       <button
         className="drawing-drag-handle"
         title={t("Move Toolbar")}

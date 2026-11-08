@@ -8,6 +8,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { createSyncedStore } from "./sync";
 import { tauriStorage } from "./storage";
 import { normalizeRadialRightClick, radialShortcutError } from "@/lib/radial-shortcut";
+import { normalizeDrawingTheme, type DrawingThemeId } from "@/lib/drawing-themes";
 
 export const DRAWING_TOOLBAR_STORE = "drawing_toolbar_store";
 
@@ -17,11 +18,9 @@ export interface DrawingToolbarItem {
 }
 
 export type DrawingToolbarSide = "left" | "right";
-export const RADIAL_STYLES = ["original", "gray", "colorful", "blue", "classic", "minimal"] as const;
-export type RadialStyle = (typeof RADIAL_STYLES)[number];
-
-export const normalizeRadialStyle = (style: unknown): RadialStyle =>
-  RADIAL_STYLES.includes(style as RadialStyle) ? style as RadialStyle : "original";
+// Keep the persisted field and native command name compatible with older builds.
+export type RadialStyle = DrawingThemeId;
+export const normalizeRadialStyle = normalizeDrawingTheme;
 
 interface DrawingToolbarState {
   radialShortcut: string[];
@@ -86,7 +85,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
   (set) => ({
     radialShortcut: ["KeyQ"],
     radialRightClick: true,
-    radialStyle: "original",
+    radialStyle: "pearl",
     setRadialStyle: (style) => set({ radialStyle: normalizeRadialStyle(style) }),
     setRadialRightClick: (enabled) => set({ radialRightClick: enabled }),
     setRadialShortcut: (shortcut) => set({ radialShortcut: normalizeRadialShortcut(shortcut) }),
@@ -108,7 +107,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
       set({
         radialShortcut: ["KeyQ"],
         radialRightClick: true,
-        radialStyle: "original",
+        radialStyle: "pearl",
         hoverEdit: {},
         items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
         side: DEFAULT_DRAWING_TOOLBAR_SIDE,
@@ -118,7 +117,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 5,
+      version: 6,
       migrate: (persistedState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
