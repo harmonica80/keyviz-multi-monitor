@@ -276,6 +276,7 @@ body.drawing-page #root {
 }
 
 .radial-style-preview {
+  filter: drop-shadow(0 4px 5px rgb(0 0 0 / 24%));
   --radial-line: #b8bec5;
   --radial-fill: #fff;
   --radial-ink: #454b54;

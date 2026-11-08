@@ -251,6 +251,8 @@ mod platform {
         ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String },
         SetToolbarHidden(bool),
         OpenPointerRadial { epoch: u64 },
+        RequestPointerRadial,
+        SetKeyboardVisible(bool),
         RadialClick { x: i32, y: i32 },
         ToggleRadial,
         CancelRadial,
@@ -418,6 +420,7 @@ mod platform {
         radial_right_click: bool,
         radial_style: String,
         toolbar_hidden: bool,
+        keyboard_visible: bool,
         radial_gate: Arc<Mutex<RadialGate>>,
         radial_ignore_up: bool,
         probe: Option<LayerProbe>,
@@ -706,6 +709,14 @@ mod platform {
             if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::SetToolbarHidden(hidden)); }
         }
 
+        pub fn request_pointer_radial(&self) {
+            if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::RequestPointerRadial); }
+        }
+
+        pub fn set_keyboard_visible(&self, visible: bool) {
+            if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::SetKeyboardVisible(visible)); }
+        }
+
         pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: String) -> Result<(), String> {
             let shortcut = radial_shortcut(&shortcut)?;
             let tools = tools.iter().filter_map(|id| parse_tool(id)).collect();
@@ -903,6 +914,7 @@ mod platform {
                     radial_right_click: true,
                     radial_style: "original".into(),
                     toolbar_hidden: false,
+                    keyboard_visible: true,
                     radial_gate,
                     radial_ignore_up: false,
                     probe: None,
@@ -1242,6 +1254,7 @@ mod platform {
             | DrawingCommand::SetToolbarPassthrough(_) | DrawingCommand::PointerMove { .. }
             | DrawingCommand::SetColor(_) | DrawingCommand::Undo | DrawingCommand::Redo
             | DrawingCommand::SetToolbarHidden(_) | DrawingCommand::RadialClick { .. }
+            | DrawingCommand::SetKeyboardVisible(_) | DrawingCommand::ConfigureRadial { .. }
             | DrawingCommand::PointerDown { .. } | DrawingCommand::PointerUp { .. }) {
             cancel_radial(state);
         }
@@ -1263,6 +1276,11 @@ mod platform {
         }
 
         match command {
+            DrawingCommand::RequestPointerRadial => open_pointer_radial(state),
+            DrawingCommand::SetKeyboardVisible(visible) => {
+                state.keyboard_visible = visible;
+                refresh_overlay(state);
+            }
             DrawingCommand::RadialClick { x, y } => {
                 if state.radial.is_some() {
                     radial_click(state, Point { x: x - state.bounds.left, y: y - state.bounds.top });
@@ -1273,19 +1291,18 @@ mod platform {
                 refresh_overlay(state);
             }
             DrawingCommand::OpenPointerRadial { epoch } => {
+                if !state.visible {
+                    let app = state.app.clone();
+                    thread::spawn(move || {
+                        if let Err(error) = crate::start_pointer_radial(&app) {
+                            record_error(format!("Failed to start pointer menu: {error}"));
+                        }
+                    });
+                    return;
+                }
                 if epoch == state.input_epoch && state.visible && state.tool == NativeTool::Pointer
                     && state.probe.is_none() && state.radial.is_none() {
-                    state.click_through = false;
-                    sync_input_surface_visibility(state);
-                    if let Some(hwnd) = first_surface_hwnd(state) {
-                        let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
-                        let _ = SetFocus(hwnd);
-                    }
-                    toggle_radial(state);
-                    if state.radial.is_none() {
-                        state.click_through = true;
-                        sync_input_surface_visibility(state);
-                    }
+                    open_pointer_radial(state);
                 }
             }
             DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style } => {
@@ -1299,6 +1316,7 @@ mod platform {
                     gate.settings = settings;
                 }
                 sync_radial_gate(state);
+                refresh_overlay(state);
             }
             DrawingCommand::ToggleRadial => toggle_radial(state),
             DrawingCommand::CancelRadial => {
@@ -2481,7 +2499,7 @@ mod platform {
         }
         if let Some(menu) = &state.radial {
             draw_radial_styled(drawing_dc, menu, &state.radial_tools, &state.radial_style,
-                &radial_panel_rects(menu), !state.history.undo.is_empty(), !state.history.redo.is_empty(), state.toolbar_hidden);
+                &radial_panel_rects(menu), !state.history.undo.is_empty(), !state.history.redo.is_empty(), state.toolbar_hidden, state.keyboard_visible);
         }
         SetViewportOrgEx(drawing_dc, old_origin.x, old_origin.y, None);
 
@@ -2491,6 +2509,18 @@ mod platform {
             return;
         }
         let mut frame_stats = FrameStats::default();
+        let shadow_bounds = state.radial.as_ref().map(|menu| {
+            let radius = menu.radius.ceil() as i32;
+            let mut bounds = RECT { left: menu.center.x - radius, top: menu.center.y - radius,
+                right: menu.center.x + radius, bottom: menu.center.y + radius };
+            for rect in menu.panel {
+                bounds.left = bounds.left.min(rect.left);
+                bounds.top = bounds.top.min(rect.top);
+                bounds.right = bounds.right.max(rect.right);
+                bounds.bottom = bounds.bottom.max(rect.bottom);
+            }
+            RECT { left: bounds.left - 8, top: bounds.top - 8, right: bounds.right + 8, bottom: bounds.bottom + 11 }
+        });
         for (index, pixel) in pixels.iter_mut().enumerate() {
             let x = (index % width as usize) as i32 + surface.bounds.left;
             let y = (index / width as usize) as i32 + surface.bounds.top;
@@ -2503,6 +2533,12 @@ mod platform {
             let alpha = *pixel >> 24;
             if rgb == TRANSPARENT_PIXEL || (rgb == 0 && alpha == 0) {
                 *pixel = 0;
+                if let Some(menu) = &state.radial {
+                    let point = Point { x: x - state.bounds.left, y: y - state.bounds.top };
+                    if shadow_bounds.is_some_and(|bounds| point_in_rect(point, bounds)) {
+                        *pixel = (radial_shadow_alpha(menu, &menu.panel, point) as u32) << 24;
+                    }
+                }
             } else if alpha == 0 {
                 *pixel |= 0xff00_0000;
             }
@@ -5664,6 +5700,8 @@ mod platform_stub {
         pub fn set_tool(&self, _tool: NativeTool) {}
         pub fn prepare_for_settings(&self) -> Result<(), String> { Ok(()) }
         pub fn set_toolbar_hidden(&self, _hidden: bool) {}
+        pub fn request_pointer_radial(&self) {}
+        pub fn set_keyboard_visible(&self, _visible: bool) {}
         pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>, _right_click: bool, _style: String) -> Result<(), String> { Ok(()) }
         pub fn radial_menu_action(&self, _cancel: bool) -> Result<(), String> { Ok(()) }
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}

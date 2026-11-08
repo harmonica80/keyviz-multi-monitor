@@ -166,7 +166,7 @@ struct RadialGate {
 impl Default for RadialGate {
     fn default() -> Self {
         Self {
-            pointer: false,
+            pointer: true,
             enabled: false,
             open: false,
             shortcut: RadialShortcut {
@@ -414,7 +414,7 @@ mod radial_keyboard {
 
 
 struct RadialMenu {
-    panel: [RECT; 5],
+    panel: [RECT; 7],
     center: Point,
     radius: f64,
     hovered: Option<usize>,
@@ -485,7 +485,7 @@ unsafe fn radial_right_click(state: &mut OverlayState) {
 fn sync_radial_gate(state: &OverlayState) {
     if let Ok(mut gate) = state.radial_gate.lock() {
         gate.epoch = state.input_epoch;
-        gate.pointer = state.visible && state.tool == NativeTool::Pointer && state.probe.is_none();
+        gate.pointer = (!state.visible || state.tool == NativeTool::Pointer) && state.probe.is_none();
         gate.input_windows = state.surfaces.iter().map(|surface| surface.input_hwnd.0).collect();
         // Mouse-button state blocks live gestures. A missed mouse-up must not
         // permanently disable the shortcut via a stale active/selection value.
@@ -553,18 +553,33 @@ unsafe fn cancel_radial(state: &mut OverlayState) {
     }
 }
 
+unsafe fn open_pointer_radial(state: &mut OverlayState) {
+    if !state.visible || state.tool != NativeTool::Pointer || state.probe.is_some() || state.radial.is_some() { return; }
+    state.click_through = false;
+    sync_input_surface_visibility(state);
+    if let Some(hwnd) = first_surface_hwnd(state) {
+        let _ = windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow(hwnd);
+        let _ = SetFocus(hwnd);
+    }
+    toggle_radial(state);
+    if state.radial.is_none() {
+        state.click_through = true;
+        sync_input_surface_visibility(state);
+    }
+}
+
 fn pointer_radial_allowed(pointer: bool, open: bool, left_alt: bool, extra: bool, settings: bool) -> bool {
     pointer && !open && left_alt && !extra && !settings
 }
 
-fn radial_panel_rects(menu: &RadialMenu) -> [RECT; 5] { menu.panel }
+fn radial_panel_rects(menu: &RadialMenu) -> [RECT; 7] { menu.panel }
 
-fn make_radial_panel(center: Point, radius: f64, bounds: RECT) -> [RECT; 5] {
+fn make_radial_panel(center: Point, radius: f64, bounds: RECT) -> [RECT; 7] {
     let size = (radius * 0.34).round().max(20.0) as i32;
     let gap = 3;
     let offset = (radius * 0.75).round() as i32;
     let width = size * 2 + gap;
-    let height = size * 3 + gap * 2;
+    let height = size * 4 + gap * 3;
     let x = if center.x + offset + width <= bounds.right { center.x + offset }
         else { center.x - offset - width };
     let y = if center.y + offset + height <= bounds.bottom { center.y + offset }
@@ -573,7 +588,7 @@ fn make_radial_panel(center: Point, radius: f64, bounds: RECT) -> [RECT; 5] {
     let y = y.clamp(bounds.top, (bounds.bottom - height).max(bounds.top));
     std::array::from_fn(|i| RECT { left: x + (i as i32 % 2) * (size + gap),
         top: y + (i as i32 / 2) * (size + gap),
-        right: if i == 4 { x + width } else { x + (i as i32 % 2) * (size + gap) + size },
+        right: if i == 6 { x + width } else { x + (i as i32 % 2) * (size + gap) + size },
         bottom: y + (i as i32 / 2) * (size + gap) + size })
 }
 
@@ -677,7 +692,7 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
         return false;
     };
     let hit = menu.hit(point);
-    if let Some(index @ 13..=17) = hit {
+    if let Some(index @ 13..=19) = hit {
         state.radial_ignore_up = true;
         let app = state.app.clone();
         thread::spawn(move || {
@@ -686,7 +701,9 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
                 14 => crate::app::commands::drawing_set_color(app, "#000000".into()),
                 15 => crate::app::commands::drawing_undo(app),
                 16 => crate::app::commands::drawing_redo(app),
-                _ => crate::show_drawing_toolbar(&app),
+                17 => crate::toggle_drawing_toolbar(&app),
+                18 => crate::toggle_key_display(app).map(|_| ()),
+                _ => crate::open_settings_window(app),
             };
             if let Err(error) = result { record_error(format!("Radial panel action failed: {error}")); }
         });
@@ -831,6 +848,7 @@ mod radial_hover_tests {
     use super::*;
     #[test]
     fn pointer_combo_is_exclusive_and_panel_flips_inside_monitors() {
+        assert!(RadialGate::default().pointer); // Available before the first session.
         assert!(pointer_radial_allowed(true, false, true, false, false));
         assert!(!pointer_radial_allowed(false, false, true, false, false));
         assert!(!pointer_radial_allowed(true, false, false, false, false));
@@ -960,6 +978,7 @@ mod radial_hover_tests {
                 &panel,
                 true,
                 false,
+                true,
                 true,
             );
             assert!(GdiFlush().as_bool());
@@ -1142,6 +1161,10 @@ mod radial_hover_tests {
                 ..
             }
         ));
+        overlay.request_pointer_radial();
+        assert!(matches!(receiver.try_recv().unwrap(), DrawingCommand::RequestPointerRadial));
+        overlay.set_keyboard_visible(false);
+        assert!(matches!(receiver.try_recv().unwrap(), DrawingCommand::SetKeyboardVisible(false)));
         assert!(NativeDrawingOverlay { sender: None }
             .radial_menu_action(false)
             .is_err());

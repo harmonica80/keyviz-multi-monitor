@@ -266,9 +266,6 @@ fn create_drawing_toolbar(
         });
     }
 
-    #[cfg(not(target_os = "windows"))]
-    toolbar.show().map_err(|error| error.to_string())?;
-
     let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ());
     Ok(())
 }
@@ -461,6 +458,14 @@ pub(crate) fn show_drawing_toolbar(app: &AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+pub(crate) fn toggle_drawing_toolbar(app: &AppHandle) -> Result<(), String> {
+    if drawing_toolbar_visible(app)? {
+        hide_drawing_toolbar(app.clone())
+    } else {
+        show_drawing_toolbar(app)
+    }
+}
+
 fn schedule_drawing_toolbar_passthrough_sync(app: &AppHandle) {
     let app_handle = app.clone();
     std::thread::spawn(move || {
@@ -473,8 +478,29 @@ fn schedule_drawing_toolbar_passthrough_sync(app: &AppHandle) {
 }
 
 pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
-    if app.state::<Mutex<AppState>>().lock().map_err(|error| error.to_string())?.settings_opening {
+    initialize_drawing_session(app, false)
+}
+
+pub(crate) fn start_pointer_radial(app: &AppHandle) -> Result<(), String> {
+    initialize_drawing_session(app, true)?;
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().map_err(|error| error.to_string())?;
+    if state.settings_opening {
         return Err("Wait for settings to finish opening".into());
+    }
+    // Keep this behind Show/SetTool in the native queue, without waiting on the UI.
+    state.drawing_overlay.request_pointer_radial();
+    Ok(())
+}
+
+fn initialize_drawing_session(app: &AppHandle, hidden_pointer: bool) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().map_err(|error| error.to_string())?;
+        if state.settings_opening {
+            return Err("Wait for settings to finish opening".into());
+        }
+        if hidden_pointer && state.drawing_visible { return Ok(()); }
     }
     let monitors = app
         .available_monitors()
@@ -507,26 +533,26 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     if app_state.settings_opening { return Err("Wait for settings to finish opening".into()); }
+    if hidden_pointer && app_state.drawing_visible { return Ok(()); }
+    let tool = if hidden_pointer { "pointer" } else { "pen" };
     app_state.pressed_keys.clear();
     app_state.drawing_visible = true;
-    app_state.drawing_toolbar_hidden = false;
-    app_state.drawing_overlay.set_toolbar_hidden(false);
-    app_state.drawing_tool = "pen".to_string();
+    app_state.drawing_toolbar_hidden = hidden_pointer;
+    app_state.drawing_overlay.set_toolbar_hidden(hidden_pointer);
+    app_state.drawing_tool = tool.to_string();
     app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
     let drawing_session_id = app_state.drawing_session_id;
-    app_state.drawing_input_passthrough = false;
+    app_state.drawing_input_passthrough = hidden_pointer;
     app_state.drawing_pointer_down = false;
     app_state.drawing_last_move = None;
-    // Every new drawing session starts in pen mode. This avoids reopening the
-    // overlay in pointer mode, which looks as though the Start Drawing button
-    // did nothing.
-    app_state.drawing_overlay.set_tool(NativeTool::Pen);
+    // F8 starts with a pen; the global pointer gesture must not capture input.
+    app_state.drawing_overlay.set_tool(if hidden_pointer { NativeTool::Pointer } else { NativeTool::Pen });
     app_state.drawing_overlay.show(drawing_monitors, None);
-    app_state.drawing_overlay.set_click_through(false);
+    app_state.drawing_overlay.set_click_through(hidden_pointer);
     app_state.drawing_overlay.raise();
     drop(app_state);
-    set_drawing_toolbar_visible(app, true)?;
-    let _ = app.emit("drawing-tool-changed", serde_json::json!({ "tool": "pen" }));
+    set_drawing_toolbar_visible(app, !hidden_pointer)?;
+    let _ = app.emit("drawing-tool-changed", serde_json::json!({ "tool": tool }));
     let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ());
     keep_drawing_toolbar_above_canvas(app)?;
     sync_drawing_toolbar_passthrough(app)?;
@@ -616,7 +642,7 @@ fn get_key_display_enabled(app: AppHandle) -> Result<bool, String> {
 }
 
 #[tauri::command]
-fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
+pub(crate) fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
     let toggle_item = app.state::<TrayMenuItems>().toggle.clone();
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
@@ -633,7 +659,7 @@ fn show_drawing_toolbar_label(is_chinese: bool) -> &'static str {
 }
 
 #[tauri::command]
-fn open_settings_window(app: AppHandle) -> Result<(), String> {
+pub(crate) fn open_settings_window(app: AppHandle) -> Result<(), String> {
     let app_handle = app.clone();
     app.run_on_main_thread(move || show_settings_window(&app_handle))
         .map_err(|error| error.to_string())

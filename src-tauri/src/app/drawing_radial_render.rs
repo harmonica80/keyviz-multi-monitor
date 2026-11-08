@@ -1,14 +1,47 @@
 // Include in native_drawing::platform alongside drawing_radial.rs.
-// Panel order is red, black, undo, redo, toolbar (hover slots 13..=17).
+// Panel order is red, black, undo, redo, toolbar, keyboard, settings (13..=19).
+// Keep shadows out of the DC: the overlay converts every nonzero RGB to opaque.
+pub(super) fn radial_shadow_alpha(menu: &RadialMenu, panel: &[RECT; 7], point: Point) -> u8 {
+    if !menu.radius.is_finite() || menu.radius <= 0.0 {
+        return 0;
+    }
+    let distance = |offset_y: f64| {
+        let x = f64::from(point.x);
+        let y = f64::from(point.y) - offset_y;
+        let mut nearest =
+            (x - f64::from(menu.center.x)).hypot(y - f64::from(menu.center.y)) - menu.radius;
+        for rect in panel {
+            if rect.right <= rect.left || rect.bottom <= rect.top {
+                continue;
+            }
+            let left = f64::from(rect.left);
+            let right = f64::from(rect.right - 1);
+            let top = f64::from(rect.top);
+            let bottom = f64::from(rect.bottom - 1);
+            let dx = (left - x).max(x - right);
+            let dy = (top - y).max(y - bottom);
+            let signed = dx.max(0.0).hypot(dy.max(0.0)) + dx.max(dy).min(0.0);
+            nearest = nearest.min(signed);
+        }
+        nearest
+    };
+    if distance(0.0) <= 0.0 {
+        return 0;
+    }
+    let feather = ((distance(3.0) + 6.0) / 12.0).clamp(0.0, 1.0);
+    (60.0 * (1.0 - feather * feather * (3.0 - 2.0 * feather))).round() as u8
+}
+
 unsafe fn draw_radial_styled(
     dc: HDC,
     menu: &RadialMenu,
     tools: &[NativeTool],
     style: &str,
-    panel: &[RECT; 5],
+    panel: &[RECT; 7],
     can_undo: bool,
     can_redo: bool,
     toolbar_hidden: bool,
+    keyboard_visible: bool,
 ) {
     radial_styled_renderer::draw(
         dc,
@@ -19,6 +52,7 @@ unsafe fn draw_radial_styled(
         can_undo,
         can_redo,
         toolbar_hidden,
+        keyboard_visible,
     );
 }
 
@@ -138,10 +172,11 @@ mod radial_styled_renderer {
         menu: &RadialMenu,
         tools: &[NativeTool],
         style: &str,
-        panel: &[RECT; 5],
+        panel: &[RECT; 7],
         can_undo: bool,
         can_redo: bool,
         toolbar_hidden: bool,
+        keyboard_visible: bool,
     ) {
         if !menu.radius.is_finite() || menu.radius <= 0.0 {
             return;
@@ -289,6 +324,7 @@ mod radial_styled_renderer {
                 index,
                 panel_enabled(index, can_undo, can_redo),
                 toolbar_hidden,
+                keyboard_visible,
             );
         }
     }
@@ -300,6 +336,7 @@ mod radial_styled_renderer {
         index: usize,
         enabled: bool,
         toolbar_hidden: bool,
+        keyboard_visible: bool,
     ) {
         let center = Point {
             x: rect.left + (rect.right - rect.left) / 2,
@@ -368,20 +405,69 @@ mod radial_styled_renderer {
                 line((-7.0 * mirror, -2.0), (-2.0 * mirror, -1.0));
             }
             4 => {
+                let outline = [
+                    (-9.0, 0.0),
+                    (-5.0, -4.0),
+                    (0.0, -6.0),
+                    (5.0, -4.0),
+                    (9.0, 0.0),
+                    (5.0, 4.0),
+                    (0.0, 6.0),
+                    (-5.0, 4.0),
+                    (-9.0, 0.0),
+                ];
+                for pair in outline.windows(2) {
+                    line(pair[0], pair[1]);
+                }
+                draw_antialiased_shape(
+                    dc,
+                    &NativeTool::Ellipse,
+                    p(-2.5, -2.5),
+                    p(2.5, 2.5),
+                    color,
+                    scale.round().max(1.0) as i32,
+                    0.0,
+                );
+                if toolbar_hidden {
+                    line((-9.0, -8.0), (9.0, 8.0));
+                }
+            }
+            5 => {
                 for (a, b) in [
                     ((-9.0, -6.0), (9.0, -6.0)),
                     ((9.0, -6.0), (9.0, 6.0)),
                     ((9.0, 6.0), (-9.0, 6.0)),
                     ((-9.0, 6.0), (-9.0, -6.0)),
-                    ((-5.0, -2.0), (-5.0, 2.0)),
-                    ((-1.0, -2.0), (-1.0, 2.0)),
-                    ((3.0, 0.0), (7.0, 0.0)),
+                    ((-6.0, -2.0), (-4.0, -2.0)),
+                    ((-1.0, -2.0), (1.0, -2.0)),
+                    ((4.0, -2.0), (6.0, -2.0)),
+                    ((-5.0, 2.0), (5.0, 2.0)),
                 ] {
                     line(a, b);
                 }
-                if toolbar_hidden {
-                    line((5.0, -2.0), (5.0, 2.0));
+                if !keyboard_visible {
+                    line((-9.0, -8.0), (9.0, 8.0));
                 }
+            }
+            6 => {
+                // Eight teeth and a circular bore, without text or font dependencies.
+                for step in 0..32 {
+                    let vertex = |i: usize| {
+                        let angle = i as f64 * std::f64::consts::TAU / 32.0;
+                        let radius = if i % 4 < 2 { 9.0 } else { 6.5 };
+                        (angle.cos() * radius, angle.sin() * radius)
+                    };
+                    line(vertex(step), vertex((step + 1) % 32));
+                }
+                draw_antialiased_shape(
+                    dc,
+                    &NativeTool::Ellipse,
+                    p(-3.0, -3.0),
+                    p(3.0, 3.0),
+                    color,
+                    scale.round().max(1.0) as i32,
+                    0.0,
+                );
             }
             _ => {}
         }
@@ -390,6 +476,71 @@ mod radial_styled_renderer {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn shadow_is_bounded_feathered_and_only_outside_silhouettes() {
+            let mut panel = [RECT::default(); 7];
+            panel[6] = RECT {
+                left: 130,
+                top: 90,
+                right: 150,
+                bottom: 110,
+            };
+            let menu = RadialMenu {
+                center: Point { x: 100, y: 100 },
+                radius: 20.0,
+                hovered: None,
+                panel,
+            };
+            for point in [
+                menu.center,
+                Point { x: 120, y: 100 },
+                Point { x: 130, y: 90 },
+                Point { x: 149, y: 109 },
+                Point { x: 0, y: 0 },
+                Point { x: 300, y: 300 },
+                Point {
+                    x: i32::MIN,
+                    y: i32::MAX,
+                },
+            ] {
+                assert_eq!(radial_shadow_alpha(&menu, &panel, point), 0);
+            }
+            let alpha = |x, y| radial_shadow_alpha(&menu, &panel, Point { x, y });
+            assert!(alpha(100, 121) > alpha(100, 79));
+            assert!(alpha(100, 121) > alpha(100, 124));
+            assert!(alpha(100, 124) > alpha(100, 128));
+            assert_eq!(alpha(100, 129), 0);
+            assert!(alpha(140, 110) > alpha(140, 89));
+            assert!(alpha(140, 110) > alpha(140, 114));
+            assert_eq!(alpha(140, 118), 0);
+            for y in 65..125 {
+                for x in 65..160 {
+                    assert!(alpha(x, y) <= 60);
+                }
+            }
+        }
+
+        #[test]
+        fn shadow_rejects_invalid_radii_and_ignores_empty_panel_rectangles() {
+            let panel = [RECT::default(); 7];
+            for radius in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+                let menu = RadialMenu {
+                    center: Point { x: 100, y: 100 },
+                    radius,
+                    hovered: None,
+                    panel,
+                };
+                assert_eq!(radial_shadow_alpha(&menu, &panel, menu.center), 0);
+            }
+            let menu = RadialMenu {
+                center: Point { x: 100, y: 100 },
+                radius: 20.0,
+                hovered: None,
+                panel,
+            };
+            assert_eq!(radial_shadow_alpha(&menu, &panel, Point { x: 0, y: 1 }), 0);
+        }
 
         #[test]
         fn original_is_white_with_fine_gray_not_minimal_black() {
@@ -438,7 +589,7 @@ mod radial_styled_renderer {
                     center: Point { x: -400, y: 250 },
                     radius,
                     hovered: None,
-                    panel: [RECT::default(); 5],
+                    panel: [RECT::default(); 7],
                 };
                 for index in 0..=RADIAL_CLEAR_SLOT {
                     let (start, sweep) = radial_sector(index);
@@ -472,7 +623,7 @@ mod radial_styled_renderer {
             for (undo, redo) in [(false, false), (false, true), (true, false), (true, true)] {
                 assert_eq!(panel_enabled(2, undo, redo), undo);
                 assert_eq!(panel_enabled(3, undo, redo), redo);
-                for index in [0, 1, 4] {
+                for index in [0, 1, 4, 5, 6] {
                     assert!(panel_enabled(index, undo, redo));
                 }
             }
@@ -528,6 +679,18 @@ mod radial_styled_renderer {
                         right: 334,
                         bottom: 238,
                     },
+                    RECT {
+                        left: 270,
+                        top: 242,
+                        right: 300,
+                        bottom: 272,
+                    },
+                    RECT {
+                        left: 304,
+                        top: 242,
+                        right: 334,
+                        bottom: 272,
+                    },
                 ];
                 let mut menu = RadialMenu {
                     center: Point { x: 180, y: 180 },
@@ -538,11 +701,13 @@ mod radial_styled_renderer {
                 let pixels = std::slice::from_raw_parts_mut(canvas.bits as *mut u32, 360 * 360);
                 let mut snapshots = Vec::new();
                 for style in ["original", "gray", "colorful", "blue", "classic", "minimal"] {
-                    // Both images show blue hover, disabled redo, and the toolbar toggle state.
-                    for (variant, hovered, toolbar_hidden) in [
-                        ("ring", 1, true),
-                        ("panel", 15, false),
-                        ("disabled", 16, true),
+                    for (variant, hovered, toolbar_hidden, keyboard_visible) in [
+                        ("ring", 1, true, false),
+                        ("panel", 15, false, true),
+                        ("disabled", 16, true, true),
+                        ("eye", 17, false, false),
+                        ("keyboard", 18, true, true),
+                        ("settings", 19, false, false),
                     ] {
                         pixels.fill(0);
                         menu.hovered = Some(hovered);
@@ -555,13 +720,39 @@ mod radial_styled_renderer {
                             true,
                             false,
                             toolbar_hidden,
+                            keyboard_visible,
                         );
                         assert!(GdiFlush().as_bool());
+                        // Match production's premultiplied black shadow on transparent RGB only.
+                        for (index, pixel) in pixels.iter_mut().enumerate() {
+                            if *pixel & 0xffffff == 0 {
+                                *pixel = u32::from(radial_shadow_alpha(
+                                    &menu,
+                                    &panel,
+                                    Point {
+                                        x: (index % 360) as i32,
+                                        y: (index / 360) as i32,
+                                    },
+                                )) << 24;
+                            } else {
+                                *pixel |= 0xff000000;
+                            }
+                        }
                         assert_eq!(pixels[0], 0);
-                        assert_eq!(pixels[180 * 360 + 260], 0);
+                        assert_eq!(pixels[180 * 360 + 264], 0);
                         assert_eq!(pixels[359 * 360 + 359], 0);
                         let painted = pixels.iter().filter(|pixel| **pixel != 0).count();
-                        assert!((22_000..28_000).contains(&painted), "{style}: {painted}");
+                        assert!((22_000..=35_000).contains(&painted), "{style}: {painted}");
+                        assert!((1..=60).contains(&(pixels[261 * 360 + 180] >> 24)));
+                        for (index, rect) in panel.iter().enumerate() {
+                            if hovered == 13 + index && panel_enabled(index, true, false) {
+                                assert_eq!(
+                                    pixels[((rect.top + 3) * 360 + rect.left + 3) as usize]
+                                        & 0xffffff,
+                                    HOVER & 0xffffff
+                                );
+                            }
+                        }
                         let undo_bg = pixels[177 * 360 + 273] & 0xffffff;
                         let redo_bg = pixels[177 * 360 + 307] & 0xffffff;
                         if hovered == 15 {

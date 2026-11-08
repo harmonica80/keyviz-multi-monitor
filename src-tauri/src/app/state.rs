@@ -193,6 +193,7 @@ impl AppState {
     }
     pub fn toggle_listener(&mut self, app: &tauri::AppHandle, toggle: &MenuItem<Wry>) {
         self.listening = !self.listening;
+        self.drawing_overlay.set_keyboard_visible(self.listening);
 
         if self.listening {
             println!("Listening enabled");
