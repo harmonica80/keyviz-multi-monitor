@@ -4,23 +4,29 @@
 
 This is a customized Windows build based on [mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for tutorials, presentations, screen recording, and live teaching workflows, with multi-monitor support, Traditional Chinese UI, cursor highlighting, and on-screen drawing tools.
 
-## 下載最新正式版（v1.0.27）
+## 下載最新正式版（v1.0.28）
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-目前最新正式版為 **v1.0.27**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。此版本以穩定性與多螢幕為主，未新增功能；不同電腦與多螢幕環境的實機互動仍需驗證。
+目前最新正式版為 **v1.0.28**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
 
-**v1.0.27** 重點：低階鍵鼠 Hook 回呼瘦身（避免按鍵顯示失效與死結）、移除 40ms 快捷鍵輪詢並統一單一路徑、Esc 關閉繪圖只在繪圖中或 Keyviz 自己為前景時生效、置頂看門狗改為「被降級才重排」、支援螢幕接上／拔除時就地重建覆蓋層、設定以前端為單一真相來源、原生執行緒改事件驅動降低閒置喚醒，並新增 `keyviz.log` 診斷記錄。
+**v1.0.28** 更新內容：
+- 選取物件後，點工具列的顏色色塊即可更換該物件顏色（線條、形狀、文字、數字皆適用，可復原）。
+- 編輯物件（懸停編輯）模式下，用任何繪圖工具點到物件後會保持選取，滑鼠移到工具列也不會消失；點空白處或另一個物件才會重新選取。
+- 修正輸入法切換（例如無蝦米）後，按鍵篩選失效、每個按鍵都顯示的問題：每次按鍵前會用 Windows 實際鍵盤狀態清除沒有收到放開事件的按鍵。
+- 「隱藏工具列」與最下方三個按鈕的滑過／按下背景，改為與紅色關閉鈕相同的圓角矩形。
+- 右鍵圓形選單的「框選物件」圖示，改為與工具列相同的圖示。
 
-- [v1.0.27 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.27)
-- [v1.0.27 更新說明檔](release-notes-v1.0.27.md)
+**v1.0.27** 重點（穩定性與多螢幕）：低階鍵鼠 Hook 回呼瘦身、移除 40ms 快捷鍵輪詢並統一單一路徑、Esc 關閉繪圖只在繪圖中或 Keyviz 自己為前景時生效、置頂看門狗改為「被降級才重排」、支援螢幕接上／拔除時就地重建覆蓋層、設定以前端為單一真相來源、原生執行緒改事件驅動，並新增 `keyviz.log` 診斷記錄。
+
+- [v1.0.28 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.28)
+- [v1.0.28 更新說明檔](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
 - [修正檔案與交接說明（handoff.md）](handoff.md)
-- [v1.0.27 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42942959681)
-- [v1.0.27 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.27)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.27`。
+- [v1.0.28 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.28)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.28`。
 - 發生異常時，診斷記錄位於應用程式日誌資料夾下的 `keyviz.log`，回報問題時請一併附上。
 
-The latest stable release is **v1.0.27**. The direct EXE download above does not require GitHub sign-in. This version focuses on stability and multi-monitor handling (slimmed-down low-level hook callbacks, a single shortcut path, scoped Esc-to-close, a topmost watchdog that only re-raises when demoted, overlay rebuild on display changes, the frontend as the single source of settings, event-driven native threads, and a `keyviz.log` diagnostic file) and adds no new features. Real-world multi-monitor testing is still recommended. Exit the old version before running the new EXE and confirm `v1.0.27` in the title bar. See [release-notes-v1.0.27.md](release-notes-v1.0.27.md) and [handoff.md](handoff.md).
+The latest stable release is **v1.0.28**; the direct EXE download above needs no GitHub sign-in. It lets you recolour selected objects from the toolbar swatches, keeps a clicked object selected in hover-edit mode, fixes the key filter failing after IME switching (e.g. Boshiamy) by dropping keys whose release event was never delivered, gives the hide/footer toolbar buttons rounded-rectangle hover backgrounds, and uses the toolbar's select icon in the right-click radial menu. v1.0.27 focused on stability and multi-monitor handling. Exit the old version before running the new EXE and confirm `v1.0.28` in the title bar. See [release-notes-v1.0.28.md](release-notes-v1.0.28.md) and [handoff.md](handoff.md).
 
 ## v1.0.26：一致預覽與自訂圓形選單顏色
 
@@ -69,7 +75,7 @@ The circular menu supports Left Alt + right mouse immediately after startup, hid
 - 文字內容可點擊中間插入／刪除、拖曳選取、方向鍵移動、Shift 選取與 Ctrl+A 全選；文字物件可在編輯／選取時換色，顏色套用至整個文字物件。
 - 已通過 37 項原生測試與 47 項快捷鍵相關檢查；不同電腦的實際鍵鼠操作仍需驗證。
 
-以下整理 v1.0.26 起的主要功能（v1.0.27 僅修正穩定性與多螢幕處理，未新增功能）；各版本更新內容請參閱對應的 Release 說明或 release-notes 檔案。
+以下整理 v1.0.26 起的主要功能（v1.0.27 為穩定性與多螢幕修正；v1.0.28 的新增行為見上方）；各版本更新內容請參閱對應的 Release 說明或 release-notes 檔案。
 
 - 即時顯示鍵盤按鍵與快速鍵，方便教學、簡報、錄影與直播。
 - 支援多螢幕環境，可選擇按鍵顯示所在螢幕與位置。
@@ -133,7 +139,7 @@ The circular menu supports Left Alt + right mouse immediately after startup, hid
 
 ## Features
 
-This list describes the v1.0.26 feature set (v1.0.27 adds no features, only fixes), including unified drawing themes, a matching toolbar preview, customizable radial quick colors, a blank radial hub, hidden-toolbar drawing, text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
+This list describes the v1.0.26 feature set (v1.0.27 and v1.0.28 changes are listed above), including unified drawing themes, a matching toolbar preview, customizable radial quick colors, a blank radial hub, hidden-toolbar drawing, text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
 
 - Real-time keyboard and shortcut visualization for tutorials, presentations, screen recording, and live demos.
 - Multi-monitor support with configurable display and overlay position.

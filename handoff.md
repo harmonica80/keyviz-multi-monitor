@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -36,6 +36,19 @@
 | `src/pages/settings.tsx` | 三個 store（`useKeyEvent`、`useDrawingToolbar`、`useKeyStyle`）rehydrate 完成後，`pushSettingsToBackend()` 把快捷鍵、工具列側邊、徑向選單、游標樣式推給 Rust（前端為單一真相來源）。 |
 | `KNOWN_ISSUES.md` | 加上 v1.0.27 後續說明。 |
 | `.github/workflows/build-portable.yml` | 僅在推送觸發分支清單加入 `claude-fix-1.0.27`（其餘不變）。 |
+
+## v1.0.28 追加修正（相對 v1.0.27）
+| 檔案 | 修改內容 |
+|---|---|
+| `src-tauri/src/app/native_drawing.rs` | `SetColor` 改為對所有選取物件生效（新增 `recolor_drawing`，橡皮擦線條除外，有變更才記錄復原）；懸停編輯模式下游標在工具列上時保留選取；新增 `hover_sticky`：編輯物件模式點到物件後保持選取，直到下一次點擊重新選取（`ToggleHoverEdit` 重置）。 |
+| `src-tauri/src/app/drawing_radial.rs` | 右鍵圓形選單「框選物件」圖示改為與工具列相同（lucide `SquareDashedMousePointer` 的線段版）。 |
+| `src-tauri/src/app/event.rs`、`state.rs` | 新增 `prune_stale_keys`、`key_physically_down`（`GetAsyncKeyState`）與 `AppState.pressed_key_meta`：每次新按鍵前，清除超過 300ms 且 OS 已不再按著的按鍵並通知前端放開，避免輸入法切換時漏掉的放開事件使修飾鍵「卡住」、篩選失效。記錄 `Released stale keys: ...`。**根因為依邏輯推論，未能在開發環境重現**，若仍失效請檢查 `keyviz.log`。 |
+| `src/App.css` | 「隱藏工具列」與底部三個按鈕 hover/active 背景改為 `border-radius: 10px`（與關閉鈕一致）。 |
+| `.github/workflows/build-portable.yml` | 新增 `v*` 標籤觸發編譯並自動發佈 Release；`workflow_dispatch` 新增 `release_tag` 輸入，可把 exe 附到已存在的 Release。 |
+| `package.json`、`src-tauri/Cargo.toml`、`Cargo.lock`、`tauri.conf.json` | 版本 1.0.28。 |
+| `release-notes-v1.0.28.md`、`README.md` | 新增／更新說明。 |
+
+發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.28`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.28`，exe 會自動附到該 Release。
 
 ## 刻意沒改（以及原因）
 - `fs:allow-write-text-file` 未加 scope：鍵帽主題匯入／匯出透過對話框存任意路徑，加 scope 會壞。
