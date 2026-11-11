@@ -83,10 +83,19 @@ mod platform {
     ///
     /// It deliberately exposes the same `send` signature as `Sender`, so the
     /// existing call sites keep working unchanged.
-    #[derive(Clone)]
     pub struct WakingSender<T> {
         sender: Sender<T>,
         wake: WakeHandle,
+    }
+
+    // Manual impl: `derive(Clone)` would wrongly require `T: Clone`.
+    impl<T> Clone for WakingSender<T> {
+        fn clone(&self) -> Self {
+            Self {
+                sender: self.sender.clone(),
+                wake: self.wake.clone(),
+            }
+        }
     }
 
     impl<T> WakingSender<T> {
