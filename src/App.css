@@ -532,6 +532,13 @@ html.drawing-toolbar-page #root {
   min-height: 28px;
 }
 
+/* Hide-toolbar button and the three footer buttons use the same rounded
+   rectangle as the red close button instead of an ellipse on hover/press. */
+.drawing-toolbar .drawing-window-actions button,
+.drawing-toolbar .drawing-footer-actions button {
+  border-radius: 10px;
+}
+
 .drawing-toolbar .drawing-footer-actions svg {
   width: 14px;
   height: 14px;

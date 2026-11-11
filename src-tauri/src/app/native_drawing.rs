@@ -436,6 +436,10 @@ mod platform {
         tool_widths: std::collections::HashMap<String, i32>,
         hover_edit: std::collections::HashMap<String, bool>,
         hover_edit_active: bool,
+        /// In hover-edit mode a clicked object stays selected (even when the
+        /// pointer leaves it) until the next click elsewhere, so the toolbar can
+        /// be used to recolour it.
+        hover_sticky: bool,
         window_alt: AltTapTracker,
         input_epoch: u64,
         app: AppHandle,
@@ -513,6 +517,23 @@ mod platform {
         settings_focused: bool,
     ) -> bool {
         visible && !matches!(tool, NativeTool::Pointer) && !editing_text && !settings_focused
+    }
+
+    /// Applies `new_color` to any selected object. Eraser strokes carry no visible
+    /// colour, so they are left alone. Returns whether the item actually changed.
+    fn recolor_drawing(item: &mut DrawingItem, new_color: COLORREF) -> bool {
+        let slot = match item {
+            DrawingItem::Stroke { erase: true, .. } => return false,
+            DrawingItem::Stroke { color, .. }
+            | DrawingItem::Shape { color, .. }
+            | DrawingItem::Text { color, .. }
+            | DrawingItem::Number { color, .. } => color,
+        };
+        if slot.0 == new_color.0 {
+            return false;
+        }
+        *slot = new_color;
+        true
     }
 
     fn record_change(state: &mut OverlayState, before: Vec<DrawingItem>) {
@@ -988,6 +1009,7 @@ mod platform {
                     tool_widths: std::collections::HashMap::new(),
                     hover_edit: std::collections::HashMap::new(),
                     hover_edit_active: false,
+                    hover_sticky: false,
                     window_alt: AltTapTracker::default(),
                     input_epoch: 0,
                     app,
@@ -1429,6 +1451,7 @@ mod platform {
             }
             DrawingCommand::ToggleHoverEdit { .. } => {
                 state.hover_edit_active = !state.hover_edit_active;
+                state.hover_sticky = false;
                 state.selected.clear();
                 state.last_wheel = None;
                 if state.hover_edit_active {
@@ -1588,12 +1611,16 @@ mod platform {
                 if let Some(edit) = state.edit.as_mut() { edit.color = state.color; }
                 else if !state.selected.is_empty() {
                     let before = state.drawings.clone();
-                    for index in &state.selected {
-                        if let Some(DrawingItem::Text { color, .. }) = state.drawings.get_mut(*index) {
-                            *color = state.color;
+                    let mut changed = false;
+                    let new_color = state.color;
+                    for index in state.selected.clone() {
+                        if let Some(item) = state.drawings.get_mut(index) {
+                            changed |= recolor_drawing(item, new_color);
                         }
                     }
-                    record_change(state, before);
+                    if changed {
+                        record_change(state, before);
+                    }
                 }
                 if matches!(
                     state.tool,
@@ -2007,6 +2034,8 @@ mod platform {
 
         commit_text_editor(state);
         finish_gesture_history(state);
+        // A click re-targets the hover selection (new object, handles, or nothing).
+        state.hover_sticky = false;
         update_hover_selection(state, point);
         if let Some((index, buttons)) = number_controls(state) {
             if let Some(button) = buttons.iter().position(|rect| point_in_rect(point, *rect)) {
@@ -2024,6 +2053,7 @@ mod platform {
             }
         }
         if matches!(state.tool, NativeTool::Select) || !state.selected.is_empty() && hover_edit_mode(state) {
+            state.hover_sticky = hover_edit_mode(state) && !state.selected.is_empty();
             state.gesture_before = Some(state.drawings.clone());
             begin_selection_at(state, point);
             if let Some(hwnd) = capture_hwnd {
@@ -2887,6 +2917,14 @@ mod platform {
     }
 
     fn update_hover_selection(state: &mut OverlayState, point: Point) -> bool {
+        if state.hover_sticky {
+            if state.selected.is_empty() || !state.hover_edit_active {
+                state.hover_sticky = false;
+            } else {
+                // A clicked object keeps its selection while the pointer moves away.
+                return false;
+            }
+        }
         if state.visible && state.active.is_none() && state.selection.is_none() && state.edit.is_none()
             && !matches!(state.tool, NativeTool::Select | NativeTool::Pointer)
             && !state.hover_edit_active {
@@ -2923,9 +2961,12 @@ mod platform {
                 return false;
             }
         }
-        let selected = if is_toolbar_passthrough_point(state, point, false) {
-            Vec::new()
-        } else {
+        if is_toolbar_passthrough_point(state, point, false) {
+            // Keep the current hover selection while the pointer travels to the
+            // toolbar, so a colour swatch can recolour the selected object.
+            return false;
+        }
+        let selected = {
             hit_test_drawing(state, point)
                 .filter(|index| hover_edit_enabled(&state.hover_edit, &state.drawings[*index]))
                 .map(|index| grouped_indices(state, index))

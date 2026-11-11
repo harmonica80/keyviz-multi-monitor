@@ -12,6 +12,7 @@ on:
       - main
       - codex/publish-keyviz-multi-monitor
       - claude-fix-1.0.27
+      - claude-fix-1.0.28
     tags:
       - 'v*'
 

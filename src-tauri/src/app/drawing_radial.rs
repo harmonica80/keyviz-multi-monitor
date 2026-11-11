@@ -807,11 +807,24 @@ unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64,
             line(p(-3.0, 8.0), p(5.0, 8.0));
         }
         NativeTool::Select => {
-            for i in [-12.0, -4.0, 4.0] {
-                line(p(i, -12.0), p(i + 4.0, -12.0));
-                line(p(i, 12.0), p(i + 4.0, 12.0));
-                line(p(-12.0, i), p(-12.0, i + 4.0));
-                line(p(12.0, i), p(12.0, i + 4.0));
+            // Same glyph as the toolbar's "Select Objects" button
+            // (lucide SquareDashedMousePointer): a dashed square with a pointer.
+            let paths: &[&[(f64, f64)]] = &[
+                &[(-7.0, -9.0), (-8.4, -8.4), (-9.0, -7.0)],
+                &[(7.0, -9.0), (8.4, -8.4), (9.0, -7.0)],
+                &[(-7.0, 9.0), (-8.4, 8.4), (-9.0, 7.0)],
+                &[(-3.0, -9.0), (-2.0, -9.0)],
+                &[(2.0, -9.0), (3.0, -9.0)],
+                &[(-3.0, 9.0), (-1.0, 9.0)],
+                &[(-9.0, -3.0), (-9.0, -2.0)],
+                &[(-9.0, 2.0), (-9.0, 3.0)],
+                &[(9.0, -3.0), (9.0, -1.0)],
+                &[(0.0, 0.0), (4.0, 10.0), (5.7, 5.7), (10.0, 4.0), (0.0, 0.0)],
+            ];
+            for path in paths {
+                for pair in path.windows(2) {
+                    line(p(pair[0].0, pair[0].1), p(pair[1].0, pair[1].1));
+                }
             }
         }
         _ => {
