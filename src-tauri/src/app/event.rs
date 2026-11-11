@@ -86,6 +86,151 @@ fn shortcut_key_matches(pressed_key: &str, shortcut_key: &str) -> bool {
         )
 }
 
+#[cfg(target_os = "windows")]
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL,
+    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
+};
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Both the hook path and the fallback poller below can detect the clear
+/// shortcut (Delete by default). Whichever sees it first claims it; the other
+/// is suppressed for a short window so the action can never run twice.
+static LAST_CLEAR_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
+
+fn claim_clear_shortcut() -> bool {
+    let now = unix_time_ms();
+    let last = LAST_CLEAR_SHORTCUT_MS.load(Ordering::Relaxed);
+    if now.saturating_sub(last) < 300 {
+        return false;
+    }
+    LAST_CLEAR_SHORTCUT_MS.store(now, Ordering::Relaxed);
+    true
+}
+
+#[cfg(target_os = "windows")]
+fn key_is_down(vk: i32) -> bool {
+    unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(target_os = "windows")]
+fn raw_key_is_down(raw_key: &str) -> bool {
+    match raw_key {
+        "Shift" | "ShiftLeft" => key_is_down(VK_SHIFT.0 as i32) || key_is_down(VK_LSHIFT.0 as i32),
+        "ShiftRight" => key_is_down(VK_RSHIFT.0 as i32),
+        "Control" | "ControlLeft" => {
+            key_is_down(VK_CONTROL.0 as i32) || key_is_down(VK_LCONTROL.0 as i32)
+        }
+        "ControlRight" => key_is_down(VK_RCONTROL.0 as i32),
+        "Alt" | "AltLeft" => key_is_down(VK_MENU.0 as i32) || key_is_down(VK_LMENU.0 as i32),
+        "AltRight" => key_is_down(VK_RMENU.0 as i32),
+        "Meta" | "MetaLeft" => key_is_down(VK_LWIN.0 as i32),
+        "MetaRight" => key_is_down(VK_RWIN.0 as i32),
+        "Num0" | "Kp0" => key_is_down(0x30) || key_is_down(0x60),
+        "Num1" | "Kp1" => key_is_down(0x31) || key_is_down(0x61),
+        "Num2" | "Kp2" => key_is_down(0x32) || key_is_down(0x62),
+        "Num3" | "Kp3" => key_is_down(0x33) || key_is_down(0x63),
+        "Num4" | "Kp4" => key_is_down(0x34) || key_is_down(0x64),
+        "Num5" | "Kp5" => key_is_down(0x35) || key_is_down(0x65),
+        "Num6" | "Kp6" => key_is_down(0x36) || key_is_down(0x66),
+        "Num7" | "Kp7" => key_is_down(0x37) || key_is_down(0x67),
+        "Num8" | "Kp8" => key_is_down(0x38) || key_is_down(0x68),
+        "Num9" | "Kp9" => key_is_down(0x39) || key_is_down(0x69),
+        "KeyA" => key_is_down(0x41),
+        "KeyB" => key_is_down(0x42),
+        "KeyC" => key_is_down(0x43),
+        "KeyD" => key_is_down(0x44),
+        "KeyE" => key_is_down(0x45),
+        "KeyF" => key_is_down(0x46),
+        "KeyG" => key_is_down(0x47),
+        "KeyH" => key_is_down(0x48),
+        "KeyI" => key_is_down(0x49),
+        "KeyJ" => key_is_down(0x4a),
+        "KeyK" => key_is_down(0x4b),
+        "KeyL" => key_is_down(0x4c),
+        "KeyM" => key_is_down(0x4d),
+        "KeyN" => key_is_down(0x4e),
+        "KeyO" => key_is_down(0x4f),
+        "KeyP" => key_is_down(0x50),
+        "KeyQ" => key_is_down(0x51),
+        "KeyR" => key_is_down(0x52),
+        "KeyS" => key_is_down(0x53),
+        "KeyT" => key_is_down(0x54),
+        "KeyU" => key_is_down(0x55),
+        "KeyV" => key_is_down(0x56),
+        "KeyW" => key_is_down(0x57),
+        "KeyX" => key_is_down(0x58),
+        "KeyY" => key_is_down(0x59),
+        "KeyZ" => key_is_down(0x5a),
+        "F1" => key_is_down(0x70),
+        "F2" => key_is_down(0x71),
+        "F3" => key_is_down(0x72),
+        "F4" => key_is_down(0x73),
+        "F5" => key_is_down(0x74),
+        "F6" => key_is_down(0x75),
+        "F7" => key_is_down(0x76),
+        "F8" => key_is_down(0x77),
+        "F9" => key_is_down(0x78),
+        "F10" => key_is_down(0x79),
+        "F11" => key_is_down(0x7a),
+        "F12" => key_is_down(0x7b),
+        "Delete" => key_is_down(0x2e),
+        "Escape" => key_is_down(0x1b),
+        "Backspace" => key_is_down(0x08),
+        "Tab" => key_is_down(0x09),
+        "Return" | "KpReturn" => key_is_down(0x0d),
+        "Space" => key_is_down(0x20),
+        _ => false,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn shortcut_is_down(shortcut: &[String]) -> bool {
+    !shortcut.is_empty() && shortcut.iter().all(|key| raw_key_is_down(key))
+}
+
+
+/// Fallback for the clear shortcut that reads the real keyboard state instead
+/// of relying on low-level hook events. Before v1.0.27 this was the only path
+/// that handled Delete on Windows; the hook can miss events (elevated windows,
+/// hook timeouts, IME interference). It only polls while a drawing tool is
+/// active and otherwise sleeps, so it adds no idle load.
+#[cfg(target_os = "windows")]
+fn start_clear_shortcut_poller(app_handle: AppHandle) {
+    thread::spawn(move || {
+        let mut was_down = false;
+        loop {
+            let (active, shortcut) = {
+                let state = app_handle.state::<Mutex<AppState>>();
+                match state.lock() {
+                    Ok(app_state) => (
+                        app_state.drawing_visible && app_state.drawing_tool != "pointer",
+                        app_state.drawing_clear_shortcut.clone(),
+                    ),
+                    Err(_) => (false, Vec::new()),
+                }
+            };
+            if !active {
+                was_down = false;
+                thread::sleep(Duration::from_millis(200));
+                continue;
+            }
+            let down = shortcut_is_down(&shortcut);
+            if down && !was_down && claim_clear_shortcut() {
+                let state = app_handle.state::<Mutex<AppState>>();
+                if let Ok(app_state) = state.lock() {
+                    if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
+                        app_state.drawing_overlay.delete_selection_or_clear();
+                    }
+                }
+            }
+            was_down = down;
+            thread::sleep(Duration::from_millis(40));
+        }
+    });
+}
+
 /// Whether the key is physically held down right now (Windows only; other
 /// platforms report `true` so nothing is ever pruned there).
 #[cfg(windows)]
@@ -137,6 +282,8 @@ fn shortcut_pressed(pressed_keys: &[String], shortcut: &[String]) -> bool {
 
 pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
     start_cursor_updater(app_handle.clone());
+    #[cfg(target_os = "windows")]
+    start_clear_shortcut_poller(app_handle.clone());
 
     // The low-level hook callback must stay fast and must never block:
     // Windows silently removes a hook whose callback exceeds the
@@ -287,7 +434,9 @@ fn process_input_event(
                 if drawing_tool_active
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_clear_shortcut)
                 {
-                    app_state.drawing_overlay.delete_selection_or_clear();
+                    if claim_clear_shortcut() {
+                        app_state.drawing_overlay.delete_selection_or_clear();
+                    }
                     return;
                 }
                 if drawing_tool_active {
