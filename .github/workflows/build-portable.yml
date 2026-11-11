@@ -2,6 +2,11 @@ name: Build portable exe
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Optional: existing or new tag (e.g. v1.0.27) to attach the built exe to as a GitHub Release asset'
+        required: false
+        default: ''
   push:
     branches:
       - main
@@ -66,16 +71,25 @@ jobs:
           name: keyviz-radial-styles
           path: release/radial-styles/*.bmp
 
-      - name: Publish GitHub Release (version tags only)
-        if: startsWith(github.ref, 'refs/tags/v')
+      - name: Publish GitHub Release (version tags or manual release_tag)
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          INPUT_TAG: ${{ inputs.release_tag }}
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag = if ($env:INPUT_TAG) { $env:INPUT_TAG } else { "${{ github.ref_name }}" }
           $notes = "release-notes-$tag.md"
-          if (Test-Path $notes) {
-            gh release create $tag release/keyviz-portable.exe --title "Keyviz $tag" --notes-file $notes --latest
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            # Release already exists (e.g. created in the web UI): attach/replace the exe
+            gh release upload $tag release/keyviz-portable.exe --clobber
+            if ($LASTEXITCODE -ne 0) { exit 1 }
           } else {
-            gh release create $tag release/keyviz-portable.exe --title "Keyviz $tag" --generate-notes --latest
+            if (Test-Path $notes) {
+              gh release create $tag release/keyviz-portable.exe --title "Keyviz $tag" --notes-file $notes --latest
+            } else {
+              gh release create $tag release/keyviz-portable.exe --title "Keyviz $tag" --generate-notes --latest
+            }
+            if ($LASTEXITCODE -ne 0) { exit 1 }
           }
