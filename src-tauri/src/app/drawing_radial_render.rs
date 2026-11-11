@@ -167,6 +167,7 @@ mod radial_styled_renderer {
         }
     }
 
+    #[allow(dead_code)]
     fn sector_points(menu: &RadialMenu, index: usize) -> Vec<WinPoint> {
         let inner = menu.radius * if index < 6 { 0.22 } else { 0.61 };
         let outer = menu.radius * if index < 6 { 0.61 } else { 1.0 };
@@ -185,14 +186,64 @@ mod radial_styled_renderer {
             .collect()
     }
 
-    unsafe fn fill(graphics: *mut c_void, points: &[WinPoint], color: u32) {
+    unsafe fn fill(graphics: *mut c_void, points: &[PointF], color: u32) {
         let mut brush = std::ptr::null_mut();
         if GdipCreateSolidFill(color, &mut brush) == 0 {
-            GdipFillPolygonI(graphics, brush, points.as_ptr(), points.len() as i32, 0);
+            GdipFillPolygon(graphics, brush, points.as_ptr(), points.len() as i32, 0);
             GdipDeleteBrush(brush);
         }
     }
 
+    fn point_f(menu: &RadialMenu, angle: f64, radius: f64) -> PointF {
+        PointF {
+            x: (menu.center.x as f64 + angle.cos() * radius) as f32,
+            y: (menu.center.y as f64 + angle.sin() * radius) as f32,
+        }
+    }
+
+    fn sector_points_f(menu: &RadialMenu, index: usize) -> Vec<PointF> {
+        let inner = menu.radius * if index < 6 { 0.22 } else { 0.61 };
+        let outer = menu.radius * if index < 6 { 0.61 } else { 1.0 };
+        let (start, sweep) = radial_sector(index);
+        (0..=64)
+            .map(|step| point_f(menu, start + sweep * step as f64 / 64.0, outer))
+            .chain(
+                (0..=64)
+                    .rev()
+                    .map(|step| point_f(menu, start + sweep * step as f64 / 64.0, inner)),
+            )
+            .collect()
+    }
+
+    fn panel_points_f(rect: &RECT, radius: f64) -> Vec<PointF> {
+        let left = f64::from(rect.left);
+        let top = f64::from(rect.top);
+        let right = f64::from(rect.right - 1);
+        let bottom = f64::from(rect.bottom - 1);
+        let corner = (6.0 * radius / 78.0)
+            .min((right - left) / 2.0)
+            .min((bottom - top) / 2.0);
+        [
+            (right - corner, top + corner),
+            (right - corner, bottom - corner),
+            (left + corner, bottom - corner),
+            (left + corner, top + corner),
+        ]
+        .iter()
+        .enumerate()
+        .flat_map(|(index, &(x, y))| {
+            (0..=16).map(move |step| {
+                let angle = (index as f64 - 1.0 + step as f64 / 16.0) * std::f64::consts::FRAC_PI_2;
+                PointF {
+                    x: (x + corner * angle.cos()) as f32,
+                    y: (y + corner * angle.sin()) as f32,
+                }
+            })
+        })
+        .collect()
+    }
+
+    #[allow(dead_code)]
     fn panel_points(rect: &RECT, radius: f64) -> Vec<WinPoint> {
         let left = f64::from(rect.left);
         let top = f64::from(rect.top);
@@ -239,33 +290,45 @@ mod radial_styled_renderer {
         let colors = palette(style);
         // These are geometry supplied by input handling, not independently laid out buttons.
         with_gdiplus_graphics(dc, false, |graphics| {
-            let pen = create_gdiplus_pen(colors.divider, 1);
+            let mut pen = std::ptr::null_mut();
+            let pen = if GdipCreatePen1(
+                colors.divider,
+                (menu.radius / 78.0).max(1.0) as f32,
+                2,
+                &mut pen,
+            ) == 0
+                && !pen.is_null()
+            {
+                Some(pen)
+            } else {
+                None
+            };
             for index in 0..=RADIAL_CLEAR_SLOT {
-                let points = sector_points(menu, index);
+                let points = sector_points_f(menu, index);
                 let hovered = menu.hovered == Some(index) && radial_action(index, tools).is_some();
                 fill(graphics, &points, sector_fill(colors, index, hovered));
                 if let Some(pen) = pen {
-                    GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32);
+                    GdipDrawPolygon(graphics, pen, points.as_ptr(), points.len() as i32);
                 }
             }
-            let hub: Vec<_> = (0..96)
+            let hub: Vec<_> = (0..128)
                 .map(|step| {
-                    point(
+                    point_f(
                         menu,
-                        step as f64 * std::f64::consts::TAU / 96.0,
+                        step as f64 * std::f64::consts::TAU / 128.0,
                         menu.radius * 0.22,
                     )
                 })
                 .collect();
             fill(graphics, &hub, colors.fill);
             if let Some(pen) = pen {
-                GdipDrawPolygonI(graphics, pen, hub.as_ptr(), hub.len() as i32);
+                GdipDrawPolygon(graphics, pen, hub.as_ptr(), hub.len() as i32);
             }
             for (index, rect) in panel.iter().enumerate() {
                 if rect.right <= rect.left || rect.bottom <= rect.top {
                     continue;
                 }
-                let points = panel_points(rect, menu.radius);
+                let points = panel_points_f(rect, menu.radius);
                 let hovered =
                     menu.hovered == Some(13 + index) && panel_enabled(index, can_undo, can_redo);
                 fill(
@@ -274,7 +337,7 @@ mod radial_styled_renderer {
                     if hovered { colors.accent } else { colors.fill },
                 );
                 if let Some(pen) = pen {
-                    GdipDrawPolygonI(graphics, pen, points.as_ptr(), points.len() as i32);
+                    GdipDrawPolygon(graphics, pen, points.as_ptr(), points.len() as i32);
                 }
             }
             if let Some(pen) = pen {
@@ -356,10 +419,12 @@ mod radial_styled_renderer {
         let scale = (radius / 78.0)
             .min((rect.right - rect.left) as f64 / 28.0)
             .min((rect.bottom - rect.top) as f64 / 28.0);
+        // Local units are 0.1px; `with_icon_transform` scales and centers them.
         let p = |x: f64, y: f64| Point {
-            x: center.x + (x * scale).round() as i32,
-            y: center.y + (y * scale).round() as i32,
+            x: (x * 10.0).round() as i32,
+            y: (y * 10.0).round() as i32,
         };
+        let stroke = 15;
         let color = colorref(ink);
         let line = |a: (f64, f64), b: (f64, f64)| {
             draw_antialiased_shape(
@@ -368,29 +433,29 @@ mod radial_styled_renderer {
                 p(a.0, a.1),
                 p(b.0, b.1),
                 color,
-                scale.round().max(1.0) as i32,
+                stroke,
                 0.0,
             );
         };
-        match index {
+        with_icon_transform(center, scale, || match index {
             0 | 1 => {
                 with_gdiplus_graphics(dc, false, |graphics| {
                     let mut brush = std::ptr::null_mut();
                     let color = swatch_argb(&quick_colors[index]);
                     if GdipCreateSolidFill(color, &mut brush) == 0 {
-                        let size = (12.0 * scale).round().max(1.0) as i32;
+                        let size = 120;
                         GdipFillEllipseI(
                             graphics,
                             brush,
-                            center.x - size / 2,
-                            center.y - size / 2,
+                            -size / 2,
+                            -size / 2,
                             size,
                             size,
                         );
                         GdipDeleteBrush(brush);
                     }
                     // Keep custom swatches legible against both dark and light themes.
-                    if let Some(pen) = create_gdiplus_pen(ink, scale.round().max(1.0) as i32) {
+                    if let Some(pen) = create_gdiplus_pen(ink, stroke) {
                         let points: Vec<_> = (0..48)
                             .map(|step| {
                                 let angle = step as f64 * std::f64::consts::TAU / 48.0;
@@ -447,7 +512,7 @@ mod radial_styled_renderer {
                     p(-2.5, -2.5),
                     p(2.5, 2.5),
                     color,
-                    scale.round().max(1.0) as i32,
+                    stroke,
                     0.0,
                 );
                 if toolbar_hidden {
@@ -487,12 +552,12 @@ mod radial_styled_renderer {
                     p(-3.0, -3.0),
                     p(3.0, 3.0),
                     color,
-                    scale.round().max(1.0) as i32,
+                    stroke,
                     0.0,
                 );
             }
             _ => {}
-        }
+        });
     }
 
     #[cfg(test)]

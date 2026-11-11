@@ -41,8 +41,10 @@
 | 檔案 | 修改內容 |
 |---|---|
 | `src-tauri/src/app/native_drawing.rs` | `SetColor` 改為對所有選取物件生效（新增 `recolor_drawing`，橡皮擦線條除外，有變更才記錄復原）；懸停編輯模式下游標在工具列上時保留選取；新增 `hover_sticky`：編輯物件模式點到物件後保持選取，直到下一次點擊重新選取（`ToggleHoverEdit` 重置）。 |
-| `src-tauri/src/app/drawing_radial.rs` | 右鍵圓形選單「框選物件」圖示改為與工具列相同（lucide `SquareDashedMousePointer` 的線段版）。 |
+| `src-tauri/src/app/drawing_radial.rs` | 右鍵圓形選單「框選物件」圖示改為與工具列相同（lucide `SquareDashedMousePointer` 的線段版）。 圖示（含清除、工具圖示）改以 `with_icon_transform` 繪製（0.1px 區域單位＋GDI+ 世界座標縮放），不再四捨五入到整數像素。 |
 | `src-tauri/src/app/event.rs`、`state.rs` | 新增 `prune_stale_keys`、`key_physically_down`（`GetAsyncKeyState`）與 `AppState.pressed_key_meta`：每次新按鍵前，清除超過 300ms 且 OS 已不再按著的按鍵並通知前端放開，避免輸入法切換時漏掉的放開事件使修飾鍵「卡住」、篩選失效。記錄 `Released stale keys: ...`。**根因為依邏輯推論，未能在開發環境重現**，若仍失效請檢查 `keyviz.log`。 |
+| `src-tauri/src/app/native_drawing.rs`（Delete） | `DeleteSelectionOrClear`：選取工具或任何工具下已有選取物件時只刪選取；沒選取才清除全部。另新增 `PointF`、`GdipDrawPolygon/GdipFillPolygon/GdipTranslateWorldTransform/GdipScaleWorldTransform` 宣告與 `ICON_TRANSFORM`（thread-local），`with_gdiplus_graphics` 會套用。 |
+| `src-tauri/src/app/drawing_radial_render.rs` | 扇形、中心圓、右下快速面板改用浮點多邊形（`sector_points_f`／`panel_points_f`／`point_f`，弧線取樣加倍），分隔線粗細隨 DPI；右下面板圖示（含色塊圓）走 `with_icon_transform`，線寬 1.5px×scale。整數版 `sector_points`／`panel_points` 僅保留給測試。**未實機驗證**，若仍模糊請提供螢幕解析度與縮放比例。 |
 | `src/App.css` | 「隱藏工具列」與底部三個按鈕 hover/active 背景改為 `border-radius: 10px`（與關閉鈕一致）。 |
 | `.github/workflows/build-portable.yml` | 新增 `v*` 標籤觸發編譯並自動發佈 Release；`workflow_dispatch` 新增 `release_tag` 輸入，可把 exe 附到已存在的 Release。 |
 | `package.json`、`src-tauri/Cargo.toml`、`Cargo.lock`、`tauri.conf.json` | 版本 1.0.28。 |

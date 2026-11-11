@@ -155,6 +155,21 @@ mod platform {
             count: i32,
             fill_mode: i32,
         ) -> i32;
+        fn GdipDrawPolygon(
+            graphics: *mut c_void,
+            pen: *mut c_void,
+            points: *const PointF,
+            count: i32,
+        ) -> i32;
+        fn GdipFillPolygon(
+            graphics: *mut c_void,
+            brush: *mut c_void,
+            points: *const PointF,
+            count: i32,
+            fill_mode: i32,
+        ) -> i32;
+        fn GdipTranslateWorldTransform(graphics: *mut c_void, dx: f32, dy: f32, order: i32) -> i32;
+        fn GdipScaleWorldTransform(graphics: *mut c_void, sx: f32, sy: f32, order: i32) -> i32;
     }
 
     #[derive(Clone)]
@@ -1682,7 +1697,9 @@ mod platform {
                 finish_gesture_history(state);
                 ReleaseCapture();
                 let before = state.drawings.clone();
-                if matches!(state.tool, NativeTool::Select) {
+                // Select tool, or any tool with objects selected (hover-edit mode):
+                // delete only the selection. With nothing selected, clear everything.
+                if matches!(state.tool, NativeTool::Select) || !state.selected.is_empty() {
                     delete_selected(state);
                     sync_next_number(state);
                 } else {
@@ -4124,9 +4141,38 @@ mod platform {
         let _ = GdipSetSmoothingMode(graphics, 4);
         let _ = GdipSetPixelOffsetMode(graphics, 4);
         let _ = GdipSetCompositingMode(graphics, if source_copy { 1 } else { 0 });
+        if let Some((dx, dy, scale)) = ICON_TRANSFORM.with(|t| t.get()) {
+            // Icons are authored in 0.1px local units; scale first, then translate.
+            let _ = GdipTranslateWorldTransform(graphics, dx, dy, 0);
+            let _ = GdipScaleWorldTransform(graphics, scale, scale, 0);
+        }
         let result = draw(graphics);
         GdipDeleteGraphics(graphics);
         Some(result)
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct PointF {
+        x: f32,
+        y: f32,
+    }
+
+    thread_local! {
+        /// (dx, dy, scale) applied to every GDI+ graphics created while an icon is drawn.
+        static ICON_TRANSFORM: std::cell::Cell<Option<(f32, f32, f32)>> =
+            const { std::cell::Cell::new(None) };
+    }
+
+    /// Runs `draw` with geometry expressed in 0.1px units around `center`, multiplied by
+    /// `scale`, so small icons keep sub-pixel precision instead of snapping to whole pixels.
+    unsafe fn with_icon_transform<T>(center: Point, scale: f64, draw: impl FnOnce() -> T) -> T {
+        let previous = ICON_TRANSFORM.with(|t| {
+            t.replace(Some((center.x as f32, center.y as f32, (scale / 10.0) as f32)))
+        });
+        let result = draw();
+        ICON_TRANSFORM.with(|t| t.set(previous));
+        result
     }
 
     unsafe fn create_gdiplus_pen(color: u32, width: i32) -> Option<*mut c_void> {

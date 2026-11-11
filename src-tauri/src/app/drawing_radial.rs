@@ -750,9 +750,10 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
 
 unsafe fn draw_radial_clear_icon(dc: HDC, center: Point, scale: f64, color: COLORREF) {
     let point = |x: f64, y: f64| Point {
-        x: center.x + (x * scale).round() as i32,
-        y: center.y + (y * scale).round() as i32,
+        x: (x * 10.0).round() as i32,
+        y: (y * 10.0).round() as i32,
     };
+    with_icon_transform(center, scale, || {
     for (a, b) in [
         ((-12.0, -8.0), (12.0, -8.0)), ((-4.0, -12.0), (4.0, -12.0)),
         ((-4.0, -12.0), (-4.0, -8.0)), ((4.0, -12.0), (4.0, -8.0)),
@@ -761,16 +762,19 @@ unsafe fn draw_radial_clear_icon(dc: HDC, center: Point, scale: f64, color: COLO
         ((3.0, -3.0), (3.0, 7.0)),
     ] {
         draw_antialiased_shape(dc, &NativeTool::Line, point(a.0, a.1), point(b.0, b.1),
-            color, (2.0 * scale).round().max(1.0) as i32, 0.0);
+            color, 20, 0.0);
     }
+    });
 }
 
 unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64, color: COLORREF) {
+    // Local units are 0.1px; `with_icon_transform` scales and centers them.
     let p = |x: f64, y: f64| Point {
-        x: center.x + (x * scale).round() as i32,
-        y: center.y + (y * scale).round() as i32,
+        x: (x * 10.0).round() as i32,
+        y: (y * 10.0).round() as i32,
     };
-    let width = (2.0 * scale).round().max(1.0) as i32;
+    let width = 20;
+    with_icon_transform(center, scale, || {
     let line = |a, b| {
         draw_antialiased_shape(dc, &NativeTool::Line, a, b, color, width, 0.0);
     };
@@ -867,6 +871,7 @@ unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64,
             }
         }
     }
+    });
 }
 
 #[cfg(test)]
