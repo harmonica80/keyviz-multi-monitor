@@ -8,7 +8,7 @@ use rdev::{listen, Button, EventType};
 use serde::Serialize;
 use tauri::{menu::MenuItem, AppHandle, Emitter, Manager, Wry};
 
-use crate::app::diagnostics::{record_error, unix_time_ms};
+use crate::app::diagnostics::{record_error, record_event, unix_time_ms};
 use crate::app::native_drawing::NativeTool;
 use crate::app::state::AppState;
 
@@ -84,6 +84,46 @@ fn shortcut_key_matches(pressed_key: &str, shortcut_key: &str) -> bool {
                 | ("Num9", "Kp9")
                 | ("Kp9", "Num9")
         )
+}
+
+/// Whether the key is physically held down right now (Windows only; other
+/// platforms report `true` so nothing is ever pruned there).
+#[cfg(windows)]
+fn key_physically_down(vk: u32) -> bool {
+    unsafe { windows::Win32::UI::Input::KeyboardAndMouse::GetAsyncKeyState(vk as i32) < 0 }
+}
+
+#[cfg(not(windows))]
+fn key_physically_down(_vk: u32) -> bool {
+    true
+}
+
+/// Low-level hooks can miss a key-up event (IME switching hotkeys such as
+/// Ctrl+Space / Ctrl+Shift / Win+Space, elevated or secure windows taking the
+/// key-up, ...). A modifier left "pressed" in our bookkeeping makes the
+/// frontend's modifier filter let every later key through. Before handling a
+/// new key press, drop any tracked key that the OS says is no longer down and
+/// return the dropped names so the frontend can be told they were released.
+fn prune_stale_keys(app_state: &mut AppState, current: &str) -> Vec<String> {
+    let grace = Duration::from_millis(300);
+    let stale: Vec<String> = app_state
+        .pressed_keys
+        .iter()
+        .filter(|name| name.as_str() != current)
+        .filter(|name| {
+            app_state
+                .pressed_key_meta
+                .get(*name)
+                .map(|(vk, since)| since.elapsed() > grace && !key_physically_down(*vk))
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+    for name in &stale {
+        app_state.pressed_keys.retain(|k| k != name);
+        app_state.pressed_key_meta.remove(name);
+    }
+    stale
 }
 
 fn shortcut_pressed(pressed_keys: &[String], shortcut: &[String]) -> bool {
@@ -183,12 +223,34 @@ fn process_input_event(
                 if key_name.contains('(') {
                     return;
                 }
+                // forget keys whose release was never delivered (e.g. around IME switching)
+                let stale_keys = prune_stale_keys(&mut app_state, &key_name);
+                if !stale_keys.is_empty() {
+                    record_event(format!("Released stale keys: {}", stale_keys.join(", ")));
+                    if app_state.listening {
+                        for name in &stale_keys {
+                            if let Err(error) = app_handle.emit_to(
+                                "main",
+                                "input-event",
+                                InputEvent::KeyEvent { pressed: false, name: name.clone() },
+                            ) {
+                                record_error(format!("Failed to emit stale key release: {error}"));
+                            }
+                        }
+                    }
+                }
                 // if key is already marked as pressed, ignore repeat
                 if app_state.pressed_keys.contains(&key_name) {
                     return;
                 }
                 // record key as pressed
                 app_state.pressed_keys.push(key_name.clone());
+                #[cfg(windows)]
+                if let Some(vk) = rdev::win_code_from_key(key) {
+                    app_state
+                        .pressed_key_meta
+                        .insert(key_name.clone(), (vk, Instant::now()));
+                }
                 // Drawing shortcuts are handled here, in the single hook event
                 // stream, on every platform. (A separate GetAsyncKeyState
                 // poller used to handle them on Windows; two concurrent
@@ -291,6 +353,7 @@ fn process_input_event(
                 }
                 // remove key from pressed keys
                 app_state.pressed_keys.retain(|k| k != &key_name);
+                app_state.pressed_key_meta.remove(&key_name);
             }
 
             if let EventType::MouseMove { x, y } = event.event_type {

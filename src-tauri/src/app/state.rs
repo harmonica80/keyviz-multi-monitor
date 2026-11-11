@@ -12,6 +12,9 @@ use crate::app::window::park_overlay_window;
 pub struct AppState {
     pub listening: bool,
     pub pressed_keys: Vec<String>,
+    /// Windows virtual-key code and press time for each entry of `pressed_keys`,
+    /// used to drop keys whose release event was never delivered (see event.rs).
+    pub pressed_key_meta: std::collections::HashMap<String, (u32, std::time::Instant)>,
     pub toggle_shortcut: Vec<String>,
     pub drawing_toggle_shortcut: Vec<String>,
     pub drawing_pointer_shortcut: Vec<String>,
@@ -151,6 +154,7 @@ impl AppState {
         Self {
             listening: true,
             pressed_keys: vec![],
+            pressed_key_meta: std::collections::HashMap::new(),
             toggle_shortcut,
             drawing_toggle_shortcut,
             drawing_pointer_shortcut,

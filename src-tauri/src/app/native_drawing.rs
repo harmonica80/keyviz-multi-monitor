@@ -515,6 +515,23 @@ mod platform {
         visible && !matches!(tool, NativeTool::Pointer) && !editing_text && !settings_focused
     }
 
+    /// Applies `new_color` to any selected object. Eraser strokes carry no visible
+    /// colour, so they are left alone. Returns whether the item actually changed.
+    fn recolor_drawing(item: &mut DrawingItem, new_color: COLORREF) -> bool {
+        let slot = match item {
+            DrawingItem::Stroke { erase: true, .. } => return false,
+            DrawingItem::Stroke { color, .. }
+            | DrawingItem::Shape { color, .. }
+            | DrawingItem::Text { color, .. }
+            | DrawingItem::Number { color, .. } => color,
+        };
+        if slot.0 == new_color.0 {
+            return false;
+        }
+        *slot = new_color;
+        true
+    }
+
     fn record_change(state: &mut OverlayState, before: Vec<DrawingItem>) {
         state.history.record(before, &state.drawings);
         emit_history(state);
@@ -1588,12 +1605,16 @@ mod platform {
                 if let Some(edit) = state.edit.as_mut() { edit.color = state.color; }
                 else if !state.selected.is_empty() {
                     let before = state.drawings.clone();
-                    for index in &state.selected {
-                        if let Some(DrawingItem::Text { color, .. }) = state.drawings.get_mut(*index) {
-                            *color = state.color;
+                    let mut changed = false;
+                    let new_color = state.color;
+                    for index in state.selected.clone() {
+                        if let Some(item) = state.drawings.get_mut(index) {
+                            changed |= recolor_drawing(item, new_color);
                         }
                     }
-                    record_change(state, before);
+                    if changed {
+                        record_change(state, before);
+                    }
                 }
                 if matches!(
                     state.tool,
@@ -2923,9 +2944,12 @@ mod platform {
                 return false;
             }
         }
-        let selected = if is_toolbar_passthrough_point(state, point, false) {
-            Vec::new()
-        } else {
+        if is_toolbar_passthrough_point(state, point, false) {
+            // Keep the current hover selection while the pointer travels to the
+            // toolbar, so a colour swatch can recolour the selected object.
+            return false;
+        }
+        let selected = {
             hit_test_drawing(state, point)
                 .filter(|index| hover_edit_enabled(&state.hover_edit, &state.drawings[*index]))
                 .map(|index| grouped_indices(state, index))
