@@ -4,23 +4,23 @@
 
 This is a customized Windows build based on [mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for tutorials, presentations, screen recording, and live teaching workflows, with multi-monitor support, Traditional Chinese UI, cursor highlighting, and on-screen drawing tools.
 
-## 下載最新版本（v1.0.27）
+## 下載最新正式版（v1.0.27）
 
-**[下載 Keyviz v1.0.27 Windows 免安裝版（GitHub Actions 建置產物）](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42939243002)**
+**[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-開啟連結後，在頁面底部 **Artifacts** 區下載 `keyviz-portable`（zip，解壓縮後即為 `keyviz-portable.exe`）。下載 Actions 產物需要先登入 GitHub。
-
-目前 `main` 為 **v1.0.27**（Claude 修正版）。此版本以穩定性與多螢幕為主，未新增功能；因尚未完成實機測試，**尚未發佈為 GitHub Release**。[Releases 頁面](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest)上的「最新正式版」仍是 v1.0.26，其直接下載連結為：[keyviz-portable.exe（v1.0.26）](https://github.com/harmonica80/keyviz-multi-monitor/releases/download/v1.0.26/keyviz-portable.exe)。
+目前最新正式版為 **v1.0.27**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。此版本以穩定性與多螢幕為主，未新增功能；不同電腦與多螢幕環境的實機互動仍需驗證。
 
 **v1.0.27** 重點：低階鍵鼠 Hook 回呼瘦身（避免按鍵顯示失效與死結）、移除 40ms 快捷鍵輪詢並統一單一路徑、Esc 關閉繪圖只在繪圖中或 Keyviz 自己為前景時生效、置頂看門狗改為「被降級才重排」、支援螢幕接上／拔除時就地重建覆蓋層、設定以前端為單一真相來源、原生執行緒改事件驅動降低閒置喚醒，並新增 `keyviz.log` 診斷記錄。
 
-- [v1.0.27 更新說明](release-notes-v1.0.27.md)
+- [v1.0.27 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.27)
+- [v1.0.27 更新說明檔](release-notes-v1.0.27.md)
 - [修正檔案與交接說明（handoff.md）](handoff.md)
-- [v1.0.27 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42939243002)
+- [v1.0.27 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42942959681)
+- [v1.0.27 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.27)
 - 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.27`。
 - 發生異常時，診斷記錄位於應用程式日誌資料夾下的 `keyviz.log`，回報問題時請一併附上。
 
-**Latest build: v1.0.27.** Download the `keyviz-portable` artifact from the [Actions run](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42939243002) (GitHub sign-in required; unzip to get `keyviz-portable.exe`). This version focuses on stability and multi-monitor handling (slimmed-down low-level hook callbacks, a single shortcut path, scoped Esc-to-close, topmost watchdog that only re-raises when demoted, overlay rebuild on display changes, frontend as the single source of settings, event-driven native threads, and a `keyviz.log` diagnostic file). It has not been field-tested yet and is **not published as a GitHub Release**; the latest Release is still [v1.0.26](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.26). See [release-notes-v1.0.27.md](release-notes-v1.0.27.md) and [handoff.md](handoff.md). Exit the old version before running the new EXE and confirm `v1.0.27` in the title bar.
+The latest stable release is **v1.0.27**. The direct EXE download above does not require GitHub sign-in. This version focuses on stability and multi-monitor handling (slimmed-down low-level hook callbacks, a single shortcut path, scoped Esc-to-close, a topmost watchdog that only re-raises when demoted, overlay rebuild on display changes, the frontend as the single source of settings, event-driven native threads, and a `keyviz.log` diagnostic file) and adds no new features. Real-world multi-monitor testing is still recommended. Exit the old version before running the new EXE and confirm `v1.0.27` in the title bar. See [release-notes-v1.0.27.md](release-notes-v1.0.27.md) and [handoff.md](handoff.md).
 
 ## v1.0.26：一致預覽與自訂圓形選單顏色
 
