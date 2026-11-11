@@ -4177,7 +4177,7 @@ mod platform {
 
     unsafe fn create_gdiplus_pen(color: u32, width: i32) -> Option<*mut c_void> {
         let mut pen = std::ptr::null_mut();
-        if GdipCreatePen1(color, width.max(1) as f32, 2, &mut pen) != 0 || pen.is_null() {
+        if GdipCreatePen1(color, width.max(1) as f32, 0, &mut pen) != 0 || pen.is_null() {
             return None;
         }
         let _ = GdipSetPenStartCap(pen, 2);

@@ -293,7 +293,7 @@ mod radial_styled_renderer {
             let mut pen = std::ptr::null_mut();
             let pen = if GdipCreatePen1(
                 colors.divider,
-                (menu.radius / 78.0).max(1.0) as f32,
+                (menu.radius / 78.0).max(1.0) as f30,
                 2,
                 &mut pen,
             ) == 0
