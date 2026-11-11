@@ -436,6 +436,10 @@ mod platform {
         tool_widths: std::collections::HashMap<String, i32>,
         hover_edit: std::collections::HashMap<String, bool>,
         hover_edit_active: bool,
+        /// In hover-edit mode a clicked object stays selected (even when the
+        /// pointer leaves it) until the next click elsewhere, so the toolbar can
+        /// be used to recolour it.
+        hover_sticky: bool,
         window_alt: AltTapTracker,
         input_epoch: u64,
         app: AppHandle,
@@ -1005,6 +1009,7 @@ mod platform {
                     tool_widths: std::collections::HashMap::new(),
                     hover_edit: std::collections::HashMap::new(),
                     hover_edit_active: false,
+                    hover_sticky: false,
                     window_alt: AltTapTracker::default(),
                     input_epoch: 0,
                     app,
@@ -1446,6 +1451,7 @@ mod platform {
             }
             DrawingCommand::ToggleHoverEdit { .. } => {
                 state.hover_edit_active = !state.hover_edit_active;
+                state.hover_sticky = false;
                 state.selected.clear();
                 state.last_wheel = None;
                 if state.hover_edit_active {
@@ -2028,6 +2034,8 @@ mod platform {
 
         commit_text_editor(state);
         finish_gesture_history(state);
+        // A click re-targets the hover selection (new object, handles, or nothing).
+        state.hover_sticky = false;
         update_hover_selection(state, point);
         if let Some((index, buttons)) = number_controls(state) {
             if let Some(button) = buttons.iter().position(|rect| point_in_rect(point, *rect)) {
@@ -2045,6 +2053,7 @@ mod platform {
             }
         }
         if matches!(state.tool, NativeTool::Select) || !state.selected.is_empty() && hover_edit_mode(state) {
+            state.hover_sticky = hover_edit_mode(state) && !state.selected.is_empty();
             state.gesture_before = Some(state.drawings.clone());
             begin_selection_at(state, point);
             if let Some(hwnd) = capture_hwnd {
@@ -2908,6 +2917,14 @@ mod platform {
     }
 
     fn update_hover_selection(state: &mut OverlayState, point: Point) -> bool {
+        if state.hover_sticky {
+            if state.selected.is_empty() || !state.hover_edit_active {
+                state.hover_sticky = false;
+            } else {
+                // A clicked object keeps its selection while the pointer moves away.
+                return false;
+            }
+        }
         if state.visible && state.active.is_none() && state.selection.is_none() && state.edit.is_none()
             && !matches!(state.tool, NativeTool::Select | NativeTool::Pointer)
             && !state.hover_edit_active {
