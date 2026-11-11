@@ -203,13 +203,14 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
         loop {
             let (active, shortcut) = {
                 let state = app_handle.state::<Mutex<AppState>>();
-                match state.lock() {
+                let snapshot = match state.lock() {
                     Ok(app_state) => (
                         app_state.drawing_visible && app_state.drawing_tool != "pointer",
                         app_state.drawing_clear_shortcut.clone(),
                     ),
                     Err(_) => (false, Vec::new()),
-                }
+                };
+                snapshot
             };
             if !active {
                 was_down = false;
@@ -219,7 +220,8 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
             let down = shortcut_is_down(&shortcut);
             if down && !was_down && claim_clear_shortcut() {
                 let state = app_handle.state::<Mutex<AppState>>();
-                if let Ok(app_state) = state.lock() {
+                let guard = state.lock();
+                if let Ok(app_state) = guard {
                     if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
                         app_state.drawing_overlay.delete_selection_or_clear();
                     }
