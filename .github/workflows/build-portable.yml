@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - codex/publish-keyviz-multi-monitor
+      - claude-fix-1.0.27
 
 jobs:
   build:
@@ -28,7 +29,15 @@ jobs:
       - name: Build portable executable
         run: npm run build:portable
 
+      - name: Test radial shortcut validation
+        run: |
+          node scripts/test-radial-shortcut.mjs
+          node scripts/test-drawing-themes.mjs
+
       - name: Test native object editing
+        env:
+          KEYVIZ_RADIAL_PREVIEW: ${{ github.workspace }}/release/radial-menu-preview.bmp
+          KEYVIZ_RADIAL_STYLES_PREVIEW_DIR: ${{ github.workspace }}/release/radial-styles
         run: cargo test --release --manifest-path src-tauri/Cargo.toml --lib hover_tests
 
       - name: Prepare portable artifact
@@ -41,3 +50,13 @@ jobs:
         with:
           name: keyviz-portable
           path: release/keyviz-portable.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyviz-radial-preview
+          path: release/radial-menu-preview.bmp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: keyviz-radial-styles
+          path: release/radial-styles/*.bmp

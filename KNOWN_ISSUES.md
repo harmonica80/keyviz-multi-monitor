@@ -33,3 +33,12 @@ Status: fix implemented; Windows build and PixPin runtime verification pending.
 - The visible per-monitor canvas now keeps unused pixels fully transparent.
 - Added a separate per-monitor input window with `WS_EX_NOREDIRECTIONBITMAP`, so drawing tools can still receive mouse, wheel, keyboard, and cursor events without adding a visible DWM surface.
 - The drawing display and input windows are created, raised, hidden, and destroyed together.
+
+### Follow-up (v1.0.27)
+
+- The 1 Hz watchdog no longer re-asserts `HWND_TOPMOST` unconditionally. It
+  now checks `WS_EX_TOPMOST` first (`RaiseIfDemoted`) and only issues a
+  z-order change when a surface actually lost topmost status, so Keyviz no
+  longer fights other always-on-top windows (PixPin pinned images included)
+  once per second. Runtime verification with PixPin on Windows is still
+  pending.

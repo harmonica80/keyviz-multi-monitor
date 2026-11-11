@@ -2,14 +2,14 @@
 mod platform {
     use std::{
         sync::{
-            mpsc::{self, Receiver, Sender},
+            mpsc::{self, Receiver},
             Mutex, OnceLock,
         },
         thread,
-        time::Duration,
     };
 
     use crate::app::diagnostics::record_error;
+    use crate::app::native_loop::{wait_for_input, WakeHandle, WakingSender, SAFETY_TIMEOUT_MS};
     use windows::{
         core::PCWSTR,
         Win32::{
@@ -39,11 +39,12 @@ mod platform {
 
     #[derive(Clone)]
     pub struct NativeCursorOverlay {
-        sender: Option<Sender<CursorCommand>>,
+        sender: Option<WakingSender<CursorCommand>>,
     }
 
     enum CursorCommand {
         Update(CursorVisual),
+        Recover,
     }
 
     #[derive(Clone)]
@@ -78,13 +79,17 @@ mod platform {
     impl NativeCursorOverlay {
         pub fn new() -> Self {
             let (sender, receiver) = mpsc::channel();
+            let wake = WakeHandle::new();
+            let thread_wake = wake.clone();
             thread::spawn(move || {
+                thread_wake.register_current_thread();
                 if let Err(error) = run_window(receiver) {
                     record_error(format!("Native cursor overlay failed: {error}"));
                 }
+                thread_wake.unregister();
             });
             Self {
-                sender: Some(sender),
+                sender: Some(WakingSender::new(sender, wake)),
             }
         }
 
@@ -93,6 +98,10 @@ mod platform {
                 .lock()
                 .map(|windows| windows.iter().map(|hwnd| *hwnd as i64).collect())
                 .unwrap_or_default()
+        }
+
+        pub fn recover(&self) {
+            if let Some(sender) = &self.sender { let _ = sender.send(CursorCommand::Recover); }
         }
 
         pub fn update(
@@ -203,24 +212,37 @@ mod platform {
 
     unsafe fn message_loop(receiver: Receiver<CursorCommand>, windows: &mut Vec<(HMONITOR, HWND)>) {
         let mut message = MSG::default();
+        let mut last_visual: Option<CursorVisual> = None;
 
         loop {
-            let mut visual = match receiver.recv_timeout(Duration::from_millis(16)) {
-                Ok(CursorCommand::Update(visual)) => Some(visual),
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(mpsc::RecvTimeoutError::Timeout) => None,
-            };
-            while let Ok(CursorCommand::Update(next)) = receiver.try_recv() {
-                visual = Some(next);
-            }
-            if let Some(visual) = visual {
-                apply_visual(windows, visual);
-            }
-
+            // Pump first, drain second, block last (see native_loop.rs).
             while PeekMessageW(&mut message, HWND(0), 0, 0, PM_REMOVE).as_bool() {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
+            let mut commands = Vec::new();
+            loop {
+                match receiver.try_recv() {
+                    Ok(command) => commands.push(command),
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => return,
+                }
+            }
+            let mut visual = None;
+            for command in commands {
+                match command {
+                    CursorCommand::Update(next) => { last_visual = Some(next.clone()); visual = Some(next); }
+                    CursorCommand::Recover => {
+                        for (_, hwnd) in windows.drain(..) { DestroyWindow(hwnd); }
+                        if let Ok(mut diagnostic_windows) = cursor_windows().lock() { diagnostic_windows.clear(); }
+                        visual = last_visual.clone();
+                    }
+                }
+            }
+            if let Some(visual) = visual {
+                apply_visual(windows, visual);
+            }
+            wait_for_input(SAFETY_TIMEOUT_MS);
         }
     }
 
@@ -359,6 +381,7 @@ mod platform {
         pub fn new() -> Self {
             Self
         }
+        pub fn recover(&self) {}
 
         pub fn diagnostic_hwnds(&self) -> Vec<i64> {
             Vec::new()

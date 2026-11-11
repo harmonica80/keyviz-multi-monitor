@@ -2,6 +2,7 @@ import { Button } from "@/components/ui/button";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { compareVersions, loadAppVersion, useAppVersion } from "@/lib/app-version";
 import { useTranslation } from "@/lib/i18n";
+import { useOverlayProbe } from "@/lib/overlay-probe";
 import { GithubIcon, LinkSquare02Icon, WebDesign01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { invoke } from "@tauri-apps/api/core";
@@ -35,6 +36,8 @@ export const AboutPage = () => {
     const version = useAppVersion();
     const [updateStatus, setUpdateStatus] = useState<UpdateStatus>({ state: "idle" });
     const [diagnosticStatus, setDiagnosticStatus] = useState<DiagnosticStatus>({ state: "idle" });
+    const [recoveryStatus, setRecoveryStatus] = useState<string | null>(null);
+    const probe = useOverlayProbe();
 
     const checkForUpdates = async () => {
         setUpdateStatus({ state: "checking" });
@@ -189,6 +192,40 @@ export const AboutPage = () => {
                                 {t(updateStatus.state === "checking" ? "Checking..." : "Check")}
                             </Button>
                         )}
+                    </ItemActions>
+                </Item>
+
+                <Item variant="muted">
+                    <ItemContent>
+                        <ItemTitle>{t("Black Screen Layer Test")}</ItemTitle>
+                        <ItemDescription>{t("Hide one layer for 5 seconds, then restore it automatically. Observe whether the black screen disappears. Keep the current tool unchanged during the test.")}</ItemDescription>
+                        <ItemDescription>{t("For an undisturbed test, right-click the toolbar recovery button. Opening settings may hide the input layer.")}</ItemDescription>
+                        <div className="flex flex-wrap gap-2">
+                            <Button variant="outline" size="sm" disabled={probe.busy} onClick={() => void probe.run("display")}>{t("Test Display Layer")}</Button>
+                            <Button variant="outline" size="sm" disabled={probe.busy} onClick={() => void probe.run("input")}>{t("Test Input Layer")}</Button>
+                        </div>
+                        <ItemDescription role="status" className="break-all">
+                            {probe.busy ? t("Testing for 5 seconds...") : probe.result ? <>
+                                {t(probe.result.error ? "Test incomplete; see diagnostic details." : "Test finished. Before and after reports saved.")}
+                                {probe.result.error && <span className="block">{t(probe.result.error)}</span>}
+                                <span className="block">{probe.result.before}</span>
+                                <span className="block">{probe.result.after}</span>
+                            </> : null}
+                        </ItemDescription>
+                    </ItemContent>
+                </Item>
+
+                <Item variant="muted">
+                    <ItemContent>
+                        <ItemTitle>{t("Restore Overlay Display")}</ItemTitle>
+                        <ItemDescription>{recoveryStatus ?? t("Rebuild drawing and cursor display windows while preserving annotations.")}</ItemDescription>
+                    </ItemContent>
+                    <ItemActions>
+                        <Button variant="outline" size="sm" onClick={() => {
+                            void invoke("drawing_recover")
+                                .then(() => setRecoveryStatus(t("Display recovery requested")))
+                                .catch(() => setRecoveryStatus(t("Display recovery failed")));
+                        }}><RefreshCw />{t("Restore Overlay Display")}</Button>
                     </ItemActions>
                 </Item>
 

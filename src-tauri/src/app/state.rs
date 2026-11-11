@@ -40,6 +40,8 @@ pub struct AppState {
     pub key_overlay: NativeKeyOverlay,
     pub drawing_overlay: NativeDrawingOverlay,
     pub drawing_visible: bool,
+    pub drawing_toolbar_hidden: bool,
+    pub settings_opening: bool,
     pub drawing_tool: String,
     pub drawing_session_id: u64,
     pub drawing_input_passthrough: bool,
@@ -54,6 +56,7 @@ pub struct AppState {
 pub struct TrayMenuItems {
     pub toggle: MenuItem<Wry>,
     pub drawing: MenuItem<Wry>,
+    pub show_drawing_toolbar: MenuItem<Wry>,
     pub settings: MenuItem<Wry>,
     pub quit: MenuItem<Wry>,
 }
@@ -175,6 +178,8 @@ impl AppState {
             key_overlay: NativeKeyOverlay::new(),
             drawing_overlay: NativeDrawingOverlay::new(app),
             drawing_visible: false,
+            drawing_toolbar_hidden: false,
+            settings_opening: false,
             drawing_tool: "pen".to_string(),
             drawing_session_id: 0,
             drawing_input_passthrough: false,
@@ -186,37 +191,57 @@ impl AppState {
             mouse_hook_last_error: None,
         }
     }
+    /// Toggle key display on or off.
+    ///
+    /// This may be called from the input worker thread while the `AppState`
+    /// lock is held. Everything that talks to the UI (menu text, tray icon,
+    /// window parking) is therefore posted to the main thread instead of
+    /// being executed inline: a cross-thread menu or window call can block on
+    /// the main thread, and blocking while this lock is held would deadlock
+    /// against main-thread commands that take the same lock.
     pub fn toggle_listener(&mut self, app: &tauri::AppHandle, toggle: &MenuItem<Wry>) {
         self.listening = !self.listening;
-
-        if self.listening {
-            println!("Listening enabled");
-            let _ = toggle.set_text(if self.locale == "zh-TW" {
-                "\u{505c}\u{6b62}\u{986f}\u{793a}"
-            } else {
-                "Stop"
-            });
-            if let Some(tray) = app.tray_by_id("keyviz-tray") {
-                let _ = tray.set_icon(Some(Image::from(include_image!("icons/tray.png"))));
-            }
-        } else {
-            println!("Listening disabled");
-            let _ = toggle.set_text(if self.locale == "zh-TW" {
-                "\u{958b}\u{59cb}\u{986f}\u{793a}"
-            } else {
-                "Start"
-            });
-            if let Some(tray) = app.tray_by_id("keyviz-tray") {
-                let _ = tray.set_icon(Some(Image::from(include_image!("icons/tray-disabled.png"))));
-            }
-            if let Some(window) = app.get_webview_window("main") {
-                let _ = park_overlay_window(&window);
-            }
+        self.drawing_overlay.set_keyboard_visible(self.listening);
+        if !self.listening {
             self.key_overlay_window_visible = false;
             self.key_overlay.hide();
         }
 
-        let _ = app.emit("listening-toggle", self.listening);
+        let listening = self.listening;
+        let is_chinese = self.locale == "zh-TW";
+        let app_handle = app.clone();
+        let toggle = toggle.clone();
+        let result = app.run_on_main_thread(move || {
+            if listening {
+                println!("Listening enabled");
+                let _ = toggle.set_text(if is_chinese {
+                    "\u{505c}\u{6b62}\u{986f}\u{793a}"
+                } else {
+                    "Stop"
+                });
+                if let Some(tray) = app_handle.tray_by_id("keyviz-tray") {
+                    let _ = tray.set_icon(Some(Image::from(include_image!("icons/tray.png"))));
+                }
+            } else {
+                println!("Listening disabled");
+                let _ = toggle.set_text(if is_chinese {
+                    "\u{958b}\u{59cb}\u{986f}\u{793a}"
+                } else {
+                    "Start"
+                });
+                if let Some(tray) = app_handle.tray_by_id("keyviz-tray") {
+                    let _ =
+                        tray.set_icon(Some(Image::from(include_image!("icons/tray-disabled.png"))));
+                }
+                if let Some(window) = app_handle.get_webview_window("main") {
+                    let _ = park_overlay_window(&window);
+                }
+            }
+            let _ = app_handle.emit("listening-toggle", listening);
+        });
+        if let Err(error) = result {
+            record_error(format!("Failed to apply listening toggle UI: {error}"));
+        }
     }
 }
 

@@ -1,6 +1,9 @@
 import { useEffect, useState } from "react";
 
 import { AboutPage, AppearanceSettings, DrawingToolbarSettings, GeneralSettings, KeycapSettings, MouseSettings } from "@/components/settings";
+import { useDrawingToolbar } from "@/stores/drawing_toolbar";
+import { useKeyEvent } from "@/stores/key_event";
+import { useKeyStyle } from "@/stores/key_style";
 import { ThemeModeToggle } from "@/components/theme-mode-toggle";
 import { LocaleToggle } from "@/components/locale-toggle";
 import { useAppVersion } from "@/lib/app-version";
@@ -19,10 +22,84 @@ const sideBar = [
     { id: "Mouse", icon: Mouse09Icon },
 ]
 
+// The Rust backend keeps its own copy of the shortcut / cursor / toolbar
+// settings so the global input hook can act on them. It bootstraps by parsing
+// the persisted frontend stores, but the frontend owns the format - so as soon
+// as this (preloaded, hidden) settings window has rehydrated its stores, push
+// the authoritative values to the backend once. Without this, a mismatch
+// between the Rust parser and the store format silently reverts shortcuts to
+// their defaults.
+interface HydratableStore {
+    persist?: {
+        hasHydrated: () => boolean;
+        onFinishHydration: (callback: () => void) => () => void;
+    };
+}
+
+// createSyncedStore erases the persist middleware from the store's static
+// type, so read the runtime persist API through a cast.
+const waitForHydration = (store: unknown): Promise<void> => {
+    const persistApi = (store as HydratableStore).persist;
+    if (!persistApi || persistApi.hasHydrated()) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        const unsubscribe = persistApi.onFinishHydration(() => {
+            unsubscribe();
+            resolve();
+        });
+    });
+};
+
+const pushSettingsToBackend = () => {
+    const keyEvent = useKeyEvent.getState();
+    invoke("set_toggle_shortcut", { shortcut: keyEvent.toggleShortcut }).catch(console.error);
+    invoke("set_drawing_shortcuts", {
+        toggleShortcut: keyEvent.drawingToggleShortcut,
+        pointerShortcut: keyEvent.drawingPointerShortcut,
+        clearShortcut: keyEvent.drawingClearShortcut,
+        undoShortcut: keyEvent.drawingUndoShortcut,
+        closeShortcut: keyEvent.drawingCloseShortcut,
+    }).catch(console.error);
+
+    const toolbar = useDrawingToolbar.getState();
+    invoke("set_drawing_toolbar_side", { side: toolbar.side }).catch(console.error);
+    invoke("set_drawing_radial_menu", {
+        shortcut: toolbar.radialShortcut,
+        rightClick: toolbar.radialRightClick,
+        style: toolbar.radialStyle,
+        colors: toolbar.radialColors,
+        tools: toolbar.items.filter((item) => item.visible).map((item) => item.id),
+    }).catch(console.error);
+
+    const mouse = useKeyStyle.getState().mouse;
+    invoke("set_cursor_settings", {
+        keepHighlight: mouse.keepHighlight,
+        size: mouse.size,
+        color: mouse.color,
+        opacity: mouse.opacity,
+        thickness: mouse.thickness,
+    }).catch(console.error);
+};
+
 const Settings = () => {
     const [activeTab, setActiveTab] = useState(sideBar[0].id);
     const { locale, t } = useTranslation();
     const version = useAppVersion();
+
+    useEffect(() => {
+        let cancelled = false;
+        Promise.all([
+            waitForHydration(useKeyEvent),
+            waitForHydration(useDrawingToolbar),
+            waitForHydration(useKeyStyle),
+        ]).then(() => {
+            if (!cancelled) pushSettingsToBackend();
+        });
+        return () => {
+            cancelled = true;
+        };
+    }, []);
 
     useEffect(() => {
         document.documentElement.lang = locale;

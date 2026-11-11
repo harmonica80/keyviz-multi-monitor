@@ -4,9 +4,15 @@ import {
 } from "@/lib/drawing-tools";
 import { useTranslation } from "@/lib/i18n";
 import {
+  type RadialStyle,
   useDrawingToolbar,
 } from "@/stores/drawing_toolbar";
+import { DRAWING_THEMES, drawingThemeVariables } from "@/lib/drawing-themes";
 import { Button } from "@/components/ui/button";
+import { DrawingToolbarView } from "@/components/drawing-toolbar-view";
+import { ShortcutRecorder } from "@/components/shortcut-recorder";
+import { radialShortcutError } from "@/lib/radial-shortcut";
+import { useKeyEvent } from "@/stores/key_event";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -15,18 +21,12 @@ import {
   Check,
   ChevronDown,
   ChevronUp,
-  GripHorizontal,
   GripVertical,
-  KeyboardOff,
   PanelLeft,
   PanelRight,
-  Redo2,
   RotateCcw,
-  Settings,
-  Trash2,
-  X,
 } from "lucide-react";
-import { type ButtonHTMLAttributes, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface ToolbarDragSession {
   pointerId: number;
@@ -44,6 +44,15 @@ export const DrawingToolbarSettings = () => {
   const setToolVisible = useDrawingToolbar((state) => state.setToolVisible);
   const setSide = useDrawingToolbar((state) => state.setSide);
   const resetToolbar = useDrawingToolbar((state) => state.resetToolbar);
+  const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
+  const setRadialShortcut = useDrawingToolbar((state) => state.setRadialShortcut);
+  const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
+  const setRadialRightClick = useDrawingToolbar((state) => state.setRadialRightClick);
+  const radialStyle = useDrawingToolbar((state) => state.radialStyle);
+  const setRadialStyle = useDrawingToolbar((state) => state.setRadialStyle);
+  const radialColors = useDrawingToolbar((state) => state.radialColors);
+  const setRadialColor = useDrawingToolbar((state) => state.setRadialColor);
+  const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
   const dragSession = useRef<ToolbarDragSession | null>(null);
@@ -99,11 +108,80 @@ export const DrawingToolbarSettings = () => {
             {t("Reorder drawing tools and choose which buttons appear in the toolbar.")}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={resetToolbar}>
+        <Button variant="outline" size="sm" onClick={() => { resetToolbar(); setShortcutError(null); }}>
           <RotateCcw className="mr-2 size-4" />
           {t("Restore Default Toolbar")}
         </Button>
       </div>
+
+      <h2 className="text-lg font-semibold">{t("Circular Menu Settings")}</h2>
+      <Item variant="muted">
+        <ItemContent>
+          <ItemDescription>{t("Choose the two quick colors shown in the circular menu. These colors do not change the toolbar palette.")}</ItemDescription>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            {([0, 1] as const).map((index) => (
+              <label key={index} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+                <span>{t(index === 0 ? "Quick Color 1" : "Quick Color 2")}</span>
+                <input
+                  type="color"
+                  value={radialColors[index]}
+                  onChange={(event) => setRadialColor(index, event.currentTarget.value)}
+                  aria-label={t(index === 0 ? "Quick Color 1" : "Quick Color 2")}
+                  className="h-9 w-12 cursor-pointer rounded border"
+                />
+              </label>
+            ))}
+          </div>
+          <ItemDescription>{t("Click the blank center to dismiss the circular menu.")}</ItemDescription>
+        </ItemContent>
+      </Item>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Circular Tool Menu Shortcut")}</ItemTitle>
+          <ItemDescription>{t("Press Q while drawing to open the two-ring icon menu beside the mouse. Click a tool to switch; press Esc or right-click to cancel. In pointer mode, settings or text entry, this shortcut is inactive.")}</ItemDescription>
+          <ShortcutRecorder value={radialShortcut} onChange={(keys) => {
+            const state = useKeyEvent.getState();
+            const error = radialShortcutError(keys, [state.toggleShortcut, state.drawingToggleShortcut,
+              state.drawingPointerShortcut, state.drawingClearShortcut, state.drawingUndoShortcut,
+              state.drawingCloseShortcut, ["ControlLeft", "ShiftLeft", "KeyZ"]]);
+            setShortcutError(error);
+            if (!error) setRadialShortcut(keys);
+          }} placeholder={t("Disabled (click to set)")} />
+          <ItemDescription>{t("Default: Q. Click to record a new shortcut; Backspace or Delete disables it. Hidden tools leave empty sectors to keep positions stable.")}</ItemDescription>
+          {shortcutError && <p role="alert" className="text-sm text-destructive">{t(shortcutError)}</p>}
+          <label className="mt-3 flex items-center justify-between gap-3 rounded-lg border p-3">
+            <span>{t("Right-click to Open Circular Menu")}</span>
+            <Switch checked={radialRightClick} onCheckedChange={setRadialRightClick} aria-label={t("Right-click to Open Circular Menu")} />
+          </label>
+          <ItemDescription>{t("While using a drawing tool, right-click the canvas to open the menu; right-click again to cancel. Pointer mode, text entry and toolbar context menus are unchanged. The keyboard shortcut remains available.")}</ItemDescription>
+          <ItemDescription>{t("In pointer mode, hold Left Alt and click the right mouse button to open the circular menu. Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode, even when the toolbar is hidden.")}</ItemDescription>
+        </ItemContent>
+      </Item>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Drawing Theme")}</ItemTitle>
+          <ItemDescription>{t("Use one theme for the toolbar and circular menu. Default: 01 Pearl. Drawing colors are unchanged.")}</ItemDescription>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3" role="group" aria-label={t("Drawing Theme")}>
+            {DRAWING_THEMES.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={radialStyle === id}
+                onClick={() => setRadialStyle(id as RadialStyle)}
+                className={`radial-style-card rounded-lg border p-3 text-sm transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-primary ${radialStyle === id ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-background"}`}
+              >
+                <RadialStylePreview style={id as RadialStyle} />
+                <span className="mt-2 flex items-center justify-center gap-1">
+                  {t(label)}
+                  {radialStyle === id && <Check className="size-3" aria-hidden="true" />}
+                </span>
+              </button>
+            ))}
+          </div>
+        </ItemContent>
+      </Item>
 
       <Item variant="muted">
         <ItemContent>
@@ -135,7 +213,7 @@ export const DrawingToolbarSettings = () => {
       <Item variant="muted">
         <ItemContent>
           <ItemTitle>{t("Hover to Edit Objects")}</ItemTitle>
-          <ItemDescription>{t("Hover over an enabled object to show handles. Drag to move, or scroll to resize the object. Pointer and eraser modes are unchanged.")}</ItemDescription>
+          <ItemDescription>{t("Tap Alt to enable or disable hover editing for this drawing session. Sessions start with hover editing off. Enabled object types can be moved or resized with the wheel. Pointer mode never intercepts Alt; the selection tool still supports manual selection.")}</ItemDescription>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             {(["number", "check-mark", "cross-mark", "text", "ellipse", "rectangle", "line", "arrow", "pen"] as DrawingTool[]).map((id) => (
               <label key={id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
@@ -255,52 +333,8 @@ export const DrawingToolbarSettings = () => {
 
         <div className="sticky top-6 rounded-xl border bg-muted/40 p-4">
           <p className="mb-3 text-sm font-medium">{t("Toolbar Preview")}</p>
-          <div className="mx-auto flex w-14 flex-col gap-1 rounded-md bg-[#f7f7f7] p-1 shadow-sm">
-            <PreviewButton className="min-h-6 bg-[#e8e8e8]">
-              <GripHorizontal className="size-5" />
-            </PreviewButton>
-            <PreviewButton className="bg-[#c83737] text-white">
-              <X />
-            </PreviewButton>
-            {items.filter((item) => item.visible).map((item) => {
-              const definition = DRAWING_TOOL_BY_ID[item.id];
-              const Icon = definition.icon;
-              return (
-                <PreviewButton key={item.id} title={t(definition.label)}>
-                  <Icon />
-                </PreviewButton>
-              );
-            })}
-            <div className="grid grid-cols-2 justify-center gap-px py-1">
-              {["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"].map(
-                (color, index) => (
-                  <span
-                    key={color}
-                    className="relative block aspect-square border border-[#777]"
-                    style={{ background: color }}
-                  >
-                    {index === 0 && <Check className="absolute inset-0 size-full text-white" />}
-                  </span>
-                ),
-              )}
-            </div>
-            <div className="flex h-6 items-center rounded-sm border border-[#9a9a9a] bg-white px-1">
-              <div className="h-1.5 w-full rounded-full bg-gradient-to-r from-[#787d7d] from-40% to-white to-40%" />
-            </div>
-            <PreviewButton disabled>
-              <Redo2 className="scale-x-[-1]" />
-            </PreviewButton>
-            <PreviewButton>
-              <Trash2 />
-            </PreviewButton>
-            <div className="grid grid-cols-2 gap-px">
-              <PreviewButton className="min-h-7">
-                <KeyboardOff />
-              </PreviewButton>
-              <PreviewButton className="min-h-7">
-                <Settings />
-              </PreviewButton>
-            </div>
+          <div className="mx-auto w-12">
+            <DrawingToolbarView toolbarItems={items} radialStyle={radialStyle} preview />
           </div>
         </div>
       </div>
@@ -308,17 +342,31 @@ export const DrawingToolbarSettings = () => {
   );
 };
 
-const PreviewButton = ({
-  children,
-  className = "",
-  ...props
-}: ButtonHTMLAttributes<HTMLButtonElement>) => (
-  <button
-    type="button"
-    tabIndex={-1}
-    className={`grid min-h-9 w-full place-items-center rounded-sm border border-[#9a9a9a] bg-white text-[#333] [&>svg]:size-6 ${className}`}
-    {...props}
-  >
-    {children}
-  </button>
+const PREVIEW_TOOLS: DrawingTool[] = ["pen", "arrow", "number", "eraser", "rectangle", "ellipse", "check-mark", "cross-mark", "text", "line", "select", "pointer"];
+
+const RadialStylePreview = ({ style }: { style: RadialStyle }) => (
+  <span className="drawing-theme-preview" style={drawingThemeVariables(style)} aria-hidden="true">
+    <span className="theme-preview-toolbar">
+      {["pointer", "pen", "arrow", "number", "rectangle"].map((id) => {
+        const Icon = DRAWING_TOOL_BY_ID[id as DrawingTool].icon;
+        return <span key={id} className={id === "pen" ? "active" : ""}><Icon /></span>;
+      })}
+    </span>
+    <span className="radial-style-preview">
+    <span className="radial-preview-ring radial-preview-outer" />
+    <span className="radial-preview-ring radial-preview-inner" />
+    {PREVIEW_TOOLS.map((id, index) => {
+      const outer = index >= 6;
+      const angle = (index % 6) * Math.PI / 3 - Math.PI / 2;
+      const radius = outer ? 41 : 20;
+      const Icon = DRAWING_TOOL_BY_ID[id].icon;
+      return (
+        <span key={id} className="radial-preview-icon" style={{ left: `${50 + Math.cos(angle) * radius}%`, top: `${50 + Math.sin(angle) * radius}%` }}>
+          <Icon />
+        </span>
+      );
+    })}
+    <span className="radial-preview-center" />
+    </span>
+  </span>
 );

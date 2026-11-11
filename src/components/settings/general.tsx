@@ -108,21 +108,23 @@ export const GeneralSettings = () => {
         </Item>
 
         <Item variant="muted">
-            <ItemContent>
-                <ItemTitle>
-                    <HugeiconsIcon icon={LayerIcon} size="1em" /> {t("History")}
-                </ItemTitle>
-                <ItemDescription>
-                    {t("Keep previously pressed keystrokes in the view")}
-                </ItemDescription>
-            </ItemContent>
-            <ItemActions>
-                <Switch checked={showEventHistory} onCheckedChange={setShowEventHistory} />
-            </ItemActions>
-        </Item>
+            <ItemHeader>
+                <ItemContent>
+                    <ItemTitle>
+                        <HugeiconsIcon icon={LayerIcon} size="1em" /> {t("History")}
+                    </ItemTitle>
+                    <ItemDescription>
+                        {t("Keep previously pressed keystrokes in the view")}
+                    </ItemDescription>
+                </ItemContent>
+                <ItemActions>
+                    <Switch aria-label={t("History")} checked={showEventHistory} onCheckedChange={setShowEventHistory} />
+                </ItemActions>
+            </ItemHeader>
 
-        <div className={cn("flex flex-col gap-4 md:flex-row", showEventHistory ? "" : "pointer-events-none opacity-50", "transition-opacity")}>
-            <Item variant="muted" className="flex-7">
+            <fieldset disabled={!showEventHistory} aria-label={t("History")}
+                className={cn("flex min-w-0 w-full flex-col gap-3 border-t pt-3 md:flex-row transition-opacity", !showEventHistory && "opacity-50")}>
+            <Item className="flex-7 bg-background/60">
                 <ItemContent>
                     <ItemTitle>{t("Direction")}</ItemTitle>
                 </ItemContent>
@@ -131,8 +133,11 @@ export const GeneralSettings = () => {
                         size="sm"
                         type="single"
                         variant="outline"
+                        disabled={!showEventHistory}
                         value={direction}
-                        onValueChange={(value) => setAppearance({ flexDirection: value as KeyStyleState["appearance"]["flexDirection"] })}
+                        onValueChange={(value) => {
+                            if (value) setAppearance({ flexDirection: value as KeyStyleState["appearance"]["flexDirection"] });
+                        }}
                     >
                         <ToggleGroupItem value="row" aria-label="Horizontal">
                             <HugeiconsIcon icon={ArrowHorizontalIcon} strokeWidth={2} size={10} /> {t("Row")}
@@ -143,15 +148,16 @@ export const GeneralSettings = () => {
                     </ToggleGroup>
                 </ItemActions>
             </Item>
-            <Item variant="muted" className="flex-5">
+            <Item className="flex-5 bg-background/60">
                 <ItemContent>
                     <ItemTitle>{t("Max Count")}</ItemTitle>
                 </ItemContent>
                 <ItemActions className="max-w-20">
-                    <NumberInput className="h-8" value={maxHistory} onChange={setMaxHistory} minValue={2} maxValue={12} />
+                    <NumberInput aria-label={t("Max Count")} isDisabled={!showEventHistory} className="h-8" value={maxHistory} onChange={setMaxHistory} minValue={2} maxValue={12} />
                 </ItemActions>
             </Item>
-        </div>
+            </fieldset>
+        </Item>
 
         <Item variant="muted">
             <ItemHeader className="flex-col items-start">
@@ -191,6 +197,7 @@ export const GeneralSettings = () => {
                     />
                     <ShortcutRow
                         label={t("Return To Mouse Mode")}
+                        description={t("Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode without clearing drawings, even when the toolbar is hidden.")}
                         value={drawingPointerShortcut}
                         onChange={(shortcut) => {
                             setDrawingPointerShortcut(shortcut);
@@ -229,15 +236,17 @@ export const GeneralSettings = () => {
 
 const ShortcutRow = ({
     label,
+    description,
     value,
     onChange,
 }: {
     label: string;
+    description?: string;
     value: string[];
     onChange: (shortcut: string[]) => void;
 }) => (
-    <div className="grid gap-2 md:grid-cols-[10rem_1fr] md:items-center">
-        <span className="text-sm text-muted-foreground">{label}</span>
+    <div className="grid gap-2 md:grid-cols-[10rem_1fr] md:items-center" title={description}>
+        <span className="text-sm text-muted-foreground">{label}{description && <span className="mt-1 block text-xs">{description}</span>}</span>
         <ShortcutRecorder value={value} onChange={onChange} />
     </div>
 );

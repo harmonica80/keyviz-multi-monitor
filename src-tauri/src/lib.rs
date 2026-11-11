@@ -9,10 +9,10 @@ use tauri::{
 
 mod app;
 use app::commands::{
-    drawing_clear, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
+    drawing_clear, drawing_redo, drawing_recover, drawing_probe_layer, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
     drawing_undo, get_cursor_settings, hide_native_key_overlay, log, set_cursor_settings,
     set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut, set_tray_locale,
-    update_native_key_overlay, update_overlay_window,
+    update_native_key_overlay,
 };
 use app::diagnostics::{export_diagnostics, record_error};
 use app::event::start_listener;
@@ -44,6 +44,64 @@ fn build_settings_window(
 }
 
 fn show_settings_window(app: &AppHandle) {
+    request_settings_transition(app, true);
+}
+
+fn request_settings_transition(app: &AppHandle, show: bool) {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let Ok(mut state) = state.lock() else { return; };
+        if state.settings_opening { return; }
+        if !show && (!state.drawing_visible || state.drawing_tool == "pointer") { return; }
+        state.settings_opening = true;
+    }
+    // Native tool changes can send window messages to the main thread. Wait for
+    // input release on a worker so neither UI thread blocks the other.
+    let app = app.clone();
+    std::thread::spawn(move || {
+        if let Err(error) = prepare_drawing_for_settings(&app) {
+            record_error(format!("Failed to release drawing input for settings: {error}"));
+            if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() { state.settings_opening = false; }
+            return;
+        }
+        let handle = app.clone();
+        if let Err(error) = app.run_on_main_thread(move || {
+            if show { show_settings_window_ready(&handle); }
+            if let Ok(mut state) = handle.state::<Mutex<AppState>>().lock() { state.settings_opening = false; };
+        }) {
+            record_error(format!("Failed to schedule settings window: {error}"));
+            if let Ok(mut state) = app.state::<Mutex<AppState>>().lock() { state.settings_opening = false; };
+        }
+    });
+}
+
+fn prepare_drawing_for_settings(app: &AppHandle) -> Result<(), String> {
+    let drawing = {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().map_err(|error| error.to_string())?;
+        state.drawing_visible.then(|| (state.drawing_overlay.clone(), state.drawing_session_id))
+    };
+    if let Some((overlay, session_id)) = drawing {
+        overlay.prepare_for_settings()?;
+        {
+            let state = app.state::<Mutex<AppState>>();
+            let mut state = state.lock().map_err(|error| error.to_string())?;
+            if !state.drawing_visible || state.drawing_session_id != session_id {
+                return Err("Drawing session changed while opening settings".into());
+            }
+            state.drawing_tool = "pointer".into();
+            state.drawing_input_passthrough = true;
+            state.drawing_pointer_down = false;
+            state.drawing_last_move = None;
+        }
+        app.emit("drawing-tool-changed", serde_json::json!({ "tool": "pointer" }))
+            .map_err(|error| error.to_string())?;
+        app::diagnostics::record_event("Drawing input released before opening settings");
+    }
+    Ok(())
+}
+
+fn show_settings_window_ready(app: &AppHandle) {
     let drawing_visible = app
         .try_state::<Mutex<AppState>>()
         .and_then(|state| state.lock().ok().map(|state| state.drawing_visible))
@@ -69,60 +127,12 @@ fn show_settings_window(app: &AppHandle) {
     }
 }
 
-fn set_drawing_window_bounds(
-    window: &WebviewWindow,
-    left: i32,
-    top: i32,
-    width: i32,
-    height: i32,
-) -> Result<(), String> {
-    #[cfg(target_os = "windows")]
-    {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_SHOWWINDOW,
-        };
-
-        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
-        let root_hwnd = unsafe { GetAncestor(hwnd, GA_ROOT) };
-        let target_hwnd = if root_hwnd.0 == 0 { hwnd } else { root_hwnd };
-        let result = unsafe {
-            SetWindowPos(
-                target_hwnd,
-                HWND_TOPMOST,
-                left,
-                top,
-                width,
-                height,
-                SWP_SHOWWINDOW,
-            )
-        };
-        if !result.as_bool() {
-            return Err(std::io::Error::last_os_error().to_string());
-        }
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    {
-        window
-            .set_position(tauri::PhysicalPosition { x: left, y: top })
-            .map_err(|error| error.to_string())?;
-        window
-            .set_size(tauri::PhysicalSize {
-                width: width as u32,
-                height: height as u32,
-            })
-            .map_err(|error| error.to_string())?;
-    }
-
-    Ok(())
-}
-
 fn create_drawing_toolbar(
     app: &AppHandle,
     toolbar_x: i32,
     toolbar_y: i32,
     _toolbar_height: u32,
+    reposition: bool,
 ) -> Result<(), String> {
     const TOOLBAR_WIDTH: f64 = 48.0;
     let (toolbar, is_new) = if let Some(toolbar) = app.get_webview_window("drawing-toolbar") {
@@ -160,8 +170,20 @@ fn create_drawing_toolbar(
         } else {
             toolbar_root
         };
-        let toolbar_width = (TOOLBAR_WIDTH * toolbar.scale_factor().unwrap_or(1.0)).round() as i32;
-        let initial_height = (32.0 * toolbar.scale_factor().unwrap_or(1.0)).round() as i32;
+        // The toolbar opens at the edge of the primary monitor, so size it by
+        // the primary monitor's DPI. (A freshly created webview can still
+        // report scale 1.0 at this point, which would mis-size the toolbar on
+        // high-DPI screens.)
+        let scale = app
+            .primary_monitor()
+            .ok()
+            .flatten()
+            .map(|monitor| monitor.scale_factor())
+            .or_else(|| toolbar.scale_factor().ok())
+            .unwrap_or(1.0);
+        let toolbar_width = (TOOLBAR_WIDTH * scale).round() as i32;
+        let initial_height = (32.0 * scale).round() as i32;
+        use windows::Win32::UI::WindowsAndMessaging::SWP_NOMOVE;
         let result = unsafe {
             if is_new {
                 SetWindowPos(
@@ -173,7 +195,7 @@ fn create_drawing_toolbar(
                     initial_height,
                     SWP_NOACTIVATE,
                 )
-            } else {
+            } else if reposition {
                 SetWindowPos(
                     toolbar_target,
                     HWND_TOPMOST,
@@ -183,33 +205,44 @@ fn create_drawing_toolbar(
                     0,
                     SWP_NOACTIVATE | SWP_NOSIZE,
                 )
+            } else {
+                // Re-opening an existing toolbar: keep the position the user
+                // dragged it to, only re-assert topmost.
+                SetWindowPos(
+                    toolbar_target,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE,
+                )
             }
         };
         if !result.as_bool() {
             return Err(std::io::Error::last_os_error().to_string());
         }
 
-        let toolbar_handle = toolbar_target.0;
-        std::thread::spawn(move || {
-            for delay in [100, 400] {
-                std::thread::sleep(std::time::Duration::from_millis(delay));
-                unsafe {
-                    let _ = SetWindowPos(
-                        HWND(toolbar_handle),
-                        HWND_TOPMOST,
-                        toolbar_x,
-                        toolbar_y,
-                        toolbar_width,
-                        initial_height,
-                        SWP_NOACTIVATE | SWP_NOSIZE,
-                    );
+        if is_new {
+            let toolbar_handle = toolbar_target.0;
+            std::thread::spawn(move || {
+                for delay in [100, 400] {
+                    std::thread::sleep(std::time::Duration::from_millis(delay));
+                    unsafe {
+                        let _ = SetWindowPos(
+                            HWND(toolbar_handle),
+                            HWND_TOPMOST,
+                            toolbar_x,
+                            toolbar_y,
+                            toolbar_width,
+                            initial_height,
+                            SWP_NOACTIVATE | SWP_NOSIZE,
+                        );
+                    }
                 }
-            }
-        });
+            });
+        }
     }
-
-    #[cfg(not(target_os = "windows"))]
-    toolbar.show().map_err(|error| error.to_string())?;
 
     let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ());
     Ok(())
@@ -237,6 +270,9 @@ fn drawing_toolbar_open_position(app: &AppHandle, side: &str) -> Result<(i32, i3
 }
 
 fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
+    if !drawing_toolbar_visible(app)? {
+        return Ok(());
+    }
     let toolbar = app
         .get_webview_window("drawing-toolbar")
         .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
@@ -274,12 +310,15 @@ fn keep_drawing_toolbar_above_canvas(app: &AppHandle) -> Result<(), String> {
     }
 
     #[cfg(not(target_os = "windows"))]
-    toolbar.show().map_err(|error| error.to_string())?;
+    toolbar.set_always_on_top(true).map_err(|error| error.to_string())?;
 
     Ok(())
 }
 
 fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
+    if !drawing_toolbar_visible(app)? {
+        return Ok(());
+    }
     let toolbar = app
         .get_webview_window("drawing-toolbar")
         .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
@@ -305,6 +344,10 @@ fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
         let padding = 12;
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|error| error.to_string())?;
+        if !app_state.drawing_visible || app_state.drawing_toolbar_hidden {
+            app_state.drawing_overlay.set_toolbar_passthrough(None);
+            return Ok(());
+        }
         app_state.drawing_overlay.set_toolbar_passthrough(Some((
             rect.left - padding,
             rect.top - padding,
@@ -322,6 +365,10 @@ fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
         let padding = 12;
         let state = app.state::<Mutex<AppState>>();
         let app_state = state.lock().map_err(|error| error.to_string())?;
+        if !app_state.drawing_visible || app_state.drawing_toolbar_hidden {
+            app_state.drawing_overlay.set_toolbar_passthrough(None);
+            return Ok(());
+        }
         app_state.drawing_overlay.set_toolbar_passthrough(Some((
             position.x - padding,
             position.y - padding,
@@ -331,6 +378,70 @@ fn sync_drawing_toolbar_passthrough(app: &AppHandle) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+fn drawing_toolbar_visible(app: &AppHandle) -> Result<bool, String> {
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().map_err(|error| error.to_string())?;
+    Ok(state.drawing_visible && !state.drawing_toolbar_hidden)
+}
+
+fn set_drawing_toolbar_visible(app: &AppHandle, visible: bool) -> Result<(), String> {
+    let toolbar = app.get_webview_window("drawing-toolbar")
+        .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, ShowWindow, GA_ROOT, SW_HIDE, SW_SHOWNOACTIVATE,
+        };
+        let hwnd = HWND(toolbar.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        let target = if root.0 == 0 { hwnd } else { root };
+        unsafe { let _ = ShowWindow(target, if visible { SW_SHOWNOACTIVATE } else { SW_HIDE }); }
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        if visible { toolbar.show() } else { toolbar.hide() }
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn hide_drawing_toolbar(app: AppHandle) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().map_err(|error| error.to_string())?;
+        if !state.drawing_visible { return Ok(()); }
+        state.drawing_toolbar_hidden = true;
+        state.drawing_overlay.set_toolbar_hidden(true);
+        state.drawing_overlay.set_toolbar_passthrough(None);
+    }
+    set_drawing_toolbar_visible(&app, false)
+}
+
+pub(crate) fn show_drawing_toolbar(app: &AppHandle) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let mut state = state.lock().map_err(|error| error.to_string())?;
+        if !state.drawing_visible { return Ok(()); }
+        state.drawing_toolbar_hidden = false;
+        state.drawing_overlay.set_toolbar_hidden(false);
+    }
+    set_drawing_toolbar_visible(app, true)?;
+    keep_drawing_toolbar_above_canvas(app)?;
+    sync_drawing_toolbar_passthrough(app)?;
+    app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ())
+        .map_err(|error| error.to_string())
+}
+
+pub(crate) fn toggle_drawing_toolbar(app: &AppHandle) -> Result<(), String> {
+    if drawing_toolbar_visible(app)? {
+        hide_drawing_toolbar(app.clone())
+    } else {
+        show_drawing_toolbar(app)
+    }
 }
 
 fn schedule_drawing_toolbar_passthrough_sync(app: &AppHandle) {
@@ -345,6 +456,30 @@ fn schedule_drawing_toolbar_passthrough_sync(app: &AppHandle) {
 }
 
 pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
+    initialize_drawing_session(app, false)
+}
+
+pub(crate) fn start_pointer_radial(app: &AppHandle) -> Result<(), String> {
+    initialize_drawing_session(app, true)?;
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().map_err(|error| error.to_string())?;
+    if state.settings_opening {
+        return Err("Wait for settings to finish opening".into());
+    }
+    // Keep this behind Show/SetTool in the native queue, without waiting on the UI.
+    state.drawing_overlay.request_pointer_radial();
+    Ok(())
+}
+
+fn initialize_drawing_session(app: &AppHandle, hidden_pointer: bool) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().map_err(|error| error.to_string())?;
+        if state.settings_opening {
+            return Err("Wait for settings to finish opening".into());
+        }
+        if hidden_pointer && state.drawing_visible { return Ok(()); }
+    }
     let monitors = app
         .available_monitors()
         .map_err(|error| error.to_string())?;
@@ -372,26 +507,30 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
     let (toolbar_x, toolbar_y, toolbar_height) =
         drawing_toolbar_open_position(app, &drawing_toolbar_side)?;
 
-    create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height)?;
+    create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height, false)?;
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
+    if app_state.settings_opening { return Err("Wait for settings to finish opening".into()); }
+    if hidden_pointer && app_state.drawing_visible { return Ok(()); }
+    let tool = if hidden_pointer { "pointer" } else { "pen" };
     app_state.pressed_keys.clear();
     app_state.drawing_visible = true;
-    app_state.drawing_tool = "pen".to_string();
+    app_state.drawing_toolbar_hidden = hidden_pointer;
+    app_state.drawing_overlay.set_toolbar_hidden(hidden_pointer);
+    app_state.drawing_tool = tool.to_string();
     app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
     let drawing_session_id = app_state.drawing_session_id;
-    app_state.drawing_input_passthrough = false;
+    app_state.drawing_input_passthrough = hidden_pointer;
     app_state.drawing_pointer_down = false;
     app_state.drawing_last_move = None;
-    // Every new drawing session starts in pen mode. This avoids reopening the
-    // overlay in pointer mode, which looks as though the Start Drawing button
-    // did nothing.
-    app_state.drawing_overlay.set_tool(NativeTool::Pen);
+    // F8 starts with a pen; the global pointer gesture must not capture input.
+    app_state.drawing_overlay.set_tool(if hidden_pointer { NativeTool::Pointer } else { NativeTool::Pen });
     app_state.drawing_overlay.show(drawing_monitors, None);
-    app_state.drawing_overlay.set_click_through(false);
+    app_state.drawing_overlay.set_click_through(hidden_pointer);
     app_state.drawing_overlay.raise();
     drop(app_state);
-    let _ = app.emit("drawing-tool-changed", serde_json::json!({ "tool": "pen" }));
+    set_drawing_toolbar_visible(app, !hidden_pointer)?;
+    let _ = app.emit("drawing-tool-changed", serde_json::json!({ "tool": tool }));
     let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-resize-request", ());
     keep_drawing_toolbar_above_canvas(app)?;
     sync_drawing_toolbar_passthrough(app)?;
@@ -417,6 +556,12 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
             let _ = keep_drawing_toolbar_above_canvas(&app_handle);
         }
 
+        // Watchdog for the drawing session: other always-on-top tools (screen
+        // recorders, capture utilities) can push our surfaces down the z-order.
+        // RaiseIfDemoted only issues a z-order change when a surface actually
+        // lost TOPMOST, so when nothing interferes this loop does no window
+        // operations at all - unconditionally re-raising every second made
+        // Keyviz fight other topmost windows (see docs/issues PixPin report).
         loop {
             std::thread::sleep(std::time::Duration::from_secs(1));
             let settings_visible = app_handle
@@ -431,7 +576,7 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
                     false
                 } else {
                     if !settings_visible {
-                        app_state.drawing_overlay.raise();
+                        app_state.drawing_overlay.raise_if_demoted();
                     }
                     true
                 }
@@ -440,9 +585,6 @@ pub(crate) fn show_drawing_window(app: &AppHandle) -> Result<(), String> {
             };
             if !should_continue {
                 break;
-            }
-            if settings_visible {
-                continue;
             }
         }
     });
@@ -489,6 +631,14 @@ fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
     Ok(app_state.listening)
 }
 
+fn show_drawing_toolbar_label(is_chinese: bool) -> &'static str {
+    if is_chinese {
+        "\u{986f}\u{793a}\u{7e6a}\u{5716}\u{5de5}\u{5177}\u{5217}"
+    } else {
+        "Show Drawing Toolbar"
+    }
+}
+
 #[tauri::command]
 fn open_settings_window(app: AppHandle) -> Result<(), String> {
     let app_handle = app.clone();
@@ -505,19 +655,37 @@ fn set_drawing_hover_edit(app: AppHandle, preferences: std::collections::HashMap
 }
 
 #[tauri::command]
+fn set_drawing_radial_menu(app: AppHandle, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: Option<String>, colors: Option<Vec<String>>) -> Result<(), String> {
+    let overlay = app.state::<Mutex<AppState>>()
+        .lock().map_err(|error| error.to_string())?.drawing_overlay.clone();
+    overlay.configure_radial(shortcut, tools, right_click, style.unwrap_or_else(|| "pearl".into()), colors.unwrap_or_default())
+}
+
+#[tauri::command]
+fn drawing_radial_menu_action(app: AppHandle, window: tauri::WebviewWindow, cancel: bool) -> Result<(), String> {
+    if window.label() != "drawing-toolbar" {
+        return Err("Radial menu input is only accepted from the drawing toolbar".into());
+    }
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().map_err(|error| error.to_string())?;
+    if !state.drawing_visible || state.drawing_tool == "pointer" { return Ok(()); }
+    state.drawing_overlay.radial_menu_action(cancel)
+}
+
+#[tauri::command]
 fn set_drawing_toolbar_side(app: AppHandle, side: String) -> Result<(), String> {
     let normalized_side = if side == "left" { "left" } else { "right" }.to_string();
     let drawing_visible = {
         let state = app.state::<Mutex<AppState>>();
         let mut app_state = state.lock().map_err(|error| error.to_string())?;
         app_state.drawing_toolbar_side.clone_from(&normalized_side);
-        app_state.drawing_visible
+        app_state.drawing_visible && !app_state.drawing_toolbar_hidden
     };
 
     if drawing_visible {
         let (toolbar_x, toolbar_y, toolbar_height) =
             drawing_toolbar_open_position(&app, &normalized_side)?;
-        create_drawing_toolbar(&app, toolbar_x, toolbar_y, toolbar_height)?;
+        create_drawing_toolbar(&app, toolbar_x, toolbar_y, toolbar_height, true)?;
         keep_drawing_toolbar_above_canvas(&app)?;
     }
 
@@ -529,6 +697,9 @@ pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.pressed_keys.clear();
     app_state.drawing_visible = false;
+    app_state.drawing_toolbar_hidden = false;
+    app_state.drawing_overlay.set_toolbar_hidden(false);
+    app_state.drawing_overlay.set_toolbar_passthrough(None);
     app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
     app_state.drawing_input_passthrough = false;
     app_state.drawing_pointer_down = false;
@@ -578,11 +749,13 @@ fn set_drawing_click_through(app: AppHandle, enabled: bool) -> Result<(), String
         app_state.drawing_last_move = None;
     }
     app_state.drawing_overlay.set_click_through(enabled);
+    drop(app_state);
     keep_drawing_toolbar_above_canvas(&app)
 }
 
 #[tauri::command]
 fn activate_drawing_toolbar(app: AppHandle) -> Result<(), String> {
+    if !drawing_toolbar_visible(&app)? { return Ok(()); }
     keep_drawing_toolbar_above_canvas(&app)?;
     let toolbar = app
         .get_webview_window("drawing-toolbar")
@@ -595,6 +768,7 @@ fn activate_drawing_canvas(app: AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.drawing_overlay.focus();
+    drop(app_state);
     keep_drawing_toolbar_above_canvas(&app)
 }
 
@@ -634,12 +808,7 @@ fn start_drawing_toolbar_drag(app: AppHandle) -> Result<(), String> {
 
 #[tauri::command]
 fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
-    let drawing_visible = app
-        .state::<Mutex<AppState>>()
-        .lock()
-        .map_err(|error| error.to_string())?
-        .drawing_visible;
-    if !drawing_visible {
+    if !drawing_toolbar_visible(&app)? {
         return Ok(());
     }
 
@@ -652,7 +821,6 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
             GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
-            SWP_SHOWWINDOW,
         };
 
         let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
@@ -669,7 +837,7 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
                 0,
                 physical_width,
                 physical_height,
-                SWP_NOACTIVATE | SWP_NOMOVE | SWP_SHOWWINDOW,
+                SWP_NOACTIVATE | SWP_NOMOVE,
             )
         };
         if !result.as_bool() {
@@ -684,6 +852,39 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
             height: height.clamp(32.0, 820.0),
         })
         .map_err(|error| error.to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, DeleteObject, SetWindowRgn};
+        use windows::Win32::UI::WindowsAndMessaging::{GetAncestor, GA_ROOT};
+
+        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        let target = if root.0 == 0 { hwnd } else { root };
+        let size = window.inner_size().map_err(|error| error.to_string())?;
+        let diameter = (48.0 * window.scale_factor().unwrap_or(1.0)).round() as i32;
+        unsafe {
+            // Clip the opaque WebView window, without enabling layered transparency.
+            let region = CreateRoundRectRgn(
+                0,
+                0,
+                size.width as i32 + 1,
+                size.height as i32 + 1,
+                diameter,
+                diameter,
+            );
+            if region.0 == 0 {
+                return Err(std::io::Error::last_os_error().to_string());
+            }
+            // Windows owns the region only when SetWindowRgn succeeds.
+            if SetWindowRgn(target, region, true) == 0 {
+                let error = std::io::Error::last_os_error().to_string();
+                let _ = DeleteObject(region);
+                return Err(error);
+            }
+        }
+    }
 
     keep_drawing_toolbar_above_canvas(&app)?;
     sync_drawing_toolbar_passthrough(&app)
@@ -711,6 +912,121 @@ fn resize_drawing_window(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// React to a change in the monitor configuration (projector plugged in,
+/// display unplugged, resolution or DPI change).
+///
+/// Called from the native drawing surfaces' WM_DISPLAYCHANGE handler and from
+/// the fallback monitor watcher below. Re-parks the off-screen visualization
+/// window (Windows may have dragged it back into view), refreshes the stored
+/// monitor geometry used for cursor coordinates, and rebuilds the drawing
+/// surfaces so they cover the new layout.
+pub(crate) fn handle_display_change(app: &AppHandle) {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static LAST_RUN_MS: AtomicU64 = AtomicU64::new(0);
+    let now = app::diagnostics::unix_time_ms();
+    let last = LAST_RUN_MS.swap(now, Ordering::SeqCst);
+    if now.saturating_sub(last) < 500 {
+        return;
+    }
+
+    let monitors = match app.available_monitors() {
+        Ok(monitors) if !monitors.is_empty() => monitors,
+        _ => return,
+    };
+    let drawing_monitors: Vec<(i32, i32, i32, i32)> = monitors
+        .iter()
+        .map(|monitor| {
+            (
+                monitor.position().x,
+                monitor.position().y,
+                monitor.size().width as i32,
+                monitor.size().height as i32,
+            )
+        })
+        .collect();
+
+    let app_handle = app.clone();
+    let result = app.run_on_main_thread(move || {
+        {
+            let state = app_handle.state::<Mutex<AppState>>();
+            let Ok(mut app_state) = state.lock() else {
+                return;
+            };
+            // Rebuild drawing surfaces for the new layout (no-op when the
+            // layout is unchanged; keeps annotations if a session is open).
+            app_state.drawing_overlay.resize(drawing_monitors);
+
+            // Re-attach the visualization window to its monitor: prefer the
+            // one the user selected, fall back to the primary.
+            if let Some(window) = app_handle.get_webview_window("main") {
+                let selected = app_state.monitor_name.clone();
+                let monitors = window.available_monitors().unwrap_or_default();
+                let target = selected
+                    .and_then(|name| {
+                        monitors
+                            .iter()
+                            .find(|monitor| app::window::monitor_identifier(monitor) == name)
+                            .cloned()
+                    })
+                    .or_else(|| window.primary_monitor().ok().flatten())
+                    .or_else(|| monitors.into_iter().next());
+                if let Some(monitor) = target {
+                    let _ =
+                        app::window::set_window_monitor(&window, &monitor, &mut app_state);
+                }
+                let key_overlay_visible = app_state.key_overlay_window_visible;
+                drop(app_state);
+                if !key_overlay_visible {
+                    let _ = app::window::park_overlay_window(&window);
+                }
+            }
+        }
+        // Let the frontend re-query monitor-dependent state.
+        let _ = app_handle.emit_to("main", "display-configuration-changed", ());
+    });
+    if let Err(error) = result {
+        record_error(format!("Failed to apply display change: {error}"));
+    } else {
+        app::diagnostics::record_event("Display configuration change applied");
+    }
+}
+
+/// Fallback watcher for monitor layout changes. The WM_DISPLAYCHANGE handler
+/// on the drawing surfaces reacts instantly while a drawing session exists;
+/// this low-frequency comparison covers the time before the first session.
+fn start_monitor_watcher(app: AppHandle) {
+    std::thread::spawn(move || {
+        let snapshot = |app: &AppHandle| -> Option<Vec<(i32, i32, u32, u32)>> {
+            let monitors = app.available_monitors().ok()?;
+            Some(
+                monitors
+                    .iter()
+                    .map(|monitor| {
+                        (
+                            monitor.position().x,
+                            monitor.position().y,
+                            monitor.size().width,
+                            monitor.size().height,
+                        )
+                    })
+                    .collect(),
+            )
+        };
+        let mut previous = snapshot(&app);
+        loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            let current = snapshot(&app);
+            if current.is_some() && previous.is_some() && current != previous {
+                app::diagnostics::record_event("Monitor layout changed (watcher)");
+                handle_display_change(&app);
+            }
+            if current.is_some() {
+                previous = current;
+            }
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -725,6 +1041,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let app_handle = app.handle();
+            app::diagnostics::init_file_logging(app_handle);
+            start_monitor_watcher(app_handle.clone());
             let mut app_state = AppState::new(&app_handle);
 
             // prepare window
@@ -781,6 +1099,13 @@ pub fn run() {
                 true,
                 None::<&str>,
             )?;
+            let show_toolbar_item = MenuItem::with_id(
+                app,
+                "show-drawing-toolbar",
+                show_drawing_toolbar_label(is_chinese),
+                true,
+                None::<&str>,
+            )?;
             let quit_item = MenuItem::with_id(
                 app,
                 "quit",
@@ -795,6 +1120,7 @@ pub fn run() {
             app.manage(TrayMenuItems {
                 toggle: toggle_item.clone(),
                 drawing: drawing_item.clone(),
+                show_drawing_toolbar: show_toolbar_item.clone(),
                 settings: settings_item.clone(),
                 quit: quit_item.clone(),
             });
@@ -805,7 +1131,7 @@ pub fn run() {
             // setup tray menu
             let menu = Menu::with_items(
                 app,
-                &[&toggle_item, &drawing_item, &settings_item, &quit_item],
+                &[&toggle_item, &drawing_item, &show_toolbar_item, &settings_item, &quit_item],
             )?;
             let _ = TrayIconBuilder::with_id("keyviz-tray")
                 .icon(Image::from(include_image!("icons/tray.png")))
@@ -814,8 +1140,9 @@ pub fn run() {
                 .on_menu_event(move |app, event| match event.id.as_ref() {
                     "toggle" => {
                         let state = app.state::<Mutex<AppState>>();
-                        let mut app_state = state.lock().unwrap();
-                        app_state.toggle_listener(app, &toggle_item);
+                        if let Ok(mut app_state) = state.lock() {
+                            app_state.toggle_listener(app, &toggle_item);
+                        };
                     }
                     "settings" => {
                         show_settings_window(app);
@@ -825,7 +1152,30 @@ pub fn run() {
                             record_error(format!("Failed to open screen drawing: {error}"));
                         }
                     }
-                    "quit" => std::process::exit(0),
+                    "show-drawing-toolbar" => {
+                        let app = app.clone();
+                        std::thread::spawn(move || {
+                            let active = match app.state::<Mutex<AppState>>().lock() {
+                                Ok(state) => state.drawing_visible,
+                                Err(error) => {
+                                    record_error(format!("Failed to read drawing state: {error}"));
+                                    return;
+                                }
+                            };
+                            let result = if active {
+                                show_drawing_toolbar(&app)
+                            } else {
+                                show_drawing_window(&app)
+                            };
+                            if let Err(error) = result {
+                                record_error(format!("Failed to show drawing toolbar: {error}"));
+                            }
+                        });
+                    }
+                    // app.exit runs the normal Tauri shutdown path, which lets
+                    // plugins (e.g. the settings store) flush before the
+                    // process ends; std::process::exit would skip all of it.
+                    "quit" => app.exit(0),
                     _ => println!("um... what?"),
                 })
                 .build(app);
@@ -835,6 +1185,10 @@ pub fn run() {
         .on_window_event(|window, event| {
             if window.label() != "settings" {
                 return;
+            }
+
+            if let tauri::WindowEvent::Focused(true) = event {
+                request_settings_transition(window.app_handle(), false);
             }
 
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
@@ -887,7 +1241,6 @@ pub fn run() {
             set_drawing_shortcuts,
             set_main_window_monitor,
             set_tray_locale,
-            update_overlay_window,
             update_native_key_overlay,
             hide_native_key_overlay,
             set_cursor_settings,
@@ -896,9 +1249,12 @@ pub fn run() {
             get_key_display_enabled,
             toggle_key_display,
             open_settings_window,
+            set_drawing_radial_menu,
+            drawing_radial_menu_action,
             set_drawing_toolbar_side,
             set_drawing_hover_edit,
             close_screen_drawing,
+            hide_drawing_toolbar,
             set_drawing_click_through,
             activate_drawing_toolbar,
             activate_drawing_canvas,
@@ -909,6 +1265,9 @@ pub fn run() {
             drawing_set_color,
             drawing_set_width,
             drawing_clear,
+            drawing_redo,
+            drawing_recover,
+            drawing_probe_layer,
             drawing_toggle_group,
             drawing_undo,
             export_diagnostics

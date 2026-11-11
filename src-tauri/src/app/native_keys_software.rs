@@ -3,10 +3,9 @@ use std::{
     mem::size_of,
     sync::{
         atomic::{AtomicIsize, Ordering},
-        mpsc::{self, Receiver, Sender},
+        mpsc::{self, Receiver},
     },
     thread,
-    time::Duration,
 };
 
 use windows::{
@@ -63,10 +62,11 @@ use windows::{
 
 use super::NativeKeyVisual;
 use crate::app::diagnostics::record_error;
+use crate::app::native_loop::{wait_for_input, WakeHandle, WakingSender, SAFETY_TIMEOUT_MS};
 
 #[derive(Clone, Default)]
 pub struct NativeKeyOverlay {
-    sender: Option<Sender<KeyCommand>>,
+    sender: Option<WakingSender<KeyCommand>>,
 }
 
 static KEY_WINDOW_HWND: AtomicIsize = AtomicIsize::new(0);
@@ -153,13 +153,17 @@ impl Drop for DibSurface {
 impl NativeKeyOverlay {
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel();
+        let wake = WakeHandle::new();
+        let thread_wake = wake.clone();
         thread::spawn(move || {
+            thread_wake.register_current_thread();
             if let Err(error) = run_window(receiver) {
                 record_error(format!("Native Direct2D key overlay failed: {error}"));
             }
+            thread_wake.unregister();
         });
         Self {
-            sender: Some(sender),
+            sender: Some(WakingSender::new(sender, wake)),
         }
     }
 
@@ -511,18 +515,34 @@ unsafe fn run_initialized_window(receiver: Receiver<KeyCommand>) -> Result<(), S
 unsafe fn message_loop(hwnd: HWND, receiver: Receiver<KeyCommand>, renderer: &SoftwareRenderer) {
     let mut message = MSG::default();
     loop {
-        match receiver.recv_timeout(Duration::from_millis(16)) {
-            Ok(KeyCommand::Update(update)) => apply_update(hwnd, update, renderer),
-            Ok(KeyCommand::Hide) => {
-                ShowWindow(hwnd, SW_HIDE);
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            Err(mpsc::RecvTimeoutError::Timeout) => {}
-        }
+        // Order matters for the wake-up handshake: pump messages first, then
+        // drain the channel, then block. A sender always pushes to the channel
+        // before posting its wake message, so a command that arrives after
+        // the drain leaves a WM_NULL in the queue that makes the wait return
+        // immediately.
         while PeekMessageW(&mut message, HWND(0), 0, 0, PM_REMOVE).as_bool() {
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
+        // Drain every queued command; only the newest matters, so collapse
+        // bursts into a single repaint.
+        let mut latest: Option<KeyCommand> = None;
+        loop {
+            match receiver.try_recv() {
+                Ok(command) => latest = Some(command),
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => return,
+            }
+        }
+        match latest {
+            Some(KeyCommand::Update(update)) => apply_update(hwnd, update, renderer),
+            Some(KeyCommand::Hide) => {
+                ShowWindow(hwnd, SW_HIDE);
+            }
+            None => {}
+        }
+        // Sleep until a window message or a WakingSender wake-up arrives.
+        wait_for_input(SAFETY_TIMEOUT_MS);
     }
 }
 

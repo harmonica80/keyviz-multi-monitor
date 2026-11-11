@@ -10,10 +10,11 @@ mod platform {
             Mutex, OnceLock,
         },
         thread,
-        time::Duration,
+        time::{Duration, Instant},
     };
 
-    use crate::app::diagnostics::record_error;
+    use crate::app::diagnostics::{record_error, record_event};
+    use crate::app::native_loop::{wait_for_input, WakeHandle, WakingSender, SAFETY_TIMEOUT_MS};
     use serde::Serialize;
     use tauri::{AppHandle, Emitter, Manager};
     use windows::{
@@ -25,7 +26,7 @@ mod platform {
             Graphics::Gdi::{
                 BeginPaint, CreateBitmap, CreateCompatibleDC, CreateDIBSection, CreateFontW,
                 CreatePen, CreateSolidBrush, CreatedHDC, DeleteDC, DeleteObject, Ellipse, EndPaint,
-                GetDC, GetStockObject, GetTextExtentPoint32W, LineTo, MoveToEx, Polygon, Rectangle,
+                GetDC, GetStockObject, GetTextExtentPoint32W, GdiFlush, LineTo, MoveToEx, Polygon, Rectangle,
                 ReleaseDC, SelectObject, SetBkMode, SetViewportOrgEx, TextOutW, AC_SRC_ALPHA,
                 BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HBITMAP, HDC,
                 HGDIOBJ, HOLLOW_BRUSH, NULL_PEN, PAINTSTRUCT, PS_DOT, PS_SOLID, TRANSPARENT,
@@ -33,17 +34,17 @@ mod platform {
             System::LibraryLoader::GetModuleHandleW,
             UI::{
                 Input::KeyboardAndMouse::{
-                    ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN,
+                    GetAsyncKeyState, GetCapture, ReleaseCapture, SetCapture, SetFocus, VK_BACK, VK_ESCAPE, VK_RETURN,
                 },
                 WindowsAndMessaging::{
                     CreateIconIndirect, CreateWindowExW, DefWindowProcW, DestroyCursor,
-                    DestroyWindow, DispatchMessageW, GetAncestor, LoadCursorW, PeekMessageW,
-                    RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos, ShowWindow,
+                    DestroyWindow, DispatchMessageW, GetAncestor, GetWindowLongPtrW, LoadCursorW, PeekMessageW,
+                    RegisterClassW, SetCursor, SetWindowLongPtrW, SetWindowPos, ShowWindow, IsWindowVisible,
                     TranslateMessage, UpdateLayeredWindow, CREATESTRUCTW, CS_HREDRAW, CS_VREDRAW,
-                    GA_ROOT, GWLP_USERDATA, HCURSOR, HTCLIENT, HTTRANSPARENT, HWND_TOPMOST,
+                    GA_ROOT, GWLP_USERDATA, GWL_EXSTYLE, HCURSOR, HTCLIENT, HTTRANSPARENT, HWND_TOPMOST,
                     ICONINFO, IDC_ARROW, IDC_CROSS, IDC_IBEAM, MSG, PM_NOREMOVE, PM_REMOVE,
-                    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_SHOWWINDOW, SW_HIDE, ULW_ALPHA,
-                    WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_ERASEBKGND, WM_KEYDOWN,
+                    SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SWP_SHOWWINDOW, SW_HIDE, SW_SHOWNOACTIVATE, ULW_ALPHA, SET_WINDOW_POS_FLAGS,
+                    WM_APP, WM_CHAR, WM_COMMAND, WM_CREATE, WM_DESTROY, WM_DISPLAYCHANGE, WM_ERASEBKGND, WM_KEYDOWN,
                     WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_NCHITTEST,
                     WM_PAINT, WM_SETCURSOR, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
                     WS_EX_NOREDIRECTIONBITMAP, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_EX_TRANSPARENT,
@@ -63,6 +64,9 @@ mod platform {
     const ERASER_WIDTH_MULTIPLIER: i32 = 12;
     const SELECTION_HANDLE_SIZE: i32 = 7;
     const ROTATION_HANDLE_OFFSET: i32 = 24;
+
+    include!("drawing_radial.rs");
+    include!("drawing_radial_render.rs");
 
     #[repr(C)]
     struct GdiplusStartupInput {
@@ -155,10 +159,10 @@ mod platform {
 
     #[derive(Clone)]
     pub struct NativeDrawingOverlay {
-        sender: Option<Sender<DrawingCommand>>,
+        sender: Option<WakingSender<DrawingCommand>>,
     }
 
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum NativeTool {
         Pointer,
         Select,
@@ -200,6 +204,25 @@ mod platform {
         pub hwnd: i64,
         pub bounds: [i32; 4],
         pub canvas_size: Option<[i32; 2]>,
+        pub display_ready: bool,
+        pub last_update_error: Option<i32>,
+        pub frame_stats: Option<FrameStats>,
+    }
+
+    #[derive(Clone, Default, Serialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct FrameStats {
+        transparent_pixels: u64,
+        opaque_pixels: u64,
+        opaque_black_pixels: u64,
+    }
+
+    impl FrameStats {
+        fn observe(&mut self, pixel: u32) {
+            if pixel >> 24 == 0 { self.transparent_pixels += 1; }
+            if pixel >> 24 == 255 { self.opaque_pixels += 1; }
+            if pixel == 0xff00_0000 { self.opaque_black_pixels += 1; }
+        }
     }
 
     #[derive(Clone, Serialize)]
@@ -220,18 +243,38 @@ mod platform {
             toolbar_passthrough: Option<RECT>,
         },
         Hide,
-        SetTool(NativeTool),
+        SetTool {
+            tool: NativeTool,
+            ready: Option<Sender<Result<(), String>>>,
+        },
         SetHoverEdit(std::collections::HashMap<String, bool>),
+        ToggleHoverEdit { epoch: u64 },
+        ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String, colors: [String; 2] },
+        SetToolbarHidden(bool),
+        OpenPointerRadial { epoch: u64 },
+        RequestPointerRadial,
+        SetKeyboardVisible(bool),
+        RadialClick { x: i32, y: i32 },
+        ToggleRadial,
+        CancelRadial,
         SetColor(String),
         SetWidth(i32),
         Clear,
         Undo,
+        Redo,
+        HistoryShortcut { redo: bool },
+        Recover,
+        Probe { input: bool, reply: Sender<Result<(), String>> },
         ToggleGroup,
         DeleteSelectionOrClear,
         SetClickThrough(bool),
         SetToolbarPassthrough(Option<RECT>),
         Focus,
         Raise,
+        /// Re-assert TOPMOST only for surfaces that actually lost it. Unlike
+        /// `Raise` this is safe to call periodically: when nothing changed it
+        /// performs no z-order operation at all.
+        RaiseIfDemoted,
         PointerDown {
             x: i32,
             y: i32,
@@ -249,13 +292,13 @@ mod platform {
         },
     }
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Copy, PartialEq)]
     struct Point {
         x: i32,
         y: i32,
     }
 
-    #[derive(Clone)]
+    #[derive(Clone, PartialEq)]
     enum DrawingItem {
         Stroke {
             points: Vec<Point>,
@@ -310,6 +353,11 @@ mod platform {
     }
 
     struct EditSession {
+        caret: usize,
+        anchor: usize,
+        dragging: bool,
+        target: Option<usize>,
+        rotation: f64,
         start: Point,
         text: String,
         color: COLORREF,
@@ -360,10 +408,36 @@ mod platform {
         input_hwnd: HWND,
         bounds: RECT,
         canvas: Option<OverlayCanvas>,
+        last_update_error: Option<i32>,
+        display_ready: bool,
+        frame_stats: Option<FrameStats>,
+    }
+
+    struct LayerProbe {
+        deadline: Instant,
+        windows: Vec<HWND>,
+        reply: Sender<Result<(), String>>,
     }
 
     struct OverlayState {
+        radial: Option<RadialMenu>,
+        radial_tools: Vec<NativeTool>,
+        radial_right_click: bool,
+        radial_style: String,
+        radial_colors: [String; 2],
+        toolbar_hidden: bool,
+        keyboard_visible: bool,
+        radial_gate: Arc<Mutex<RadialGate>>,
+        radial_ignore_up: bool,
+        probe: Option<LayerProbe>,
+        history: DrawingHistory,
+        gesture_before: Option<Vec<DrawingItem>>,
+        last_wheel: Option<(Instant, Vec<usize>)>,
+        tool_widths: std::collections::HashMap<String, i32>,
         hover_edit: std::collections::HashMap<String, bool>,
+        hover_edit_active: bool,
+        window_alt: AltTapTracker,
+        input_epoch: u64,
         app: AppHandle,
         surfaces: Vec<OverlaySurface>,
         input_hwnd: Option<HWND>,
@@ -390,6 +464,75 @@ mod platform {
     #[serde(rename_all = "camelCase")]
     struct DrawingHistoryPayload {
         can_undo: bool,
+        can_redo: bool,
+    }
+
+    #[derive(Default)]
+    struct DrawingHistory {
+        undo: Vec<Vec<DrawingItem>>,
+        redo: Vec<Vec<DrawingItem>>,
+    }
+
+    impl DrawingHistory {
+        fn record(&mut self, before: Vec<DrawingItem>, after: &[DrawingItem]) {
+            if before == after { return; }
+            self.undo.push(before);
+            self.redo.clear();
+            while self.undo.len() > 1 && (self.undo.len() > 50
+                || self.undo.iter().map(|items| history_bytes(items)).sum::<usize>() > 32 * 1024 * 1024) {
+                self.undo.remove(0);
+            }
+        }
+
+        fn restore(&mut self, drawings: &mut Vec<DrawingItem>, redo: bool) -> bool {
+            let (source, destination) = if redo { (&mut self.redo, &mut self.undo) }
+                else { (&mut self.undo, &mut self.redo) };
+            if let Some(previous) = source.pop() {
+                destination.push(std::mem::replace(drawings, previous));
+                true
+            } else { false }
+        }
+    }
+
+    fn history_bytes(items: &[DrawingItem]) -> usize {
+        items.len() * size_of::<DrawingItem>() + items.iter().map(|item| match item {
+            DrawingItem::Stroke { points, .. } => points.len() * size_of::<Point>(),
+            DrawingItem::Text { text, .. } => text.len(),
+            _ => 0,
+        }).sum::<usize>()
+    }
+
+    fn drawing_delete_allowed(visible: bool, tool: NativeTool, editing_text: bool) -> bool {
+        visible && tool != NativeTool::Pointer && !editing_text
+    }
+
+    fn history_shortcut_allowed(
+        visible: bool,
+        tool: NativeTool,
+        editing_text: bool,
+        settings_focused: bool,
+    ) -> bool {
+        visible && !matches!(tool, NativeTool::Pointer) && !editing_text && !settings_focused
+    }
+
+    fn record_change(state: &mut OverlayState, before: Vec<DrawingItem>) {
+        state.history.record(before, &state.drawings);
+        emit_history(state);
+    }
+
+    fn finish_gesture_history(state: &mut OverlayState) {
+        if let Some(before) = state.gesture_before.take() { record_change(state, before); }
+        state.last_wheel = None;
+    }
+
+    fn remember_tool_width(state: &mut OverlayState) {
+        state.tool_widths.insert(state.tool.as_str().to_string(), state.width);
+    }
+
+    fn emit_wheel_hint(state: &OverlayState, object: bool) {
+        let _ = state.app.emit_to("drawing-toolbar", "drawing-operation-hint", serde_json::json!({
+            "object": object, "tool": state.tool.as_str(), "width": state.width,
+        }));
     }
 
     #[derive(Clone, Serialize)]
@@ -407,6 +550,67 @@ mod platform {
 
     fn overlay_state() -> &'static Mutex<Option<OverlayState>> {
         OVERLAY_STATE.get_or_init(|| Mutex::new(None))
+    }
+
+    // `std::sync::Mutex` is not re-entrant. Win32 calls made while the overlay
+    // state is locked (SetFocus, SetCapture, ShowWindow, SetWindowPos,
+    // DestroyWindow, ...) can synchronously dispatch messages to our own
+    // window procedure on this same thread. If that handler locked the mutex
+    // again the thread would deadlock on itself. The thread-local flag below
+    // records "this thread already holds the overlay lock" so re-entrant
+    // handlers can bail out instead of locking.
+    thread_local! {
+        static OVERLAY_STATE_BUSY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    struct OverlayStateAccess {
+        guard: std::sync::MutexGuard<'static, Option<OverlayState>>,
+    }
+
+    impl Drop for OverlayStateAccess {
+        fn drop(&mut self) {
+            OVERLAY_STATE_BUSY.with(|busy| busy.set(false));
+        }
+    }
+
+    impl std::ops::Deref for OverlayStateAccess {
+        type Target = Option<OverlayState>;
+        fn deref(&self) -> &Self::Target {
+            &self.guard
+        }
+    }
+
+    impl std::ops::DerefMut for OverlayStateAccess {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.guard
+        }
+    }
+
+    /// Lock the overlay state from the overlay thread. Returns `None` when the
+    /// current thread already holds the lock (synchronous re-entry from a
+    /// window message) or when the mutex is poisoned.
+    fn lock_overlay_state() -> Option<OverlayStateAccess> {
+        if OVERLAY_STATE_BUSY.with(|busy| busy.get()) {
+            return None;
+        }
+        let guard = overlay_state().lock().ok()?;
+        OVERLAY_STATE_BUSY.with(|busy| busy.set(true));
+        Some(OverlayStateAccess { guard })
+    }
+
+    unsafe fn checked_set_window_pos(hwnd: HWND, after: HWND, x: i32, y: i32, width: i32, height: i32, flags: SET_WINDOW_POS_FLAGS) {
+        static FAILURES: OnceLock<Mutex<std::collections::HashMap<isize, i32>>> = OnceLock::new();
+        let result = SetWindowPos(hwnd, after, x, y, width, height, flags);
+        let error = std::io::Error::last_os_error();
+        if let Ok(mut failures) = FAILURES.get_or_init(|| Mutex::new(std::collections::HashMap::new())).lock() {
+            if result.as_bool() { failures.remove(&hwnd.0); }
+            else {
+                let code = error.raw_os_error().unwrap_or(-1);
+                if failures.insert(hwnd.0, code) != Some(code) {
+                    record_error(format!("SetWindowPos failed HWND={hwnd:?} position=({x},{y}) size={width}x{height}: {error}"));
+                }
+            }
+        }
     }
 
     impl Default for NativeDrawingOverlay {
@@ -456,12 +660,18 @@ mod platform {
                     hwnd: surface.display_hwnd.0 as i64,
                     bounds,
                     canvas_size,
+                    display_ready: surface.display_ready,
+                    last_update_error: surface.last_update_error,
+                    frame_stats: surface.frame_stats.clone(),
                 });
                 windows.push(NativeDrawingWindowSnapshot {
                     role: "drawing-input".to_string(),
                     hwnd: surface.input_hwnd.0 as i64,
                     bounds,
                     canvas_size: None,
+                    display_ready: surface.display_ready,
+                    last_update_error: None,
+                    frame_stats: None,
                 });
             }
             NativeDrawingSnapshot {
@@ -477,11 +687,17 @@ mod platform {
 
         pub fn new(app: &AppHandle) -> Self {
             let (sender, receiver) = mpsc::channel();
+            let wake = WakeHandle::new();
+            let sender = WakingSender::new(sender, wake.clone());
             let app_handle = app.clone();
+            let radial_gate = Arc::new(Mutex::new(RadialGate::default()));
+            radial_keyboard::start(radial_gate.clone(), sender.clone());
             thread::spawn(move || {
-                if let Err(error) = run_window(receiver, app_handle) {
+                wake.register_current_thread();
+                if let Err(error) = run_window(receiver, app_handle, radial_gate) {
                     record_error(format!("Native drawing overlay failed: {error}"));
                 }
+                wake.unregister();
             });
             Self {
                 sender: Some(sender),
@@ -526,13 +742,49 @@ mod platform {
             let Some(sender) = &self.sender else {
                 return;
             };
-            let _ = sender.send(DrawingCommand::SetTool(tool));
+            let _ = sender.send(DrawingCommand::SetTool { tool, ready: None });
+        }
+
+        pub fn prepare_for_settings(&self) -> Result<(), String> {
+            let sender = self.sender.as_ref().ok_or("Drawing input thread is unavailable")?;
+            let (ready, receiver) = mpsc::channel();
+            sender.send(DrawingCommand::SetTool { tool: NativeTool::Pointer, ready: Some(ready) })
+                .map_err(|error| error.to_string())?;
+            receiver.recv_timeout(Duration::from_secs(5))
+                .map_err(|error| format!("Drawing input release was not confirmed: {error}"))?
         }
 
         pub fn set_hover_edit(&self, preferences: std::collections::HashMap<String, bool>) {
             if let Some(sender) = &self.sender {
                 let _ = sender.send(DrawingCommand::SetHoverEdit(preferences));
             }
+        }
+
+        pub fn set_toolbar_hidden(&self, hidden: bool) {
+            TOOLBAR_HIDDEN.store(hidden, Ordering::Relaxed);
+            if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::SetToolbarHidden(hidden)); }
+        }
+
+        pub fn request_pointer_radial(&self) {
+            if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::RequestPointerRadial); }
+        }
+
+        pub fn set_keyboard_visible(&self, visible: bool) {
+            if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::SetKeyboardVisible(visible)); }
+        }
+
+        pub fn configure_radial(&self, shortcut: Vec<String>, tools: Vec<String>, right_click: bool, style: String, colors: Vec<String>) -> Result<(), String> {
+            let shortcut = radial_shortcut(&shortcut)?;
+            let tools = tools.iter().filter_map(|id| parse_tool(id)).collect();
+            self.sender.as_ref().ok_or("Drawing input thread is unavailable")?
+                .send(DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style, colors: normalize_radial_colors(&colors) })
+                .map_err(|error| error.to_string())
+        }
+
+        pub fn radial_menu_action(&self, cancel: bool) -> Result<(), String> {
+            self.sender.as_ref().ok_or("Drawing input thread is unavailable")?
+                .send(if cancel { DrawingCommand::CancelRadial } else { DrawingCommand::ToggleRadial })
+                .map_err(|error| error.to_string())
         }
 
         pub fn set_color(&self, color: &str) {
@@ -561,6 +813,28 @@ mod platform {
                 return;
             };
             let _ = sender.send(DrawingCommand::Undo);
+        }
+
+        pub fn redo(&self) {
+            if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::Redo); }
+        }
+
+        pub fn history_shortcut(&self, redo: bool) {
+            if let Some(sender) = &self.sender {
+                let _ = sender.send(DrawingCommand::HistoryShortcut { redo });
+            }
+        }
+
+        pub fn recover(&self) {
+            if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::Recover); }
+        }
+
+        pub fn probe_layer(&self, input: bool) -> Result<(), String> {
+            let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
+            let (reply, receiver) = mpsc::channel();
+            sender.send(DrawingCommand::Probe { input, reply }).map_err(|e| e.to_string())?;
+            receiver.recv_timeout(Duration::from_secs(10))
+                .map_err(|_| "Layer test timed out; use Restore Overlay Display or Esc".to_string())?
         }
 
         pub fn toggle_group(&self) {
@@ -610,6 +884,13 @@ mod platform {
                 return;
             };
             let _ = sender.send(DrawingCommand::Raise);
+        }
+
+        pub fn raise_if_demoted(&self) {
+            let Some(sender) = &self.sender else {
+                return;
+            };
+            let _ = sender.send(DrawingCommand::RaiseIfDemoted);
         }
 
         pub fn pointer_down(&self, x: i32, y: i32) {
@@ -669,13 +950,13 @@ mod platform {
         }
     }
 
-    fn run_window(receiver: Receiver<DrawingCommand>, app: AppHandle) -> Result<(), String> {
+    fn run_window(receiver: Receiver<DrawingCommand>, app: AppHandle, radial_gate: Arc<Mutex<RadialGate>>) -> Result<(), String> {
         let class_name = wide("KeyvizNativeDrawingOverlay");
 
         unsafe {
             let module = GetModuleHandleW(None).map_err(|error| error.to_string())?;
             let window_class = WNDCLASSW {
-                style: CS_HREDRAW | CS_VREDRAW,
+                style: CS_HREDRAW | CS_VREDRAW | windows::Win32::UI::WindowsAndMessaging::CS_DBLCLKS,
                 lpfnWndProc: Some(window_proc),
                 hInstance: module,
                 lpszClassName: PCWSTR(class_name.as_ptr()),
@@ -691,7 +972,24 @@ mod platform {
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
+                    radial: None,
+                    radial_tools: RADIAL_TOOLS.to_vec(),
+                    radial_right_click: true,
+                    radial_style: "pearl".into(),
+                    radial_colors: default_radial_colors(),
+                    toolbar_hidden: false,
+                    keyboard_visible: true,
+                    radial_gate,
+                    radial_ignore_up: false,
+                    probe: None,
+                    history: DrawingHistory::default(),
+                    gesture_before: None,
+                    last_wheel: None,
+                    tool_widths: std::collections::HashMap::new(),
                     hover_edit: std::collections::HashMap::new(),
+                    hover_edit_active: false,
+                    window_alt: AltTapTracker::default(),
+                    input_epoch: 0,
                     app,
                     surfaces: Vec::new(),
                     input_hwnd: None,
@@ -788,6 +1086,9 @@ mod platform {
             input_hwnd,
             bounds,
             canvas: None,
+            last_update_error: None,
+            display_ready: false,
+            frame_stats: None,
         })
     }
 
@@ -881,20 +1182,8 @@ mod platform {
         let mut commands = VecDeque::new();
 
         loop {
-            if commands.is_empty() {
-                match receiver.recv_timeout(Duration::from_millis(16)) {
-                    Ok(command) => queue_drawing_command(&mut commands, command),
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                    Err(mpsc::RecvTimeoutError::Timeout) => {}
-                }
-            }
-            while let Ok(command) = receiver.try_recv() {
-                queue_drawing_command(&mut commands, command);
-            }
-            while let Some(command) = commands.pop_front() {
-                apply_command(command);
-            }
-
+            // Pump first, drain second, block last (see native_loop.rs for
+            // why this order makes the wake-up handshake race-free).
             while PeekMessageW(&mut message, HWND(0), 0, 0, PM_REMOVE).as_bool() {
                 if message.message == WM_MOUSEMOVE {
                     loop {
@@ -912,6 +1201,34 @@ mod platform {
                 TranslateMessage(&message);
                 DispatchMessageW(&message);
             }
+
+            loop {
+                match receiver.try_recv() {
+                    Ok(command) => queue_drawing_command(&mut commands, command),
+                    Err(mpsc::TryRecvError::Empty) => break,
+                    Err(mpsc::TryRecvError::Disconnected) => return,
+                }
+            }
+            while let Some(command) = commands.pop_front() {
+                apply_command(command);
+            }
+
+            // A running layer probe has a deadline that must fire even when no
+            // input arrives, so poll more often only while one is active.
+            let mut wait_ms = SAFETY_TIMEOUT_MS;
+            if let Some(mut guard) = lock_overlay_state() {
+                if let Some(state) = guard.as_mut() {
+                    if let Some(probe) = state.probe.as_ref() {
+                        if Instant::now() >= probe.deadline {
+                            finish_layer_probe(state, Ok(()));
+                        } else {
+                            wait_ms = 50;
+                        }
+                    }
+                }
+            }
+
+            wait_for_input(wait_ms);
         }
     }
 
@@ -924,16 +1241,182 @@ mod platform {
         queue.push_back(command);
     }
 
+    unsafe fn finish_layer_probe(state: &mut OverlayState, mut result: Result<(), String>) {
+        if let Some(probe) = state.probe.take() {
+            // Restore only the tested windows. Repainting or raising the other
+            // layer here would make the isolation test inconclusive.
+            if state.visible {
+                if let Err(error) = restore_probe_windows(&probe.windows) { result = Err(error); }
+            }
+            record_event(format!("Layer test finished: {result:?}"));
+            let _ = probe.reply.send(result);
+        }
+    }
+
+    unsafe fn probe_windows(surfaces: &[OverlaySurface], input: bool) -> Vec<HWND> {
+        surfaces.iter().map(|s| if input { s.input_hwnd } else { s.display_hwnd })
+            .filter(|hwnd| IsWindowVisible(*hwnd).as_bool()).collect()
+    }
+
+    unsafe fn restore_probe_windows(windows: &[HWND]) -> Result<(), String> {
+        let mut failure = None;
+        for hwnd in windows {
+            if !SetWindowPos(*hwnd, HWND(0), 0, 0, 0, 0,
+                SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW).as_bool() {
+                record_error(format!("Layer test restore failed HWND={hwnd:?}: {}", std::io::Error::last_os_error()));
+                failure = Some("Layer restore failed; use Restore Overlay Display or Esc".to_string());
+            }
+        }
+        failure.map_or(Ok(()), Err)
+    }
+
+    unsafe fn quarantine_surface(surface: &mut OverlaySurface) {
+        surface.display_ready = false;
+        if GetCapture() == surface.input_hwnd { ReleaseCapture(); }
+        ShowWindow(surface.input_hwnd, SW_HIDE);
+        ShowWindow(surface.display_hwnd, SW_HIDE);
+    }
+
     unsafe fn apply_command(command: DrawingCommand) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
+        let Some(mut state_guard) = lock_overlay_state() else {
             return;
         };
         let Some(state) = state_guard.as_mut() else {
             return;
         };
 
+        // Recheck queued shortcuts before changing any native drawing state.
+        // Explicit toolbar Undo/Redo commands remain available in pointer mode.
+        if matches!(&command, DrawingCommand::HistoryShortcut { .. }) {
+            use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GA_ROOTOWNER};
+            let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
+            let settings_focused = state
+                .app
+                .get_webview_window("settings")
+                .and_then(|window| window.hwnd().ok())
+                .map(|hwnd| hwnd.0 as isize == foreground.0)
+                .unwrap_or(false);
+            if !history_shortcut_allowed(
+                state.visible,
+                state.tool,
+                state.edit.is_some(),
+                settings_focused,
+            ) {
+                return;
+            }
+        }
+
+        if let DrawingCommand::ToggleHoverEdit { epoch } = &command {
+            if *epoch != state.input_epoch || !state.visible || state.click_through
+                || state.edit.is_some() || state.probe.is_some() || state.radial.is_some()
+                || state.active.is_some() || state.selection.is_some()
+                || GetAsyncKeyState(1) < 0 {
+                return;
+            }
+            use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GA_ROOTOWNER};
+            let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER);
+            if state.app.get_webview_window("settings").and_then(|window| window.hwnd().ok())
+                .map(|hwnd| hwnd.0 as isize == foreground.0).unwrap_or(false) {
+                return;
+            }
+        }
+
+        if state.radial.is_some() && !matches!(&command,
+            DrawingCommand::ToggleRadial | DrawingCommand::CancelRadial | DrawingCommand::Raise
+            | DrawingCommand::RaiseIfDemoted
+            | DrawingCommand::SetToolbarPassthrough(_) | DrawingCommand::PointerMove { .. }
+            | DrawingCommand::SetColor(_) | DrawingCommand::Undo | DrawingCommand::Redo
+            | DrawingCommand::SetToolbarHidden(_) | DrawingCommand::RadialClick { .. }
+            | DrawingCommand::SetKeyboardVisible(_) | DrawingCommand::ConfigureRadial { .. }
+            | DrawingCommand::PointerDown { .. } | DrawingCommand::PointerUp { .. }) {
+            cancel_radial(state);
+        }
+
+        if state.probe.is_some() {
+            match &command {
+                DrawingCommand::Raise | DrawingCommand::RaiseIfDemoted | DrawingCommand::Focus
+                | DrawingCommand::PointerDown { .. }
+                | DrawingCommand::PointerMove { .. } | DrawingCommand::PointerUp { .. } => return,
+                DrawingCommand::SetToolbarPassthrough(bounds) => {
+                    state.toolbar_passthrough = *bounds;
+                    return;
+                }
+                DrawingCommand::Probe { reply, .. } => {
+                    let _ = reply.send(Err("A layer test is already running".into()));
+                    return;
+                }
+                _ => finish_layer_probe(state, Err("Layer test cancelled by another drawing operation".into())),
+            }
+        }
+
         match command {
+            DrawingCommand::RequestPointerRadial => open_pointer_radial(state),
+            DrawingCommand::SetKeyboardVisible(visible) => {
+                state.keyboard_visible = visible;
+                refresh_overlay(state);
+            }
+            DrawingCommand::RadialClick { x, y } => {
+                if state.radial.is_some() {
+                    radial_click(state, Point { x: x - state.bounds.left, y: y - state.bounds.top });
+                }
+            }
+            DrawingCommand::SetToolbarHidden(hidden) => {
+                state.toolbar_hidden = hidden;
+                refresh_overlay(state);
+            }
+            DrawingCommand::OpenPointerRadial { epoch } => {
+                if !state.visible {
+                    let app = state.app.clone();
+                    thread::spawn(move || {
+                        if let Err(error) = crate::start_pointer_radial(&app) {
+                            record_error(format!("Failed to start pointer menu: {error}"));
+                        }
+                    });
+                    return;
+                }
+                if epoch == state.input_epoch && state.visible && state.tool == NativeTool::Pointer
+                    && state.probe.is_none() && state.radial.is_none() {
+                    open_pointer_radial(state);
+                }
+            }
+            DrawingCommand::ConfigureRadial { shortcut, tools, right_click, style, colors } => {
+                state.radial_style = normalize_radial_style(&style).into();
+                state.radial_colors = colors;
+                state.radial_tools = tools;
+                state.radial_right_click = right_click;
+                let settings = state.app.get_webview_window("settings")
+                    .and_then(|window| window.hwnd().ok()).map(|hwnd| hwnd.0 as isize).unwrap_or(0);
+                if let Ok(mut gate) = state.radial_gate.lock() {
+                    gate.shortcut = shortcut;
+                    gate.settings = settings;
+                }
+                sync_radial_gate(state);
+                refresh_overlay(state);
+            }
+            DrawingCommand::ToggleRadial => toggle_radial(state),
+            DrawingCommand::CancelRadial => {
+                if state.radial.is_some() {
+                    RADIAL_ESCAPE_UNTIL.store(radial_clock() + 150, Ordering::Relaxed);
+                    cancel_radial(state);
+                }
+            }
+            DrawingCommand::Probe { input, reply } => {
+                if !state.visible || state.active.is_some() || state.selection.is_some() || state.edit.is_some() {
+                    let _ = reply.send(Err("Open the drawing toolbar and finish the current gesture before testing".into()));
+                    return;
+                }
+                let windows = probe_windows(&state.surfaces, input);
+                if windows.is_empty() {
+                    let _ = reply.send(Err("The selected layer is already hidden; choose a drawing tool before testing input".into()));
+                    return;
+                }
+                ReleaseCapture();
+                record_event(format!("Layer test started: {} HWNDs={windows:?}; hiding for 5 seconds", if input { "input" } else { "display" }));
+                for hwnd in &windows { ShowWindow(*hwnd, SW_HIDE); }
+                state.probe = Some(LayerProbe { deadline: Instant::now() + Duration::from_secs(5), windows, reply });
+            }
             DrawingCommand::SetHoverEdit(preferences) => {
+                finish_gesture_history(state);
                 state.hover_edit = preferences;
                 if !matches!(state.tool, NativeTool::Select) {
                     if state.selection.take().is_some() {
@@ -943,6 +1426,22 @@ mod platform {
                     emit_selection_state(state);
                     refresh_overlay(state);
                 }
+            }
+            DrawingCommand::ToggleHoverEdit { .. } => {
+                state.hover_edit_active = !state.hover_edit_active;
+                state.selected.clear();
+                state.last_wheel = None;
+                if state.hover_edit_active {
+                    let mut cursor = WinPoint::default();
+                    if windows::Win32::UI::WindowsAndMessaging::GetCursorPos(&mut cursor).as_bool() {
+                        update_hover_selection(state, Point {
+                            x: cursor.x - state.bounds.left, y: cursor.y - state.bounds.top,
+                        });
+                    }
+                }
+                emit_selection_state(state);
+                let _ = state.app.emit_to("drawing-toolbar", "drawing-hover-edit-toggled", state.hover_edit_active);
+                refresh_overlay(state);
             }
             DrawingCommand::Show {
                 monitors,
@@ -954,9 +1453,13 @@ mod platform {
                 {
                     return;
                 }
+                if !state.visible { state.hover_edit_active = false; }
+                state.input_epoch = state.input_epoch.wrapping_add(1);
                 state.visible = true;
+                refresh_overlay(state);
                 for surface in &state.surfaces {
-                    let _ = SetWindowPos(
+                    if !surface.display_ready { continue; }
+                    checked_set_window_pos(
                         surface.display_hwnd,
                         HWND_TOPMOST,
                         surface.bounds.left,
@@ -974,17 +1477,64 @@ mod platform {
                     SetCursor(state.cursor);
                     destroy_retired_cursors(state);
                 }
-                emit_history(&state.app, !state.drawings.is_empty());
-                refresh_overlay(state);
+                emit_history(state);
             }
             DrawingCommand::Resize { monitors } => {
-                if state.visible {
+                if surface_layout_matches(state, &monitors) {
                     return;
                 }
-                let _ = rebuild_overlay_surfaces(state, &monitors);
+                if !state.visible {
+                    let _ = rebuild_overlay_surfaces(state, &monitors);
+                    return;
+                }
+                // The monitor layout changed while a drawing session is open
+                // (projector plugged in, display unplugged, DPI change).
+                // Rebuild the per-monitor surfaces in place and keep the
+                // existing annotations at the same absolute screen position.
+                commit_text_editor(state);
+                finish_gesture_history(state);
+                ReleaseCapture();
+                state.active = None;
+                state.selection = None;
+                state.selected.clear();
+                let previous_bounds = state.bounds;
+                if rebuild_overlay_surfaces(state, &monitors) {
+                    state.input_epoch = state.input_epoch.wrapping_add(1);
+                    let dx = previous_bounds.left - state.bounds.left;
+                    let dy = previous_bounds.top - state.bounds.top;
+                    if dx != 0 || dy != 0 {
+                        for drawing in state.drawings.iter_mut() {
+                            translate_drawing(drawing, dx, dy);
+                        }
+                    }
+                    refresh_overlay(state);
+                    for surface in &state.surfaces {
+                        if !surface.display_ready { continue; }
+                        checked_set_window_pos(
+                            surface.display_hwnd,
+                            HWND_TOPMOST,
+                            surface.bounds.left,
+                            surface.bounds.top,
+                            (surface.bounds.right - surface.bounds.left).max(1),
+                            (surface.bounds.bottom - surface.bounds.top).max(1),
+                            SWP_NOACTIVATE | SWP_SHOWWINDOW,
+                        );
+                    }
+                    sync_input_surface_visibility(state);
+                    raise_toolbar(&state.app);
+                    record_event("Drawing surfaces rebuilt after display change");
+                } else {
+                    record_error("Failed to rebuild drawing surfaces after display change");
+                }
+                emit_selection_state(state);
             }
             DrawingCommand::Hide => {
+                state.input_epoch = state.input_epoch.wrapping_add(1);
+                state.hover_edit_active = false;
                 cancel_text_editor(state);
+                state.history = DrawingHistory::default();
+                state.gesture_before = None;
+                state.last_wheel = None;
                 state.drawings.clear();
                 state.active = None;
                 state.selected.clear();
@@ -994,17 +1544,25 @@ mod platform {
                     destroy_retired_cursors(state);
                 }
                 state.visible = false;
+                sync_radial_gate(state);
                 state.input_hwnd = None;
                 destroy_overlay_surfaces(&mut state.surfaces);
-                emit_history(&state.app, false);
+                emit_history(state);
                 emit_selection_state(state);
             }
-            DrawingCommand::SetTool(tool) => {
+            DrawingCommand::SetTool { tool, ready } => {
+                state.input_epoch = state.input_epoch.wrapping_add(1);
+                if matches!(tool, NativeTool::Pointer) { state.hover_edit_active = false; }
                 commit_text_editor(state);
+                finish_gesture_history(state);
+                remember_tool_width(state);
                 state.active = None;
                 ReleaseCapture();
                 let click_through = matches!(tool, NativeTool::Pointer);
                 state.tool = tool;
+                state.width = clamp_tool_width(tool, false,
+                    state.tool_widths.get(tool.as_str()).copied().unwrap_or(default_tool_width(tool)));
+                emit_width(&state.app, state.width);
                 state.selected.clear();
                 state.selection = None;
                 state.click_through = click_through;
@@ -1015,19 +1573,41 @@ mod platform {
                 }
                 refresh_overlay(state);
                 emit_selection_state(state);
+                if let Some(ready) = ready {
+                    let result = if input_surfaces_released(&state.surfaces) {
+                        Ok(())
+                    } else {
+                        Err("Drawing input windows are still active".into())
+                    };
+                    let _ = ready.send(result);
+                }
             }
             DrawingCommand::SetColor(color) => {
                 state.color = parse_color(&color);
+                let _ = state.app.emit_to("drawing-toolbar", "drawing-color-changed", &color);
+                if let Some(edit) = state.edit.as_mut() { edit.color = state.color; }
+                else if !state.selected.is_empty() {
+                    let before = state.drawings.clone();
+                    for index in &state.selected {
+                        if let Some(DrawingItem::Text { color, .. }) = state.drawings.get_mut(*index) {
+                            *color = state.color;
+                        }
+                    }
+                    record_change(state, before);
+                }
                 if matches!(
                     state.tool,
                     NativeTool::Number | NativeTool::CheckMark | NativeTool::CrossMark
                 ) {
                     replace_tool_cursor(state, false);
                 }
+                refresh_overlay(state);
             }
             DrawingCommand::SetWidth(width) => {
-                let width = width.clamp(1, 15);
+                let width = clamp_tool_width(state.tool, state.edit.is_some(), width);
                 state.width = width;
+                remember_tool_width(state);
+                if let Some(edit) = state.edit.as_mut() { edit.width = width; }
                 if matches!(
                     state.tool,
                     NativeTool::Eraser
@@ -1037,41 +1617,44 @@ mod platform {
                 ) {
                     replace_tool_cursor(state, false);
                 }
-            }
-            DrawingCommand::Clear => {
-                cancel_text_editor(state);
-                state.drawings.clear();
-                state.active = None;
-                state.selected.clear();
-                state.selection = None;
-                state.next_number = 1;
-                if matches!(state.tool, NativeTool::Number) {
-                    replace_tool_cursor(state, false);
-                }
-                emit_history(&state.app, false);
-                emit_selection_state(state);
                 refresh_overlay(state);
             }
-            DrawingCommand::Undo => {
+            DrawingCommand::Clear => clear_drawings(state),
+            DrawingCommand::Undo | DrawingCommand::Redo | DrawingCommand::HistoryShortcut { .. } => {
                 if state.edit.is_none() {
+                    finish_gesture_history(state);
+                    ReleaseCapture();
+                    state.active = None;
                     state.selected.clear();
                     state.selection = None;
-                    state.drawings.pop();
+                    let redo = matches!(
+                        command,
+                        DrawingCommand::Redo | DrawingCommand::HistoryShortcut { redo: true }
+                    );
+                    state.history.restore(&mut state.drawings, redo);
                     sync_next_number(state);
+                    state.next_group_id = state.drawings.iter().filter_map(drawing_group).max().unwrap_or(0).saturating_add(1);
                     if matches!(state.tool, NativeTool::Number) {
                         replace_tool_cursor(state, false);
                     }
-                    emit_history(&state.app, !state.drawings.is_empty());
+                    emit_history(state);
                     emit_selection_state(state);
                     refresh_overlay(state);
                 }
             }
             DrawingCommand::ToggleGroup => {
+                finish_gesture_history(state);
+                let before = state.drawings.clone();
                 toggle_selected_group(state);
+                record_change(state, before);
                 emit_selection_state(state);
                 refresh_overlay(state);
             }
             DrawingCommand::DeleteSelectionOrClear => {
+                if !drawing_delete_allowed(state.visible, state.tool, state.edit.is_some()) { return; }
+                finish_gesture_history(state);
+                ReleaseCapture();
+                let before = state.drawings.clone();
                 if matches!(state.tool, NativeTool::Select) {
                     delete_selected(state);
                     sync_next_number(state);
@@ -1085,9 +1668,32 @@ mod platform {
                         replace_tool_cursor(state, false);
                     }
                 }
-                emit_history(&state.app, !state.drawings.is_empty());
+                record_change(state, before);
                 emit_selection_state(state);
                 refresh_overlay(state);
+            }
+            DrawingCommand::Recover => {
+                if !state.visible { return; }
+                commit_text_editor(state);
+                finish_gesture_history(state);
+                ReleaseCapture();
+                state.active = None;
+                state.selection = None;
+                let monitors: Vec<RECT> = state.surfaces.iter().map(|surface| surface.bounds).collect();
+                if rebuild_overlay_surfaces(state, &monitors) {
+                    refresh_overlay(state);
+                    sync_input_surface_visibility(state);
+                    for surface in &state.surfaces {
+                        if !surface.display_ready { continue; }
+                        if !SetWindowPos(surface.display_hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW).as_bool() {
+                            record_error(format!("Recovery SetWindowPos failed HWND={:?}: {}", surface.display_hwnd, std::io::Error::last_os_error()));
+                        }
+                    }
+                    raise_toolbar(&state.app);
+                } else {
+                    record_error("Failed to recover drawing display surfaces; previous surfaces retained");
+                }
             }
             DrawingCommand::SetClickThrough(enabled) => {
                 state.click_through = enabled;
@@ -1099,6 +1705,7 @@ mod platform {
             }
             DrawingCommand::SetToolbarPassthrough(bounds) => {
                 state.toolbar_passthrough = bounds;
+                sync_input_surface_regions(state);
                 refresh_overlay(state);
             }
             DrawingCommand::Focus => {
@@ -1108,35 +1715,34 @@ mod platform {
                     }
                 }
             }
+            DrawingCommand::RaiseIfDemoted => {
+                if !state.visible {
+                    return;
+                }
+                let mut demoted = false;
+                for surface in &state.surfaces {
+                    if !surface.display_ready { continue; }
+                    if !window_is_topmost(surface.display_hwnd)
+                        || (!state.click_through && !window_is_topmost(surface.input_hwnd))
+                    {
+                        demoted = true;
+                        break;
+                    }
+                }
+                if !demoted {
+                    return;
+                }
+                record_event("Drawing surface lost TOPMOST; re-raising");
+                apply_command_inner_raise(state);
+            }
             DrawingCommand::Raise => {
                 if !state.visible {
                     return;
                 }
-                for surface in &state.surfaces {
-                    let _ = SetWindowPos(
-                        surface.display_hwnd,
-                        HWND_TOPMOST,
-                        0,
-                        0,
-                        0,
-                        0,
-                        SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-                    );
-                    if !state.click_through {
-                        let _ = SetWindowPos(
-                            surface.input_hwnd,
-                            HWND_TOPMOST,
-                            0,
-                            0,
-                            0,
-                            0,
-                            SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
-                        );
-                    }
-                }
-                raise_toolbar(&state.app);
+                apply_command_inner_raise(state);
             }
             DrawingCommand::PointerDown { x, y } => {
+                if state.radial.is_some() { return; }
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     let capture_hwnd = surface_hwnd_for_point(state, point);
                     begin_drawing_at(state, point, capture_hwnd);
@@ -1148,11 +1754,44 @@ mod platform {
                 }
             }
             DrawingCommand::PointerUp { x, y } => {
+                if state.radial.is_some() { return; }
                 if let Some(point) = global_point_for_drawing(state, x, y) {
                     finish_drawing_at(state, point);
                 }
             }
         }
+        sync_radial_gate(state);
+    }
+
+    unsafe fn window_is_topmost(hwnd: HWND) -> bool {
+        (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TOPMOST.0) != 0
+    }
+
+    unsafe fn apply_command_inner_raise(state: &mut OverlayState) {
+        for surface in &state.surfaces {
+            if !surface.display_ready { continue; }
+            checked_set_window_pos(
+                surface.display_hwnd,
+                HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+            );
+            if !state.click_through {
+                checked_set_window_pos(
+                    surface.input_hwnd,
+                    HWND_TOPMOST,
+                    0,
+                    0,
+                    0,
+                    0,
+                    SWP_NOACTIVATE | SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW,
+                );
+            }
+        }
+        raise_toolbar(&state.app);
     }
 
     unsafe extern "system" fn window_proc(
@@ -1161,7 +1800,16 @@ mod platform {
         wparam: WPARAM,
         lparam: LPARAM,
     ) -> LRESULT {
+        use windows::Win32::UI::WindowsAndMessaging::{
+            WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_SYSCOMMAND, SC_KEYMENU,
+        };
+        if matches!(message, WM_KEYDOWN | WM_KEYUP | WM_SYSKEYDOWN | WM_SYSKEYUP) {
+            on_window_alt_key(hwnd, message, wparam, lparam);
+        }
         match message {
+            // The drawing surface has no system menu. Default Alt handling can
+            // enter a modal menu loop and stop our queued drawing commands.
+            WM_SYSCOMMAND if wparam.0 & 0xfff0 == SC_KEYMENU as usize => LRESULT(0),
             WM_CREATE => {
                 let createstruct = lparam.0 as *const CREATESTRUCTW;
                 if !createstruct.is_null() {
@@ -1194,6 +1842,25 @@ mod platform {
                 on_left_button_down(hwnd, lparam);
                 LRESULT(0)
             }
+            windows::Win32::UI::WindowsAndMessaging::WM_LBUTTONDBLCLK => {
+                if !on_text_double_click(hwnd, lparam) { on_left_button_down(hwnd, lparam); }
+                LRESULT(0)
+            }
+            windows::Win32::UI::WindowsAndMessaging::WM_RBUTTONDOWN => {
+                if let Some(mut guard) = lock_overlay_state() {
+                    if let Some(state) = guard.as_mut() {
+                        state.window_alt.candidate = None;
+                        if is_surface_hwnd(state, hwnd) {
+                            if let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) {
+                                if !is_toolbar_passthrough_point(state, point, false) {
+                                    radial_right_click(state);
+                                }
+                            }
+                        }
+                    }
+                }
+                LRESULT(0)
+            }
             WM_MOUSEMOVE => {
                 on_mouse_move(hwnd, wparam, lparam);
                 LRESULT(0)
@@ -1206,9 +1873,12 @@ mod platform {
                 on_mouse_wheel(hwnd, wparam, lparam);
                 LRESULT(0)
             }
-            WM_KEYDOWN => {
-                on_key_down(hwnd, wparam);
-                LRESULT(0)
+            WM_KEYDOWN | windows::Win32::UI::WindowsAndMessaging::WM_SYSKEYDOWN => {
+                if on_key_down(hwnd, wparam, lparam) || message == WM_KEYDOWN {
+                    LRESULT(0)
+                } else {
+                    DefWindowProcW(hwnd, message, wparam, lparam)
+                }
             }
             WM_CHAR => {
                 on_char(hwnd, wparam);
@@ -1223,13 +1893,41 @@ mod platform {
                 on_cancel_text(hwnd);
                 LRESULT(0)
             }
+            WM_DISPLAYCHANGE => {
+                on_display_change();
+                LRESULT(0)
+            }
             WM_DESTROY => LRESULT(0),
             _ => DefWindowProcW(hwnd, message, wparam, lparam),
         }
     }
 
+    /// WM_DISPLAYCHANGE is broadcast to every top-level window, so every
+    /// drawing surface receives it. Debounce and hand the actual work to the
+    /// Tauri side, which owns the monitor list.
+    fn on_display_change() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static LAST_DISPLAY_CHANGE: AtomicU64 = AtomicU64::new(0);
+        let now = radial_clock();
+        let last = LAST_DISPLAY_CHANGE.load(Ordering::Relaxed);
+        if now.saturating_sub(last) < 400 && last != 0 {
+            return;
+        }
+        LAST_DISPLAY_CHANGE.store(now.max(1), Ordering::Relaxed);
+        let app = {
+            let Some(guard) = lock_overlay_state() else { return; };
+            let Some(state) = guard.as_ref() else { return; };
+            state.app.clone()
+        };
+        thread::spawn(move || {
+            // Let Windows finish re-arranging monitors before querying them.
+            thread::sleep(Duration::from_millis(400));
+            crate::handle_display_change(&app);
+        });
+    }
+
     fn is_surface_hwnd(state: &OverlayState, hwnd: HWND) -> bool {
-        state
+        state.probe.is_none() && state
             .surfaces
             .iter()
             .any(|surface| surface.input_hwnd == hwnd)
@@ -1247,7 +1945,7 @@ mod platform {
     }
 
     unsafe fn on_left_button_down(hwnd: HWND, lparam: LPARAM) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
+        let Some(mut state_guard) = lock_overlay_state() else {
             return;
         };
         let Some(state) = state_guard.as_mut() else {
@@ -1260,25 +1958,64 @@ mod platform {
         begin_drawing_at(state, point, Some(hwnd));
     }
 
+    unsafe fn on_text_double_click(hwnd: HWND, lparam: LPARAM) -> bool {
+        let Some(mut guard) = lock_overlay_state() else { return false; };
+        let Some(state) = guard.as_mut() else { return false; };
+        if !state.visible || !hover_edit_mode(state) || state.edit.is_some()
+            || state.radial.is_some() || state.probe.is_some() { return false; }
+        let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else { return false; };
+        if is_toolbar_passthrough_point(state, point, false) { return false; }
+        let Some(index) = hit_test_drawing(state, point) else { return false; };
+        if !hover_edit_enabled(&state.hover_edit, &state.drawings[index]) { return false; }
+        let Some(edit) = existing_text_session(index, &state.drawings[index]) else { return false; };
+        finish_gesture_history(state);
+        ReleaseCapture();
+        state.active = None;
+        state.selection = None;
+        state.selected.clear();
+        state.input_hwnd = Some(hwnd);
+        state.edit = Some(edit);
+        let _ = SetFocus(hwnd);
+        emit_selection_state(state);
+        refresh_overlay(state);
+        true
+    }
+
     unsafe fn begin_drawing_at(state: &mut OverlayState, point: Point, capture_hwnd: Option<HWND>) {
+        if radial_click(state, point) { return; }
+        state.radial_ignore_up = false;
         if !state.visible
             || matches!(state.tool, NativeTool::Pointer)
             || is_toolbar_passthrough_point(state, point, false)
         {
             return;
         }
+        state.input_epoch = state.input_epoch.wrapping_add(1);
+        if let Some(edit) = state.edit.as_mut() {
+            if text_edit_hit(edit, point) {
+                edit.caret = text_edit_index(edit, point);
+                edit.anchor = edit.caret;
+                edit.dragging = true;
+                if let Some(hwnd) = capture_hwnd { SetCapture(hwnd); let _ = SetFocus(hwnd); }
+                refresh_overlay(state);
+                return;
+            }
+        }
         if let Some(hwnd) = capture_hwnd {
             state.input_hwnd = Some(hwnd);
         }
 
         commit_text_editor(state);
+        finish_gesture_history(state);
         update_hover_selection(state, point);
         if let Some((index, buttons)) = number_controls(state) {
             if let Some(button) = buttons.iter().position(|rect| point_in_rect(point, *rect)) {
+                let before = state.drawings.clone();
                 if let DrawingItem::Number { value, .. } = &mut state.drawings[index] {
                     *value = adjusted_number(*value, button == 0);
                 }
                 sync_next_number(state);
+                record_change(state, before);
                 if matches!(state.tool, NativeTool::Number) {
                     replace_tool_cursor(state, true);
                 }
@@ -1287,6 +2024,7 @@ mod platform {
             }
         }
         if matches!(state.tool, NativeTool::Select) || !state.selected.is_empty() && hover_edit_mode(state) {
+            state.gesture_before = Some(state.drawings.clone());
             begin_selection_at(state, point);
             if let Some(hwnd) = capture_hwnd {
                 SetCapture(hwnd);
@@ -1297,6 +2035,7 @@ mod platform {
 
         state.selected.clear();
         state.selection = None;
+        state.gesture_before = Some(state.drawings.clone());
         match state.tool.clone() {
             NativeTool::Pointer | NativeTool::Select => {}
             NativeTool::Text => {
@@ -1314,7 +2053,7 @@ mod platform {
                     group: None,
                 });
                 replace_tool_cursor(state, false);
-                emit_history(&state.app, true);
+                finish_gesture_history(state);
                 raise_toolbar(&state.app);
             }
             tool @ (NativeTool::CheckMark | NativeTool::CrossMark) => {
@@ -1334,7 +2073,7 @@ mod platform {
                     rotation: 0.0,
                     group: None,
                 });
-                emit_history(&state.app, true);
+                finish_gesture_history(state);
                 raise_toolbar(&state.app);
             }
             NativeTool::Pen => {
@@ -1377,7 +2116,7 @@ mod platform {
     }
 
     unsafe fn on_mouse_move(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
+        let Some(mut state_guard) = lock_overlay_state() else {
             return;
         };
         let Some(state) = state_guard.as_mut() else {
@@ -1390,6 +2129,20 @@ mod platform {
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
             return;
         };
+        if let Some(edit) = state.edit.as_mut().filter(|edit| edit.dragging) {
+            edit.caret = text_edit_index(edit, point);
+            if (wparam.0 & MK_LBUTTON_MASK) == 0 { edit.dragging = false; ReleaseCapture(); }
+            refresh_overlay(state);
+            return;
+        }
+        if let Some(menu) = state.radial.as_mut() {
+            let hovered = menu.hit(point);
+            if hovered != menu.hovered {
+                menu.hovered = hovered;
+                refresh_overlay(state);
+            }
+            return;
+        }
         if state.active.is_none() && state.selection.is_none() {
             if (wparam.0 & MK_LBUTTON_MASK) == 0 && update_hover_selection(state, point) {
                 refresh_overlay(state);
@@ -1424,13 +2177,17 @@ mod platform {
     }
 
     unsafe fn on_left_button_up(hwnd: HWND, _lparam: LPARAM) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
+        let Some(mut state_guard) = lock_overlay_state() else {
             return;
         };
         let Some(state) = state_guard.as_mut() else {
             return;
         };
         if !is_surface_hwnd(state, hwnd) {
+            return;
+        }
+        if state.radial.is_some() || state.radial_ignore_up {
+            state.radial_ignore_up = false;
             return;
         }
         let point = virtual_point_from_client(state, hwnd, lparam_point(_lparam))
@@ -1440,8 +2197,15 @@ mod platform {
 
     unsafe fn finish_drawing_at(state: &mut OverlayState, _point: Point) {
         ReleaseCapture();
+        if let Some(edit) = state.edit.as_mut().filter(|edit| edit.dragging) {
+            edit.caret = text_edit_index(edit, _point);
+            edit.dragging = false;
+            refresh_overlay(state);
+            return;
+        }
         if state.selection.is_some() {
             finish_selection(state);
+            finish_gesture_history(state);
             ReleaseCapture();
             refresh_overlay(state);
             return;
@@ -1450,6 +2214,7 @@ mod platform {
         let Some(active) = state.active.take() else {
             return;
         };
+        let before = state.gesture_before.take().unwrap_or_else(|| state.drawings.clone());
         let drawing = match active {
             ActiveDrawing::Stroke {
                 points,
@@ -1458,7 +2223,9 @@ mod platform {
                 erase,
             } => {
                 if points.len() < 2 {
+                    state.gesture_before = None;
                     ReleaseCapture();
+                    sync_radial_gate(state);
                     return;
                 }
                 DrawingItem::Stroke {
@@ -1489,17 +2256,19 @@ mod platform {
 
         state.drawings.push(drawing);
         ReleaseCapture();
-        emit_history(&state.app, true);
+        record_change(state, before);
+        state.last_wheel = None;
         refresh_overlay(state);
     }
 
     unsafe fn on_mouse_wheel(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
+        let Some(mut state_guard) = lock_overlay_state() else {
             return;
         };
         let Some(state) = state_guard.as_mut() else {
             return;
         };
+        if state.radial.is_some() { return; }
         if !is_surface_hwnd(state, hwnd) || !state.visible {
             return;
         }
@@ -1514,6 +2283,9 @@ mod platform {
         update_hover_selection(state, point);
         if hover_edit_mode(state) && state.active.is_none() && state.selection.is_none() && state.edit.is_none() {
             if let Some(frame) = selection_frame(state) {
+                let merge = state.last_wheel.as_ref().map(|(time, selected)|
+                    time.elapsed() < Duration::from_millis(350) && *selected == state.selected).unwrap_or(false);
+                let before = (!merge).then(|| state.drawings.clone());
                 let mut scale: f64 = if step > 0 { 1.15 } else { 1.0 / 1.15 };
                 let mut single_width = None;
                 // Text and numbers store size as integer widths. Ensure one
@@ -1522,16 +2294,16 @@ mod platform {
                     let item = &state.drawings[state.selected[0]];
                     let current = match item {
                         DrawingItem::Number { width, .. } => Some(*width),
-                        DrawingItem::Text { width, .. } => Some((*width).max(5)),
+                        DrawingItem::Text { width, .. } => Some(*width),
                         _ => None,
                     };
                     if let Some(current) = current {
-                        let minimum = if matches!(item, DrawingItem::Text { .. }) { 5 } else { 1 };
+                        let (minimum, maximum) = if matches!(item, DrawingItem::Text { .. }) { (15, 45) } else { (1, 100) };
                         let next = if step > 0 {
                             ((current as f64 * scale).round() as i32).max(current + 1)
                         } else {
                             ((current as f64 * scale).round() as i32).min(current - 1)
-                        }.clamp(minimum, 100);
+                        }.clamp(minimum, maximum);
                         scale = if matches!(item, DrawingItem::Text { .. }) {
                             text_font_size(next) as f64 / text_font_size(drawing_width(item)) as f64
                         } else {
@@ -1546,13 +2318,19 @@ mod platform {
                         set_drawing_width(&mut state.drawings[index], width);
                     }
                 }
+                if let Some(before) = before { record_change(state, before); }
+                state.last_wheel = Some((Instant::now(), state.selected.clone()));
+                emit_wheel_hint(state, true);
                 refresh_overlay(state);
                 return;
             }
         }
-        if matches!(state.tool, NativeTool::Text) && state.edit.is_some() {
-            let width = (state.width + step).clamp(1, 15);
+        if matches!(state.tool, NativeTool::Text) || state.edit.is_some() {
+            let current = state.edit.as_ref().map(|edit| edit.width).unwrap_or(state.width);
+            let width = clamp_tool_width(NativeTool::Text, true, current + step);
             state.width = width;
+            remember_tool_width(state);
+            emit_wheel_hint(state, false);
             if let Some(edit) = state.edit.as_mut() {
                 edit.width = width;
             }
@@ -1563,6 +2341,8 @@ mod platform {
         if matches!(state.tool, NativeTool::Eraser) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
+            remember_tool_width(state);
+            emit_wheel_hint(state, false);
             replace_tool_cursor(state, true);
             emit_width(&state.app, width);
             refresh_overlay(state);
@@ -1574,6 +2354,8 @@ mod platform {
         ) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
+            remember_tool_width(state);
+            emit_wheel_hint(state, false);
             replace_tool_cursor(state, true);
             emit_width(&state.app, width);
             refresh_overlay(state);
@@ -1600,21 +2382,34 @@ mod platform {
                 }) => *active_width = width,
                 None => {}
             }
+            remember_tool_width(state);
+            emit_wheel_hint(state, false);
             emit_width(&state.app, width);
             refresh_overlay(state);
             return;
         }
     }
 
-    unsafe fn on_key_down(hwnd: HWND, wparam: WPARAM) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
-            return;
+    unsafe fn on_key_down(hwnd: HWND, wparam: WPARAM, lparam: LPARAM) -> bool {
+        let Some(mut state_guard) = lock_overlay_state() else {
+            return false;
         };
         let Some(state) = state_guard.as_mut() else {
-            return;
+            return false;
         };
         if !is_surface_hwnd(state, hwnd) {
-            return;
+            return false;
+        }
+        if radial_window_key(state, wparam.0 as u32, lparam) { return true; }
+        // Preserve system-key handling when an Alt shortcut was not consumed.
+        if lparam.0 & (1 << 29) != 0 { return false; }
+
+        if let Some(edit) = state.edit.as_mut() {
+            use windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState;
+            if edit_key(edit, wparam.0 as u32, GetKeyState(0x10) < 0, GetKeyState(0x11) < 0) {
+                refresh_overlay(state);
+                return true;
+            }
         }
 
         match wparam.0 as u32 {
@@ -1623,7 +2418,7 @@ mod platform {
             }
             code if code == VK_BACK.0 as u32 && state.edit.is_some() => {
                 if let Some(edit) = state.edit.as_mut() {
-                    edit.text.pop();
+                    edit_key(edit, 8, false, false);
                 }
                 refresh_overlay(state);
             }
@@ -1634,10 +2429,32 @@ mod platform {
             }
             _ => {}
         }
+        false
+    }
+
+    unsafe fn on_window_alt_key(hwnd: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) {
+        use windows::Win32::UI::Input::KeyboardAndMouse::GetKeyState;
+        use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, WM_SYSKEYDOWN};
+        let Ok(mut guard) = overlay_state().try_lock() else { return; };
+        let Some(state) = guard.as_mut() else { return; };
+        if !is_surface_hwnd(state, hwnd) { return; }
+        let context = (GetForegroundWindow() == hwnd
+            && radial_available(state.visible, state.click_through, state.edit.is_some(), state.probe.is_some())
+            && state.radial.is_none() && state.active.is_none() && state.selection.is_none()
+            && GetAsyncKeyState(1) >= 0 && GetAsyncKeyState(2) >= 0)
+            .then_some((state.input_epoch, hwnd.0));
+        let other_down = (1..256).any(|key| !matches!(key, 0x12 | 0xa4 | 0xa5)
+            && key != wparam.0 as i32 && GetKeyState(key) < 0);
+        let toggle = state.window_alt.event(wparam.0 as u32,
+            matches!(message, WM_KEYDOWN | WM_SYSKEYDOWN), lparam.0 & (1 << 30) != 0,
+            context, other_down).is_some();
+        let epoch = state.input_epoch;
+        drop(guard);
+        if toggle { apply_command(DrawingCommand::ToggleHoverEdit { epoch }); }
     }
 
     unsafe fn on_char(hwnd: HWND, wparam: WPARAM) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
+        let Some(mut state_guard) = lock_overlay_state() else {
             return;
         };
         let Some(state) = state_guard.as_mut() else {
@@ -1654,14 +2471,14 @@ mod platform {
         }
         if let Some(ch) = char::from_u32(wparam.0 as u32) {
             if !ch.is_control() {
-                edit.text.push(ch);
+                replace_edit_selection(edit, &ch.to_string());
                 refresh_overlay(state);
             }
         }
     }
 
     unsafe fn on_commit_text(hwnd: HWND) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
+        let Some(mut state_guard) = lock_overlay_state() else {
             return;
         };
         let Some(state) = state_guard.as_mut() else {
@@ -1674,7 +2491,7 @@ mod platform {
     }
 
     unsafe fn on_cancel_text(hwnd: HWND) {
-        let Ok(mut state_guard) = overlay_state().lock() else {
+        let Some(mut state_guard) = lock_overlay_state() else {
             return;
         };
         let Some(state) = state_guard.as_mut() else {
@@ -1701,10 +2518,12 @@ mod platform {
 
         let screen_dc = GetDC(HWND(0));
         if screen_dc.0 == 0 {
+            record_error(format!("Drawing canvas GetDC failed: {}", std::io::Error::last_os_error()));
             return false;
         }
         let memory_dc = CreateCompatibleDC(screen_dc);
         if memory_dc.0 == 0 {
+            record_error(format!("Drawing canvas CreateCompatibleDC failed: {}", std::io::Error::last_os_error()));
             ReleaseDC(HWND(0), screen_dc);
             return false;
         }
@@ -1730,11 +2549,13 @@ mod platform {
             HANDLE(0),
             0,
         ) else {
+            record_error(format!("Drawing canvas CreateDIBSection failed size={width}x{height}: {}", std::io::Error::last_os_error()));
             DeleteDC(memory_dc);
             ReleaseDC(HWND(0), screen_dc);
             return false;
         };
         if bits.is_null() {
+            record_error(format!("Drawing canvas has null pixels size={width}x{height}"));
             DeleteObject(bitmap);
             DeleteDC(memory_dc);
             ReleaseDC(HWND(0), screen_dc);
@@ -1764,21 +2585,39 @@ mod platform {
     }
 
     unsafe fn refresh_overlay(state: &mut OverlayState) {
-        if !state.visible || state.surfaces.is_empty() {
+        sync_radial_gate(state);
+        if !state.visible || state.surfaces.is_empty() || state.probe.is_some() {
             return;
         }
 
         // Resolve monitor-dependent controls before temporarily taking the surfaces.
         let controls = number_controls(state);
         let mut surfaces = std::mem::take(&mut state.surfaces);
+        let mut restored = false;
         for surface in &mut surfaces {
+            let was_ready = surface.display_ready;
             refresh_overlay_surface(state, surface, controls);
+            if !was_ready && surface.display_ready {
+                ShowWindow(surface.display_hwnd, SW_SHOWNOACTIVATE);
+                restored = true;
+            }
         }
         state.surfaces = surfaces;
+        if restored {
+            sync_input_surface_visibility(state);
+            raise_toolbar(&state.app);
+        }
     }
 
     unsafe fn refresh_overlay_surface(state: &OverlayState, surface: &mut OverlaySurface, controls: Option<(usize, [RECT; 2])>) {
+        // DIB memory and GDI batches must not be accessed concurrently.
+        if !GdiFlush().as_bool() {
+            record_error("GdiFlush failed before clearing drawing DIB; surface hidden");
+            quarantine_surface(surface);
+            return;
+        }
         if !ensure_overlay_canvas(surface) {
+            quarantine_surface(surface);
             return;
         }
 
@@ -1800,7 +2639,8 @@ mod platform {
         let viewport_y = state.bounds.top - surface.bounds.top;
         SetViewportOrgEx(drawing_dc, viewport_x, viewport_y, Some(&mut old_origin));
         SetBkMode(drawing_dc, TRANSPARENT);
-        for drawing in state.drawings.iter() {
+        for (index, drawing) in state.drawings.iter().enumerate() {
+            if state.edit.as_ref().and_then(|edit| edit.target) == Some(index) { continue; }
             draw_item(drawing_dc, drawing);
         }
         if !state.selected.is_empty() {
@@ -1818,40 +2658,67 @@ mod platform {
             draw_active(drawing_dc, active);
         }
         if let Some(edit) = state.edit.as_ref() {
-            let preview = if edit.text.is_empty() {
-                "|".to_string()
-            } else {
-                format!("{}|", edit.text)
-            };
+            draw_edit_selection(drawing_dc, edit);
             draw_text(
                 drawing_dc,
                 Point {
                     x: edit.start.x + TEXT_PADDING,
                     y: edit.start.y + TEXT_PADDING,
                 },
-                &preview,
+                &edit.text,
                 edit.color,
                 edit.width,
-                0.0,
+                edit.rotation,
             );
+        }
+        if let Some(menu) = &state.radial {
+            draw_radial_styled(drawing_dc, menu, &state.radial_tools, &state.radial_style,
+                &radial_panel_rects(menu), !state.history.undo.is_empty(), !state.history.redo.is_empty(), state.toolbar_hidden, state.keyboard_visible, &state.radial_colors);
         }
         SetViewportOrgEx(drawing_dc, old_origin.x, old_origin.y, None);
 
+        if !GdiFlush().as_bool() {
+            record_error("GdiFlush failed before drawing alpha conversion; surface hidden");
+            quarantine_surface(surface);
+            return;
+        }
+        let mut frame_stats = FrameStats::default();
+        let shadow_bounds = state.radial.as_ref().map(|menu| {
+            let radius = menu.radius.ceil() as i32;
+            let mut bounds = RECT { left: menu.center.x - radius, top: menu.center.y - radius,
+                right: menu.center.x + radius, bottom: menu.center.y + radius };
+            for rect in menu.panel {
+                bounds.left = bounds.left.min(rect.left);
+                bounds.top = bounds.top.min(rect.top);
+                bounds.right = bounds.right.max(rect.right);
+                bounds.bottom = bounds.bottom.max(rect.bottom);
+            }
+            RECT { left: bounds.left - 8, top: bounds.top - 8, right: bounds.right + 8, bottom: bounds.bottom + 11 }
+        });
         for (index, pixel) in pixels.iter_mut().enumerate() {
             let x = (index % width as usize) as i32 + surface.bounds.left;
             let y = (index / width as usize) as i32 + surface.bounds.top;
             if is_toolbar_passthrough_point(state, Point { x, y }, true) {
                 *pixel = 0;
+                frame_stats.observe(*pixel);
                 continue;
             }
             let rgb = *pixel & 0x00ff_ffff;
             let alpha = *pixel >> 24;
             if rgb == TRANSPARENT_PIXEL || (rgb == 0 && alpha == 0) {
                 *pixel = 0;
+                if let Some(menu) = &state.radial {
+                    let point = Point { x: x - state.bounds.left, y: y - state.bounds.top };
+                    if shadow_bounds.is_some_and(|bounds| point_in_rect(point, bounds)) {
+                        *pixel = (radial_shadow_alpha(menu, &menu.panel, point) as u32) << 24;
+                    }
+                }
             } else if alpha == 0 {
                 *pixel |= 0xff00_0000;
             }
+            frame_stats.observe(*pixel);
         }
+        surface.frame_stats = Some(frame_stats);
 
         let destination = WinPoint {
             x: surface.bounds.left,
@@ -1870,9 +2737,11 @@ mod platform {
         };
         let screen_dc = GetDC(HWND(0));
         if screen_dc.0 == 0 {
+            record_error(format!("Drawing GetDC failed HWND={:?}: {}", surface.display_hwnd, std::io::Error::last_os_error()));
+            quarantine_surface(surface);
             return;
         }
-        let _ = UpdateLayeredWindow(
+        let updated = UpdateLayeredWindow(
             surface.display_hwnd,
             screen_dc,
             Some(&destination),
@@ -1883,6 +2752,20 @@ mod platform {
             Some(&blend),
             ULW_ALPHA,
         );
+        if !updated.as_bool() {
+            let error = std::io::Error::last_os_error();
+            let code = error.raw_os_error().unwrap_or(-1);
+            if surface.last_update_error != Some(code) {
+                record_error(format!("UpdateLayeredWindow failed HWND={:?} bounds=({},{},{},{}) bitmap={}x{}: {error}",
+                    surface.display_hwnd, surface.bounds.left, surface.bounds.top, surface.bounds.right,
+                    surface.bounds.bottom, width, height));
+            }
+            surface.last_update_error = Some(code);
+            quarantine_surface(surface);
+        } else {
+            surface.last_update_error = None;
+            surface.display_ready = true;
+        }
         ReleaseDC(HWND(0), screen_dc);
     }
 
@@ -1962,8 +2845,28 @@ mod platform {
             .max(1);
     }
 
+    unsafe fn clear_drawings(state: &mut OverlayState) {
+        finish_gesture_history(state);
+        ReleaseCapture();
+        let before = state.drawings.clone();
+        cancel_text_editor(state);
+        state.drawings.clear();
+        state.active = None;
+        state.selected.clear();
+        state.selection = None;
+        state.next_number = 1;
+        if matches!(state.tool, NativeTool::Number) { replace_tool_cursor(state, false); }
+        record_change(state, before);
+        emit_selection_state(state);
+        refresh_overlay(state);
+    }
+
     fn hover_edit_mode(state: &OverlayState) -> bool {
-        !matches!(state.tool, NativeTool::Pointer | NativeTool::Select | NativeTool::Eraser)
+        hover_edit_active_for_tool(state.hover_edit_active, state.tool)
+    }
+
+    fn hover_edit_active_for_tool(enabled: bool, tool: NativeTool) -> bool {
+        enabled && !matches!(tool, NativeTool::Pointer)
     }
 
     fn hover_edit_enabled(preferences: &std::collections::HashMap<String, bool>, drawing: &DrawingItem) -> bool {
@@ -1984,6 +2887,14 @@ mod platform {
     }
 
     fn update_hover_selection(state: &mut OverlayState, point: Point) -> bool {
+        if state.visible && state.active.is_none() && state.selection.is_none() && state.edit.is_none()
+            && !matches!(state.tool, NativeTool::Select | NativeTool::Pointer)
+            && !state.hover_edit_active {
+            let changed = !state.selected.is_empty();
+            state.selected.clear();
+            if changed { emit_selection_state(state); }
+            return changed;
+        }
         if !state.visible || !hover_edit_mode(state) || state.active.is_some()
             || state.selection.is_some() || state.edit.is_some() {
             return false;
@@ -3623,6 +4534,134 @@ mod platform {
         18.max(width * 4)
     }
 
+    fn default_tool_width(tool: NativeTool) -> i32 {
+        if matches!(tool, NativeTool::Text) { 15 } else { 5 }
+    }
+
+    fn clamp_tool_width(tool: NativeTool, editing_text: bool, width: i32) -> i32 {
+        if editing_text || matches!(tool, NativeTool::Text) { width.clamp(15, 45) }
+        else { width.clamp(1, 15) }
+    }
+
+    fn replace_edit_selection(edit: &mut EditSession, text: &str) {
+        let start = edit.anchor.min(edit.caret);
+        let end = edit.anchor.max(edit.caret);
+        edit.text.replace_range(start..end, text);
+        edit.caret = start + text.len();
+        edit.anchor = edit.caret;
+    }
+
+    fn edit_key(edit: &mut EditSession, key: u32, shift: bool, ctrl: bool) -> bool {
+        let previous = edit.text[..edit.caret].char_indices().last().map(|(i, _)| i).unwrap_or(0);
+        let next = edit.text[edit.caret..].chars().next().map(|ch| edit.caret + ch.len_utf8()).unwrap_or(edit.caret);
+        match key {
+            0x41 if ctrl => { edit.anchor = 0; edit.caret = edit.text.len(); }
+            0x25 | 0x27 | 0x24 | 0x23 => {
+                edit.caret = match key {
+                    0x24 => 0,
+                    0x23 => edit.text.len(),
+                    0x25 if !shift && edit.anchor != edit.caret => edit.anchor.min(edit.caret),
+                    0x27 if !shift && edit.anchor != edit.caret => edit.anchor.max(edit.caret),
+                    0x25 => previous,
+                    _ => next,
+                };
+                if !shift { edit.anchor = edit.caret; }
+            }
+            8 | 0x2e => {
+                if edit.anchor == edit.caret { edit.anchor = if key == 8 { previous } else { next }; }
+                replace_edit_selection(edit, "");
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    unsafe fn edit_positions(edit: &EditSession) -> Vec<(usize, i32)> {
+        let dc = GetDC(HWND(0));
+        let font = CreateFontW(-text_font_size(edit.width), 0, 0, 0, 400,
+            0, 0, 0, 0, 0, 0, NON_ANTIALIASED_FONT_QUALITY, 0,
+            PCWSTR(wide("Microsoft JhengHei").as_ptr()));
+        let old = SelectObject(dc, font);
+        let mut positions = vec![(0, 0)];
+        for (index, ch) in edit.text.char_indices() {
+            let end = index + ch.len_utf8();
+            let text: Vec<u16> = edit.text[..end].encode_utf16().collect();
+            let mut size = SIZE::default();
+            let _ = GetTextExtentPoint32W(dc, &text, &mut size);
+            positions.push((end, size.cx));
+        }
+        SelectObject(dc, old);
+        DeleteObject(font);
+        ReleaseDC(HWND(0), dc);
+        positions
+    }
+
+    fn edit_origin(edit: &EditSession) -> Point {
+        Point { x: edit.start.x + TEXT_PADDING, y: edit.start.y + TEXT_PADDING }
+    }
+
+    unsafe fn text_edit_index(edit: &EditSession, point: Point) -> usize {
+        let origin = edit_origin(edit);
+        let local = rotate_point(point, origin, -edit.rotation);
+        edit_positions(edit).into_iter().min_by_key(|(_, x)| (local.x - origin.x - x).abs())
+            .map(|(index, _)| index).unwrap_or(0)
+    }
+
+    unsafe fn text_edit_hit(edit: &EditSession, point: Point) -> bool {
+        let origin = edit_origin(edit);
+        let local = rotate_point(point, origin, -edit.rotation);
+        let width = edit_positions(edit).last().map(|(_, x)| *x).unwrap_or(0);
+        local.x >= origin.x - TEXT_PADDING && local.x <= origin.x + width + TEXT_PADDING
+            && local.y >= origin.y - TEXT_PADDING
+            && local.y <= origin.y + text_font_size(edit.width) + TEXT_PADDING
+    }
+
+    unsafe fn draw_edit_selection(dc: HDC, edit: &EditSession) {
+        let positions = edit_positions(edit);
+        let x = |index| positions.iter().find(|(i, _)| *i == index).map(|(_, x)| *x).unwrap_or(0);
+        let origin = edit_origin(edit);
+        let point = |x, y| rotate_point(Point { x: origin.x + x, y: origin.y + y }, origin, edit.rotation);
+        let height = text_font_size(edit.width);
+        if edit.anchor != edit.caret {
+            let left = x(edit.anchor.min(edit.caret));
+            let right = x(edit.anchor.max(edit.caret));
+            let points = [point(left, 0), point(right, 0), point(right, height), point(left, height)]
+                .map(|p| WinPoint { x: p.x, y: p.y });
+            let brush = CreateSolidBrush(COLORREF(0x00ff_d6ad));
+            let old_brush = SelectObject(dc, brush);
+            let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
+            let _ = Polygon(dc, &points);
+            SelectObject(dc, old_pen);
+            SelectObject(dc, old_brush);
+            DeleteObject(brush);
+        }
+        let pen = CreatePen(PS_SOLID, 1, gdi_visible_color(edit.color));
+        let old = SelectObject(dc, pen);
+        let top = point(x(edit.caret), 0);
+        let bottom = point(x(edit.caret), height);
+        MoveToEx(dc, top.x, top.y, None);
+        LineTo(dc, bottom.x, bottom.y);
+        SelectObject(dc, old);
+        DeleteObject(pen);
+    }
+
+    fn existing_text_session(index: usize, drawing: &DrawingItem) -> Option<EditSession> {
+        if let DrawingItem::Text { start, text, color, width, rotation, .. } = drawing {
+            Some(EditSession { caret: text.len(), anchor: 0, dragging: false,
+                target: Some(index), rotation: *rotation,
+                start: Point { x: start.x - TEXT_PADDING, y: start.y - TEXT_PADDING },
+                text: text.clone(), color: *color, width: *width })
+        } else { None }
+    }
+
+    fn replace_text_content(drawing: &mut DrawingItem, text: String, width: i32, color: COLORREF) {
+        if let DrawingItem::Text { text: content, width: size, color: ink, .. } = drawing {
+            *content = text;
+            *size = width;
+            *ink = color;
+        }
+    }
+
     fn gdi_visible_color(color: COLORREF) -> COLORREF {
         if color.0 & 0x00ff_ffff == 0 {
             COLORREF(0x0001_0101)
@@ -3720,6 +4759,11 @@ mod platform {
     unsafe fn create_text_editor(state: &mut OverlayState, point: Point) {
         cancel_text_editor(state);
         state.edit = Some(EditSession {
+            caret: 0,
+            anchor: 0,
+            dragging: false,
+            target: None,
+            rotation: 0.0,
             start: point,
             text: String::new(),
             color: state.color,
@@ -3740,7 +4784,20 @@ mod platform {
             return;
         };
         let text = edit.text.trim().to_string();
+        if let Some(index) = edit.target {
+            let before = state.drawings.clone();
+            if let Some(drawing) = state.drawings.get_mut(index) {
+                // Keep the original object and its group/transform until commit.
+                if text.is_empty() { state.drawings.remove(index); }
+                else { replace_text_content(drawing, text, edit.width, edit.color); }
+                record_change(state, before);
+            }
+            state.gesture_before = None;
+            refresh_overlay(state);
+            return;
+        }
         if !text.is_empty() {
+            let before = state.drawings.clone();
             state.drawings.push(DrawingItem::Text {
                 start: Point {
                     x: edit.start.x + TEXT_PADDING,
@@ -3752,17 +4809,20 @@ mod platform {
                 rotation: 0.0,
                 group: None,
             });
-            emit_history(&state.app, true);
+            record_change(state, before);
         }
+        state.gesture_before = None;
         refresh_overlay(state);
     }
 
     unsafe fn cancel_text_editor(state: &mut OverlayState) {
         state.edit = None;
+        state.gesture_before = None;
         refresh_overlay(state);
     }
 
     fn raise_toolbar(app: &AppHandle) {
+        if TOOLBAR_HIDDEN.load(Ordering::Relaxed) { return; }
         let Some(toolbar) = app.get_webview_window("drawing-toolbar") else {
             return;
         };
@@ -3773,7 +4833,7 @@ mod platform {
             let toolbar_hwnd = HWND(hwnd.0 as isize);
             let root = GetAncestor(toolbar_hwnd, GA_ROOT);
             let target = if root.0 == 0 { toolbar_hwnd } else { root };
-            let _ = SetWindowPos(
+            checked_set_window_pos(
                 target,
                 HWND_TOPMOST,
                 0,
@@ -3788,7 +4848,7 @@ mod platform {
     fn is_click_through_or_passthrough_point(hwnd: HWND, lparam: LPARAM) -> bool {
         let point = lparam_point(lparam);
         overlay_state()
-            .lock()
+            .try_lock()
             .ok()
             .and_then(|guard| {
                 guard
@@ -3801,7 +4861,54 @@ mod platform {
             .unwrap_or(true)
     }
 
+    unsafe fn input_surfaces_released(surfaces: &[OverlaySurface]) -> bool {
+        let capture = GetCapture();
+        surfaces.iter().all(|surface| {
+            !IsWindowVisible(surface.input_hwnd).as_bool() && capture != surface.input_hwnd
+        })
+    }
+
+    unsafe fn create_input_region(bounds: RECT, toolbar: Option<RECT>) -> Option<windows::Win32::Graphics::Gdi::HRGN> {
+        use windows::Win32::Graphics::Gdi::{CreateRectRgn, CombineRgn, RGN_DIFF};
+        let region = CreateRectRgn(0, 0, bounds.right - bounds.left, bounds.bottom - bounds.top);
+        if region.0 == 0 { return None; }
+        if let Some(toolbar) = toolbar {
+            let hole = CreateRectRgn(toolbar.left - bounds.left, toolbar.top - bounds.top,
+                toolbar.right - bounds.left, toolbar.bottom - bounds.top);
+            if hole.0 == 0 {
+                DeleteObject(region);
+                return None;
+            }
+            let result = CombineRgn(region, region, hole, RGN_DIFF);
+            DeleteObject(hole);
+            if result.0 == 0 {
+                DeleteObject(region);
+                return None;
+            }
+        }
+        Some(region)
+    }
+
+    unsafe fn sync_input_surface_regions(state: &OverlayState) {
+        use windows::Win32::Graphics::Gdi::SetWindowRgn;
+        // HTTRANSPARENT only forwards within the same thread. Remove the
+        // toolbar rectangle from the input window instead, even when activated.
+        for surface in &state.surfaces {
+            let Some(region) = create_input_region(surface.bounds, state.toolbar_passthrough) else {
+                record_error("Failed to create toolbar input exclusion region");
+                continue;
+            };
+            if SetWindowRgn(surface.input_hwnd, region, false) == 0 {
+                DeleteObject(region);
+                record_error(format!("Failed to apply toolbar input exclusion: {}", std::io::Error::last_os_error()));
+            }
+            // Windows owns the region after a successful SetWindowRgn.
+        }
+    }
+
     unsafe fn sync_input_surface_visibility(state: &mut OverlayState) {
+        if state.probe.is_some() { return; }
+        sync_input_surface_regions(state);
         let capture_input = state.visible && !state.click_through;
         if !capture_input {
             ReleaseCapture();
@@ -3809,8 +4916,8 @@ mod platform {
         }
 
         for surface in &state.surfaces {
-            if capture_input {
-                let _ = SetWindowPos(
+            if capture_input && surface.display_ready {
+                checked_set_window_pos(
                     surface.input_hwnd,
                     HWND_TOPMOST,
                     surface.bounds.left,
@@ -3826,7 +4933,7 @@ mod platform {
     }
 
     fn global_point_for_drawing(state: &OverlayState, x: i32, y: i32) -> Option<Point> {
-        if !state.visible || matches!(state.tool, NativeTool::Pointer) {
+        if !state.visible || state.probe.is_some() || matches!(state.tool, NativeTool::Pointer) {
             return None;
         }
         let global = Point { x, y };
@@ -3938,7 +5045,7 @@ mod platform {
     }
 
     unsafe fn set_overlay_cursor(hwnd: HWND) -> bool {
-        let Ok(state_guard) = overlay_state().lock() else {
+        let Ok(state_guard) = overlay_state().try_lock() else {
             return false;
         };
         let Some(state) = state_guard.as_ref() else {
@@ -3947,7 +5054,11 @@ mod platform {
         if !is_surface_hwnd(state, hwnd) || !state.visible || state.cursor.0 == 0 {
             return false;
         }
-        SetCursor(state.cursor);
+        if state.radial.is_some() {
+            SetCursor(LoadCursorW(None, IDC_ARROW).unwrap_or_default());
+        } else {
+            SetCursor(state.cursor);
+        }
         true
     }
 
@@ -4260,11 +5371,11 @@ mod platform {
         value.encode_utf16().chain(once(0)).collect()
     }
 
-    fn emit_history(app: &AppHandle, can_undo: bool) {
-        let _ = app.emit_to(
+    fn emit_history(state: &OverlayState) {
+        let _ = state.app.emit_to(
             "drawing-toolbar",
             "drawing-history",
-            DrawingHistoryPayload { can_undo },
+            DrawingHistoryPayload { can_undo: !state.history.undo.is_empty(), can_redo: !state.history.redo.is_empty() },
         );
     }
 
@@ -4290,6 +5401,289 @@ mod platform {
     #[cfg(test)]
     mod hover_tests {
         use super::*;
+
+        #[test]
+        fn text_caret_selection_replacement_and_color_commit() {
+            let original = DrawingItem::Text { start: Point { x: 0, y: 0 },
+                text: "甲乙丙".into(), width: 8, color: COLORREF(1), rotation: 0.0, group: None };
+            let mut edit = existing_text_session(0, &original).unwrap();
+            edit_key(&mut edit, 0x27, false, false); // collapse initial select-all to end
+            edit_key(&mut edit, 0x25, false, false);
+            assert_eq!(edit.caret, "甲乙".len());
+            replace_edit_selection(&mut edit, "中");
+            assert_eq!(edit.text, "甲乙中丙");
+            edit_key(&mut edit, 0x25, true, false);
+            replace_edit_selection(&mut edit, "新");
+            assert_eq!(edit.text, "甲乙新丙");
+            edit_key(&mut edit, 0x2e, false, false);
+            assert_eq!(edit.text, "甲乙新");
+            edit_key(&mut edit, 0x24, false, false);
+            edit_key(&mut edit, 8, false, false);
+            assert_eq!(edit.text, "甲乙新");
+            edit_key(&mut edit, 0x41, false, true);
+            replace_edit_selection(&mut edit, "重寫");
+            let mut changed = original;
+            replace_text_content(&mut changed, edit.text, edit.width, COLORREF(99));
+            assert!(matches!(changed, DrawingItem::Text { color: COLORREF(99), ref text, .. } if text == "重寫"));
+        }
+
+        #[test]
+        fn text_mouse_selection_uses_measured_character_positions() {
+            let original = DrawingItem::Text { start: Point { x: 100, y: 100 },
+                text: "ABCDE".into(), width: 8, color: COLORREF(1), rotation: 0.0, group: None };
+            let mut edit = existing_text_session(0, &original).unwrap();
+            unsafe {
+                let positions = edit_positions(&edit);
+                edit.anchor = text_edit_index(&edit, Point { x: 100 + positions[1].1, y: 105 });
+                edit.caret = text_edit_index(&edit, Point { x: 100 + positions[4].1, y: 105 });
+                assert_eq!(&edit.text[edit.anchor..edit.caret], "BCD");
+                replace_edit_selection(&mut edit, "X");
+                assert_eq!(edit.text, "AXE");
+            }
+        }
+
+        #[test]
+        fn text_default_uses_tool_minimum_size() {
+            assert_eq!(default_tool_width(NativeTool::Text), 15);
+            assert_eq!(text_font_size(default_tool_width(NativeTool::Text)), 60);
+            assert_eq!(default_tool_width(NativeTool::Pen), 5);
+        }
+
+        #[test]
+        fn text_range_starts_at_default_and_reaches_triple_height() {
+            assert_eq!(clamp_tool_width(NativeTool::Text, false, 14), 15);
+            assert_eq!(clamp_tool_width(NativeTool::Text, false, 16), 16);
+            assert_eq!(clamp_tool_width(NativeTool::Text, false, 46), 45);
+            assert_eq!(text_font_size(45), text_font_size(15) * 3);
+            assert_eq!(clamp_tool_width(NativeTool::Pen, true, 30), 30);
+            assert_eq!(clamp_tool_width(NativeTool::Pen, false, 30), 15);
+            assert_eq!(clamp_tool_width(NativeTool::Number, false, 0), 1);
+        }
+
+        #[test]
+        fn existing_text_edit_preserves_transform_group_and_undo() {
+            let original = DrawingItem::Text { start: Point { x: 80, y: 90 },
+                text: "old".into(), color: COLORREF(123), width: 8, rotation: 0.4, group: Some(7) };
+            let edit = existing_text_session(0, &original).unwrap();
+            assert_eq!(edit.target, Some(0));
+            assert_eq!(edit.start.x + TEXT_PADDING, 80);
+            assert_eq!(edit.text, "old");
+            let mut drawings = vec![original.clone()];
+            replace_text_content(&mut drawings[0], "new".into(), edit.width, edit.color);
+            if let DrawingItem::Text { start, text, rotation, group, color, .. } = &drawings[0] {
+                assert_eq!(start.y, 90);
+                assert_eq!(text, "new");
+                assert_eq!(*rotation, 0.4);
+                assert_eq!(*group, Some(7));
+                assert_eq!(color.0, 123);
+            } else { panic!("Text expected"); }
+            let mut history = DrawingHistory::default();
+            history.record(vec![original], &drawings);
+            assert!(history.restore(&mut drawings, false));
+            assert!(matches!(&drawings[0], DrawingItem::Text { text, .. } if text == "old"));
+        }
+
+        #[test]
+        fn toolbar_region_excludes_only_toolbar_on_negative_monitor() {
+            use windows::Win32::Graphics::Gdi::PtInRegion;
+            unsafe {
+                let bounds = RECT { left: -1920, top: -200, right: 0, bottom: 880 };
+                let toolbar = RECT { left: -1900, top: -100, right: -1840, bottom: 600 };
+                let region = create_input_region(bounds, Some(toolbar)).unwrap();
+                assert!(!PtInRegion(region, 30, 110).as_bool());
+                assert!(PtInRegion(region, 100, 110).as_bool());
+                assert!(PtInRegion(region, 30, 850).as_bool());
+                DeleteObject(region);
+                // Moving the toolbar off this monitor restores its whole input area.
+                let region = create_input_region(bounds, Some(RECT {
+                    left: 20, top: 100, right: 80, bottom: 800,
+                })).unwrap();
+                assert!(PtInRegion(region, 30, 110).as_bool());
+                DeleteObject(region);
+                let region = create_input_region(bounds, None).unwrap();
+                assert!(PtInRegion(region, 30, 110).as_bool());
+                DeleteObject(region);
+            }
+        }
+
+        #[test]
+        fn hover_toggle_gates_all_drawing_tools_without_replacing_manual_selection() {
+            for tool in RADIAL_TOOLS {
+                assert!(!hover_edit_active_for_tool(false, tool));
+                assert_eq!(hover_edit_active_for_tool(true, tool),
+                    !matches!(tool, NativeTool::Pointer));
+            }
+        }
+
+        #[test]
+        fn history_shortcuts_only_apply_to_drawing_tools() {
+            assert!(!history_shortcut_allowed(
+                true, NativeTool::Pointer, false, false,
+            ));
+            for tool in [
+                NativeTool::Pen, NativeTool::Select, NativeTool::Eraser,
+                NativeTool::Line, NativeTool::Arrow, NativeTool::Rectangle, NativeTool::Ellipse,
+                NativeTool::Text, NativeTool::Number, NativeTool::CheckMark, NativeTool::CrossMark,
+            ] {
+                assert!(history_shortcut_allowed(true, tool, false, false));
+                assert!(!history_shortcut_allowed(false, tool, false, false));
+                assert!(!history_shortcut_allowed(true, tool, true, false));
+                assert!(!history_shortcut_allowed(true, tool, false, true));
+            }
+        }
+
+        #[test]
+        fn history_buttons_and_shortcuts_use_separate_commands() {
+            let (sender, receiver) = mpsc::channel();
+            let overlay = NativeDrawingOverlay { sender: Some(WakingSender::new(sender, WakeHandle::new())) };
+            overlay.undo();
+            overlay.redo();
+            overlay.history_shortcut(false);
+            overlay.history_shortcut(true);
+            assert!(matches!(receiver.try_recv().unwrap(), DrawingCommand::Undo));
+            assert!(matches!(receiver.try_recv().unwrap(), DrawingCommand::Redo));
+            assert!(matches!(
+                receiver.try_recv().unwrap(), DrawingCommand::HistoryShortcut { redo: false }
+            ));
+            assert!(matches!(
+                receiver.try_recv().unwrap(), DrawingCommand::HistoryShortcut { redo: true }
+            ));
+        }
+
+        #[test]
+        fn settings_waits_for_native_pointer_transition() {
+            let (sender, receiver) = mpsc::channel();
+            let overlay = NativeDrawingOverlay { sender: Some(WakingSender::new(sender, WakeHandle::new())) };
+            let worker = std::thread::spawn(move || overlay.prepare_for_settings());
+            match receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
+                DrawingCommand::SetTool { tool: NativeTool::Pointer, ready: Some(ready) } => {
+                    assert!(!worker.is_finished());
+                    ready.send(Ok(())).unwrap();
+                }
+                _ => panic!("Settings must request an acknowledged pointer transition"),
+            }
+            assert!(worker.join().unwrap().is_ok());
+        }
+
+        #[test]
+        fn settings_does_not_ignore_input_release_failure() {
+            let (sender, receiver) = mpsc::channel();
+            let overlay = NativeDrawingOverlay { sender: Some(WakingSender::new(sender, WakeHandle::new())) };
+            let worker = std::thread::spawn(move || overlay.prepare_for_settings());
+            match receiver.recv_timeout(Duration::from_secs(2)).unwrap() {
+                DrawingCommand::SetTool { ready: Some(ready), .. } => {
+                    ready.send(Err("Input window still visible".into())).unwrap();
+                }
+                _ => panic!("Missing input release acknowledgement"),
+            }
+            assert_eq!(worker.join().unwrap().unwrap_err(), "Input window still visible");
+            assert!(NativeDrawingOverlay { sender: None }.prepare_for_settings().is_err());
+        }
+
+        #[test]
+        fn layer_probe_and_failure_isolation_use_separate_windows() {
+            unsafe {
+                let class = wide("STATIC");
+                let name = wide("Keyviz isolation test");
+                let create = || CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+                    PCWSTR(class.as_ptr()), PCWSTR(name.as_ptr()), WS_POPUP,
+                    -32000, -32000, 2, 2, HWND(0), None, GetModuleHandleW(None).unwrap(), None);
+                let display = create();
+                let input = create();
+                assert_ne!(display.0, 0);
+                assert_ne!(input.0, 0);
+                let mut surfaces = vec![OverlaySurface {
+                    display_hwnd: display, input_hwnd: input, bounds: RECT::default(),
+                    canvas: None, last_update_error: None, display_ready: true, frame_stats: None,
+                }];
+                ShowWindow(display, SW_SHOWNOACTIVATE);
+                ShowWindow(input, SW_SHOWNOACTIVATE);
+                assert!(!input_surfaces_released(&surfaces));
+                let targets = probe_windows(&surfaces, true);
+                assert_eq!(targets, vec![input]);
+                for hwnd in &targets { ShowWindow(*hwnd, SW_HIDE); }
+                assert!(IsWindowVisible(display).as_bool());
+                assert!(!IsWindowVisible(input).as_bool());
+                assert!(input_surfaces_released(&surfaces));
+                assert!(probe_windows(&surfaces, true).is_empty());
+                restore_probe_windows(&targets).unwrap();
+                assert!(IsWindowVisible(input).as_bool());
+                let targets = probe_windows(&surfaces, false);
+                assert_eq!(targets, vec![display]);
+                for hwnd in &targets { ShowWindow(*hwnd, SW_HIDE); }
+                assert!(IsWindowVisible(input).as_bool());
+                restore_probe_windows(&targets).unwrap();
+                quarantine_surface(&mut surfaces[0]);
+                assert!(!surfaces[0].display_ready);
+                assert!(!IsWindowVisible(display).as_bool());
+                assert!(!IsWindowVisible(input).as_bool());
+                destroy_overlay_surfaces(&mut surfaces);
+            }
+        }
+
+        #[test]
+        fn diagnostic_pixels_distinguish_black_from_transparency() {
+            let mut stats = FrameStats::default();
+            for pixel in [0, 0x0012_3456, 0xff00_0000, 0xffff_ffff, 0x8000_0000] { stats.observe(pixel); }
+            assert_eq!(stats.transparent_pixels, 2);
+            assert_eq!(stats.opaque_pixels, 2);
+            assert_eq!(stats.opaque_black_pixels, 1);
+        }
+
+        fn history_marker(value: u32) -> DrawingItem {
+            DrawingItem::Number { center: Point { x: 50, y: 50 }, value, color: COLORREF(0), width: 5, rotation: 0.0, group: None }
+        }
+
+        #[test]
+        fn history_restores_edits_clear_and_invalidates_redo() {
+            let mut history = DrawingHistory::default();
+            let mut drawings = vec![history_marker(3)];
+            history.record(Vec::new(), &drawings);
+            let before = drawings.clone();
+            translate_drawing(&mut drawings[0], 10, 20);
+            if let DrawingItem::Number { value, rotation, group, .. } = &mut drawings[0] {
+                *value = 4; *rotation = 1.0; *group = Some(7);
+            }
+            history.record(before.clone(), &drawings);
+            let edited = drawings.clone();
+            history.record(edited.clone(), &[]);
+            drawings.clear();
+            assert!(history.restore(&mut drawings, false));
+            assert!(drawings == edited);
+            assert!(history.restore(&mut drawings, false));
+            assert!(drawings == before);
+            assert!(history.restore(&mut drawings, true));
+            assert!(drawings == edited);
+            let before = drawings.clone();
+            drawings.push(history_marker(5));
+            history.record(before, &drawings);
+            assert!(history.redo.is_empty());
+            assert!(!history.restore(&mut drawings, true));
+        }
+
+        #[test]
+        fn history_ignores_noops_and_limits_depth() {
+            let mut history = DrawingHistory::default();
+            history.record(Vec::new(), &[]);
+            assert!(history.undo.is_empty());
+            for value in 0..60 { history.record(vec![history_marker(value)], &[history_marker(value + 1)]); }
+            assert_eq!(history.undo.len(), 50);
+            let mut drawings = vec![history_marker(60)];
+            for _ in 0..50 { assert!(history.restore(&mut drawings, false)); }
+            assert!(!history.restore(&mut drawings, false));
+        }
+
+        #[test]
+        fn delete_does_not_affect_pointer_or_text_entry() {
+            assert!(!drawing_delete_allowed(true, NativeTool::Pointer, false));
+            assert!(!drawing_delete_allowed(false, NativeTool::Pen, false));
+            assert!(!drawing_delete_allowed(true, NativeTool::Text, true));
+            for tool in [NativeTool::Select, NativeTool::Pen, NativeTool::Eraser, NativeTool::Number,
+                NativeTool::Rectangle, NativeTool::Ellipse, NativeTool::Line, NativeTool::Arrow,
+                NativeTool::Text, NativeTool::CheckMark, NativeTool::CrossMark] {
+                assert!(drawing_delete_allowed(true, tool, false));
+            }
+        }
 
         #[test]
         fn pen_hits_curve_not_enclosed_space() {
@@ -4478,22 +5872,42 @@ mod platform_stub {
         }
         pub fn hide(&self) {}
         pub fn set_tool(&self, _tool: NativeTool) {}
+        pub fn prepare_for_settings(&self) -> Result<(), String> { Ok(()) }
+        pub fn set_toolbar_hidden(&self, _hidden: bool) {}
+        pub fn request_pointer_radial(&self) {}
+        pub fn set_keyboard_visible(&self, _visible: bool) {}
+        pub fn configure_radial(&self, _shortcut: Vec<String>, _tools: Vec<String>, _right_click: bool, _style: String, _colors: Vec<String>) -> Result<(), String> { Ok(()) }
+        pub fn radial_menu_action(&self, _cancel: bool) -> Result<(), String> { Ok(()) }
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}
         pub fn clear(&self) {}
         pub fn undo(&self) {}
+        pub fn history_shortcut(&self, _redo: bool) {}
+        pub fn redo(&self) {}
+        pub fn recover(&self) {}
+        pub fn probe_layer(&self, _input: bool) -> Result<(), String> {
+            Err("Layer tests are available on Windows only".into())
+        }
         pub fn toggle_group(&self) {}
         pub fn delete_selection_or_clear(&self) {}
         pub fn set_click_through(&self, _enabled: bool) {}
         pub fn set_toolbar_passthrough(&self, _bounds: Option<(i32, i32, i32, i32)>) {}
         pub fn focus(&self) {}
         pub fn raise(&self) {}
+        pub fn raise_if_demoted(&self) {}
         pub fn resize(&self, _monitors: Vec<(i32, i32, i32, i32)>) {}
+        pub fn pointer_down(&self, _x: i32, _y: i32) {}
+        pub fn pointer_move(&self, _x: i32, _y: i32) {}
+        pub fn pointer_up(&self, _x: i32, _y: i32) {}
     }
 
     pub fn parse_tool(_value: &str) -> Option<NativeTool> {
         None
+    }
+
+    pub fn radial_consumes_close() -> bool {
+        false
     }
 }
 

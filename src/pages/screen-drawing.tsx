@@ -1,5 +1,9 @@
 import { useTranslation } from "@/lib/i18n";
+import { DrawingToolbarView, DRAWING_TOOLBAR_COLORS } from "@/components/drawing-toolbar-view";
+import { useOverlayProbe } from "@/lib/overlay-probe";
 import { keymaps } from "@/lib/keymaps";
+import { radialToolbarKeyAction } from "@/lib/radial-shortcut";
+import { drawingThemeVariables } from "@/lib/drawing-themes";
 import {
   DRAWING_TOOL_BY_ID,
   type DrawingTool,
@@ -13,19 +17,8 @@ import { useKeyEvent } from "@/stores/key_event";
 import { listenForUpdates } from "@/stores/sync";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
-  Check,
-  GripHorizontal,
-  Group,
-  Keyboard,
-  KeyboardOff,
-  Redo2,
-  Settings,
-  Trash2,
-  X,
-} from "lucide-react";
-import {
-  CSSProperties,
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent,
   useCallback,
@@ -48,13 +41,14 @@ type DrawingCommand =
   | { type: "width"; value: number }
   | { type: "clear" }
   | { type: "group" }
-  | { type: "undo" };
+  | { type: "undo" }
+  | { type: "redo" };
 type ToolChangedPayload = { tool: Tool };
 type DrawingSelectionPayload = { count: number; grouped: boolean };
 
-const COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
+const COLORS = DRAWING_TOOLBAR_COLORS;
 const WIDTHS = [2, 5, 9, 15];
-const MIN_WIDTH = WIDTHS[0];
+const MIN_WIDTH = 1;
 const MAX_WIDTH = WIDTHS[WIDTHS.length - 1];
 
 const keyboardEventKey = (event: KeyboardEvent): string => {
@@ -224,7 +218,18 @@ export default function ScreenDrawing() {
   const [tool, setTool] = useState<Tool>("pen");
   const [color, setColor] = useState(COLORS[0]);
   const [width, setWidth] = useState(WIDTHS[1]);
+  const minWidth = tool === "text" ? 15 : MIN_WIDTH;
+  const maxWidth = tool === "text" ? 45 : MAX_WIDTH;
   const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
+  const [operationHint, setOperationHint] = useState<{ text: string } | null>(null);
+  const [probeMenu, setProbeMenu] = useState(false);
+  const probe = useOverlayProbe();
+  useEffect(() => {
+    if (!operationHint) return;
+    const timer = window.setTimeout(() => setOperationHint(null), 1800);
+    return () => window.clearTimeout(timer);
+  }, [operationHint]);
   const [keyDisplayEnabled, setKeyDisplayEnabled] = useState(true);
   const [selectionState, setSelectionState] = useState<DrawingSelectionPayload>({
     count: 0,
@@ -233,6 +238,44 @@ export default function ScreenDrawing() {
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const toolbarItems = useDrawingToolbar((state) => state.items);
   const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
+  const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
+  const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
+  const radialStyle = useDrawingToolbar((state) => state.radialStyle);
+  const radialColors = useDrawingToolbar((state) => state.radialColors);
+  useEffect(() => {
+    if (!isToolbar) return;
+    const variables = drawingThemeVariables(radialStyle);
+    for (const [key, value] of Object.entries(variables)) {
+      document.documentElement.style.setProperty(key, String(value));
+    }
+    return () => {
+      for (const key of Object.keys(variables)) document.documentElement.style.removeProperty(key);
+    };
+  }, [isToolbar, radialStyle]);
+  useEffect(() => {
+    if (!isToolbar) return;
+    void invoke("set_drawing_radial_menu", {
+      shortcut: radialShortcut,
+      rightClick: radialRightClick,
+      style: radialStyle,
+      colors: radialColors,
+      tools: toolbarItems.filter((item) => item.visible).map((item) => item.id),
+    }).catch(console.error);
+  }, [isToolbar, radialShortcut, radialRightClick, radialStyle, radialColors, toolbarItems]);
+  useEffect(() => {
+    if (!isToolbar) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.target instanceof Element && event.target.closest("textarea, input:not([type='range']), [contenteditable='true']")) return;
+      const action = radialToolbarKeyAction(event, radialShortcut, tool === "pointer");
+      if (!action) return;
+      event.preventDefault();
+      event.stopPropagation();
+      // Suppress browser button/slider defaults even on auto-repeat.
+      if (!event.repeat) void invoke("drawing_radial_menu_action", { cancel: action === "cancel" }).catch(console.error);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [isToolbar, radialShortcut, tool]);
   useEffect(() => {
     void invoke("set_drawing_hover_edit", { preferences: hoverEdit }).catch(console.error);
   }, [hoverEdit]);
@@ -360,11 +403,25 @@ export default function ScreenDrawing() {
       const resizeRequestListener = listen("drawing-toolbar-resize-request", () => {
         resizeToolbar(true);
       });
-      const historyListener = listen<{ canUndo: boolean }>("drawing-history", (event) => {
+      const scaleListener = getCurrentWindow().onScaleChanged(() => {
+        window.requestAnimationFrame(() => resizeToolbar(true));
+      });
+      const historyListener = listen<{ canUndo: boolean; canRedo: boolean }>("drawing-history", (event) => {
         setCanUndo(event.payload.canUndo);
+        setCanRedo(event.payload.canRedo);
+      });
+      const hintListener = listen<{ object: boolean; tool: Tool; width: number }>("drawing-operation-hint", (event) => {
+        setOperationHint({ text: event.payload.object ? t("Resizing Object")
+          : `${t(DRAWING_TOOL_BY_ID[event.payload.tool].label)}: ${event.payload.width}` });
+      });
+      const hoverToggleListener = listen<boolean>("drawing-hover-edit-toggled", (event) => {
+        setOperationHint({ text: t(event.payload ? "Object editing enabled (Alt)" : "Object editing disabled (Alt)") });
       });
       const widthListener = listen<{ width: number }>("drawing-width-changed", (event) => {
         setWidth(event.payload.width);
+      });
+      const colorListener = listen<string>("drawing-color-changed", (event) => {
+        setColor(event.payload);
       });
       const selectionListener = listen<DrawingSelectionPayload>(
         "drawing-selection-changed",
@@ -380,8 +437,12 @@ export default function ScreenDrawing() {
       return () => {
         observer.disconnect();
         void resizeRequestListener.then((unlisten) => unlisten());
+        void scaleListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
+        void hintListener.then((unlisten) => unlisten());
+        void hoverToggleListener.then((unlisten) => unlisten());
         void widthListener.then((unlisten) => unlisten());
+        void colorListener.then((unlisten) => unlisten());
         void selectionListener.then((unlisten) => unlisten());
         void nativeCloseListener.then((unlisten) => unlisten());
         void toolbarSettingsListener.then((unlisten) => unlisten());
@@ -439,8 +500,10 @@ export default function ScreenDrawing() {
 
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {
-      setTool(command.value);
-      await invoke("drawing_set_tool", { tool: command.value });
+      await invoke("drawing_set_tool", { tool: command.value }).catch((error) => {
+        console.error(error);
+        setOperationHint({ text: t("Wait for settings to finish opening") });
+      });
       return;
     }
     if (command.type === "color") {
@@ -459,6 +522,10 @@ export default function ScreenDrawing() {
     }
     if (command.type === "undo") {
       await invoke("drawing_undo");
+      return;
+    }
+    if (command.type === "redo") {
+      await invoke("drawing_redo");
       return;
     }
     if (command.type === "group") {
@@ -579,8 +646,8 @@ export default function ScreenDrawing() {
             onWheel={(event) => {
               event.preventDefault();
               const nextWidth = Math.min(
-                MAX_WIDTH,
-                Math.max(MIN_WIDTH, textEditor.width + (event.deltaY < 0 ? 1 : -1)),
+                45,
+                Math.max(15, textEditor.width + (event.deltaY < 0 ? 1 : -1)),
               );
               setWidth(nextWidth);
               updateTextEditor({ ...textEditor, width: nextWidth });
@@ -591,107 +658,40 @@ export default function ScreenDrawing() {
     );
   }
 
-  const toolButtons = toolbarItems
-    .filter((item) => item.visible)
-    .map((item) => DRAWING_TOOL_BY_ID[item.id]);
-
   return (
-    <aside ref={toolbarRef} className="drawing-toolbar" aria-label={t("Screen Drawing")}>
-      <button
-        className="drawing-drag-handle"
-        title={t("Move Toolbar")}
-        onPointerDown={() => void invoke("start_drawing_toolbar_drag")}
-      >
-        <GripHorizontal />
-      </button>
-      <button
-        className="drawing-close"
-        title={`${t("Exit Drawing")}${closeShortcutLabel ? ` (${closeShortcutLabel})` : ""}`}
-        onClick={() => void invoke("close_screen_drawing")}
-      >
-        <X />
-      </button>
-      {toolButtons.map(({ id, label, icon: Icon }) => (
-        <button
-          key={id}
-          className={tool === id ? "active" : ""}
-          title={t(label)}
-          onClick={() => void sendCommand({ type: "tool", value: id })}
-        >
-          <Icon />
-        </button>
-      ))}
-      {tool === "select" && (
-        <button
-          className={selectionState.grouped ? "active" : ""}
-          disabled={selectionState.count < 2}
-          aria-pressed={selectionState.grouped}
-          title={t("Group / Ungroup")}
-          onClick={() => void sendCommand({ type: "group" })}
-        >
-          <Group />
-        </button>
-      )}
-      <div className="drawing-divider" />
-      <div className="drawing-colors">
-        {COLORS.map((value) => (
-          <button
-            key={value}
-            className={`drawing-color ${color === value ? "active" : ""}`}
-            title={value}
-            style={{ "--drawing-color": value } as CSSProperties}
-            onClick={() => void sendCommand({ type: "color", value })}
-          >
-            {color === value && <Check className="drawing-color-check" />}
-          </button>
-        ))}
-      </div>
-      <div className="drawing-divider" />
-      <label className="drawing-width-slider" title={`${t("Line Thickness")} ${width}`}>
-        <input
-          aria-label={t("Line Thickness")}
-          type="range"
-          min={MIN_WIDTH}
-          max={MAX_WIDTH}
-          step={1}
-          value={width}
-          style={{
-            "--drawing-width-progress": `${((width - MIN_WIDTH) / (MAX_WIDTH - MIN_WIDTH)) * 100}%`,
-          } as CSSProperties}
-          onChange={(event) => void sendCommand({ type: "width", value: Number(event.target.value) })}
-        />
-      </label>
-      <button
-        disabled={!canUndo}
-        title={`${t("Undo")}${undoShortcutLabel ? ` (${undoShortcutLabel})` : ""}`}
-        onClick={() => void sendCommand({ type: "undo" })}
-      >
-        <Redo2 className="drawing-undo" />
-      </button>
-      <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
-        <Trash2 />
-      </button>
-      <div className="drawing-divider" />
-      <div className="drawing-footer-actions">
-        <button
-          className={!keyDisplayEnabled ? "active" : ""}
-          aria-pressed={!keyDisplayEnabled}
-          title={t(keyDisplayEnabled ? "Stop Key Display" : "Show Key Display")}
-          onClick={() => {
-            void invoke<boolean>("toggle_key_display")
-              .then(setKeyDisplayEnabled)
-              .catch((error) => console.error("Failed to toggle key display:", error));
-          }}
-        >
-          {keyDisplayEnabled ? <KeyboardOff /> : <Keyboard />}
-        </button>
-        <button
-          title={t("Open Settings")}
-          onClick={() => void invoke("open_settings_window")}
-        >
-          <Settings />
-        </button>
-      </div>
-    </aside>
+    <DrawingToolbarView
+      toolbarRef={toolbarRef}
+      toolbarItems={toolbarItems}
+      radialStyle={radialStyle}
+      tool={tool}
+      color={color}
+      width={width}
+      minWidth={minWidth}
+      maxWidth={maxWidth}
+      canUndo={canUndo}
+      canRedo={canRedo}
+      closeShortcutLabel={closeShortcutLabel}
+      undoShortcutLabel={undoShortcutLabel}
+      selectionState={selectionState}
+      operationHint={operationHint}
+      probeMenu={probeMenu}
+      probe={probe}
+      keyDisplayEnabled={keyDisplayEnabled}
+      sendCommand={sendCommand}
+      setProbeMenu={setProbeMenu}
+      onDrag={() => void invoke("start_drawing_toolbar_drag")}
+      onHide={() => void invoke("hide_drawing_toolbar").catch(console.error)}
+      onClose={() => void invoke("close_screen_drawing")}
+      onToggleKeyDisplay={() => {
+        void invoke<boolean>("toggle_key_display")
+          .then(setKeyDisplayEnabled)
+          .catch((error) => console.error("Failed to toggle key display:", error));
+      }}
+      onSettings={() => void invoke("open_settings_window")}
+      onRecover={() => {
+        void invoke("drawing_recover").then(() => setOperationHint({ text: t("Display recovery requested") }))
+          .catch(() => setOperationHint({ text: t("Display recovery failed") }));
+      }}
+    />
   );
 }

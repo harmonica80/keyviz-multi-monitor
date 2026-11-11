@@ -4,5 +4,6 @@ pub mod event;
 pub mod native_cursor;
 pub mod native_drawing;
 pub mod native_keys;
+pub mod native_loop;
 pub mod state;
 pub mod window;

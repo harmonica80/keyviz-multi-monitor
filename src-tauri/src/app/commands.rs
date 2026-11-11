@@ -1,17 +1,14 @@
 use std::sync::Mutex;
 
 use serde::Serialize;
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use tauri_plugin_store::StoreExt;
 
 use crate::app::diagnostics::record_error;
 use crate::app::native_drawing::{parse_tool, NativeTool};
 use crate::app::native_keys::NativeKeyVisual;
 use crate::app::state::{AppState, TrayMenuItems};
-use crate::app::window::{
-    monitor_identifier, park_overlay_window, position_overlay_window, set_window_monitor,
-    OverlayAlignment,
-};
+use crate::app::window::{monitor_identifier, park_overlay_window, set_window_monitor};
 
 #[tauri::command]
 pub fn log(message: String) {
@@ -22,10 +19,11 @@ pub fn log(message: String) {
 }
 
 #[tauri::command]
-pub fn set_toggle_shortcut(app: tauri::AppHandle, shortcut: Vec<String>) {
+pub fn set_toggle_shortcut(app: tauri::AppHandle, shortcut: Vec<String>) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
-    let mut app_state = state.lock().unwrap();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.toggle_shortcut = shortcut;
+    Ok(())
 }
 
 #[tauri::command]
@@ -36,9 +34,9 @@ pub fn set_drawing_shortcuts(
     clear_shortcut: Option<Vec<String>>,
     undo_shortcut: Option<Vec<String>>,
     close_shortcut: Option<Vec<String>>,
-) {
+) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
-    let mut app_state = state.lock().unwrap();
+    let mut app_state = state.lock().map_err(|error| error.to_string())?;
     if let Some(shortcut) = toggle_shortcut {
         app_state.drawing_toggle_shortcut = shortcut;
     }
@@ -54,6 +52,7 @@ pub fn set_drawing_shortcuts(
     if let Some(shortcut) = close_shortcut {
         app_state.drawing_close_shortcut = shortcut;
     }
+    Ok(())
 }
 
 #[derive(Clone, Serialize)]
@@ -87,6 +86,9 @@ pub fn set_tray_locale(app: tauri::AppHandle, locale: String) -> Result<(), Stri
 
     let tray = app.state::<TrayMenuItems>();
     let is_chinese = locale == "zh-TW";
+    tray.show_drawing_toolbar
+        .set_text(crate::show_drawing_toolbar_label(is_chinese))
+        .map_err(|error| error.to_string())?;
     tray.toggle
         .set_text(if app_state.listening {
             if is_chinese {
@@ -125,45 +127,6 @@ pub fn set_tray_locale(app: tauri::AppHandle, locale: String) -> Result<(), Stri
     let store = app.store("store.json").map_err(|error| error.to_string())?;
     store.set("tray_locale", serde_json::Value::String(locale));
     store.save().map_err(|error| error.to_string())
-}
-
-#[tauri::command]
-pub fn update_overlay_window(
-    app: tauri::AppHandle,
-    width: f64,
-    height: f64,
-    visible: bool,
-    update_sequence: u64,
-    alignment: OverlayAlignment,
-    margin_x: f64,
-    margin_y: f64,
-) -> Result<(), String> {
-    let state = app.state::<Mutex<AppState>>();
-    let mut app_state = state.lock().map_err(|error| error.to_string())?;
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "Visualization window is unavailable".to_string())?;
-
-    if update_sequence <= app_state.key_overlay_update_sequence {
-        return Ok(());
-    }
-    app_state.key_overlay_update_sequence = update_sequence;
-
-    if !app_state.listening || !visible {
-        if !app_state.key_overlay_window_visible {
-            return Ok(());
-        }
-        app_state.key_overlay_window_visible = false;
-        return park_overlay_window(&window);
-    }
-
-    let result = position_overlay_window(
-        &window, &app_state, width, height, alignment, margin_x, margin_y,
-    );
-    if result.is_ok() {
-        app_state.key_overlay_window_visible = true;
-    }
-    result
 }
 
 #[tauri::command]
@@ -272,6 +235,9 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     let passthrough = matches!(tool, NativeTool::Pointer);
+    if app_state.settings_opening && !passthrough {
+        return Err("Wait for settings to finish opening".into());
+    }
     app_state.drawing_tool = tool.as_str().to_string();
     app_state.drawing_input_passthrough = passthrough;
     if passthrough {
@@ -283,6 +249,8 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
     }
     app_state.drawing_overlay.set_tool(tool);
     app_state.drawing_overlay.set_click_through(passthrough);
+    app.emit("drawing-tool-changed", serde_json::json!({ "tool": tool.as_str() }))
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -324,4 +292,45 @@ pub fn drawing_toggle_group(app: tauri::AppHandle) -> Result<(), String> {
     let app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.drawing_overlay.toggle_group();
     Ok(())
+}
+
+#[tauri::command]
+pub fn drawing_redo(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.redo();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn drawing_recover(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.recover();
+    app_state.cursor_overlay.recover();
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn drawing_probe_layer(app: tauri::AppHandle, layer: String) -> Result<serde_json::Value, String> {
+    let input = match layer.as_str() {
+        "input" => true,
+        "display" => false,
+        _ => return Err("Unknown overlay layer".into()),
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let overlay = {
+            let state = app.state::<Mutex<AppState>>();
+            let state = state.lock().map_err(|e| e.to_string())?;
+            state.drawing_overlay.clone()
+        };
+        crate::app::diagnostics::record_event(format!("Requested {layer} isolation test"));
+        let before = crate::app::diagnostics::export_diagnostics(app.clone())?;
+        let result = overlay.probe_layer(input);
+        let after = crate::app::diagnostics::export_diagnostics(app);
+        Ok(serde_json::json!({
+            "before": before, "after": after.as_ref().ok(),
+            "error": result.err().or_else(|| after.err()),
+        }))
+    }).await.map_err(|e| e.to_string())?
 }

@@ -1,5 +1,5 @@
 use std::{
-    sync::Mutex,
+    sync::{mpsc, Mutex},
     thread,
     time::{Duration, Instant},
 };
@@ -11,12 +11,6 @@ use tauri::{menu::MenuItem, AppHandle, Emitter, Manager, Wry};
 use crate::app::diagnostics::{record_error, unix_time_ms};
 use crate::app::native_drawing::NativeTool;
 use crate::app::state::AppState;
-
-#[cfg(target_os = "windows")]
-use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetAsyncKeyState, VK_CONTROL, VK_LCONTROL, VK_LMENU, VK_LSHIFT, VK_LWIN, VK_MENU, VK_RCONTROL,
-    VK_RMENU, VK_RSHIFT, VK_RWIN, VK_SHIFT,
-};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -103,7 +97,21 @@ fn shortcut_pressed(pressed_keys: &[String], shortcut: &[String]) -> bool {
 
 pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
     start_cursor_updater(app_handle.clone());
-    start_drawing_shortcut_poller(app_handle.clone());
+
+    // The low-level hook callback must stay fast and must never block:
+    // Windows silently removes a hook whose callback exceeds the
+    // LowLevelHooksTimeout budget, which permanently kills key display until
+    // the app restarts. The callback therefore only forwards the event into a
+    // channel; all state updates, shortcut handling and UI work happen on the
+    // worker thread below.
+    let (event_sender, event_receiver) = mpsc::channel::<rdev::Event>();
+
+    let worker_app_handle = app_handle.clone();
+    thread::spawn(move || {
+        for event in event_receiver {
+            process_input_event(&worker_app_handle, &toggle_menu_item, event);
+        }
+    });
 
     thread::spawn(move || {
         println!("Starting global input listener...");
@@ -115,6 +123,50 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
         }
 
         if let Err(err) = listen(move |event| {
+            let _ = event_sender.send(event);
+        }) {
+            let message = format!("rdev listen failed: {err:?}");
+            record_error(message.clone());
+            if let Ok(mut app_state) = status_app_handle.state::<Mutex<AppState>>().lock() {
+                app_state.mouse_hook_status = "failed".to_string();
+                app_state.mouse_hook_last_error = Some(message);
+            }
+        }
+    });
+}
+
+/// True when the window the user is currently working in belongs to this
+/// process (drawing canvas, toolbar, settings). Used to scope the drawing
+/// close shortcut (Esc by default): while annotations are merely displayed in
+/// pointer mode, Esc belongs to whatever application the user is actually
+/// using (ending a slideshow, closing a dialog) and must not tear down the
+/// drawing session behind their back.
+#[cfg(target_os = "windows")]
+fn foreground_is_own_window() -> bool {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.0 == 0 {
+            return false;
+        }
+        let mut process_id = 0u32;
+        GetWindowThreadProcessId(hwnd, Some(&mut process_id));
+        process_id != 0 && process_id == GetCurrentProcessId()
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn foreground_is_own_window() -> bool {
+    true
+}
+
+fn process_input_event(
+    app_handle: &AppHandle,
+    toggle_menu_item: &MenuItem<Wry>,
+    event: rdev::Event,
+) {
+    {
             // get app state
             let state = app_handle.state::<Mutex<AppState>>();
             let Ok(mut app_state) = state.lock() else {
@@ -137,10 +189,11 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 }
                 // record key as pressed
                 app_state.pressed_keys.push(key_name.clone());
-                // Windows drawing shortcuts are handled by the raw-key poller below.
-                // Processing them here as well can toggle the same session twice.
-                if !cfg!(target_os = "windows")
-                    && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_toggle_shortcut)
+                // Drawing shortcuts are handled here, in the single hook event
+                // stream, on every platform. (A separate GetAsyncKeyState
+                // poller used to handle them on Windows; two concurrent
+                // detection paths could race and toggle a session twice.)
+                if shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_toggle_shortcut)
                 {
                     let drawing_visible = app_state.drawing_visible;
                     app_state.pressed_keys.clear();
@@ -148,7 +201,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     let result = if drawing_visible {
                         crate::close_screen_drawing_impl(app_handle.clone())
                     } else {
-                        crate::show_drawing_window(&app_handle)
+                        crate::show_drawing_window(app_handle)
                     };
                     if let Err(error) = result {
                         record_error(format!("Failed to toggle screen drawing shortcut: {error}"));
@@ -156,36 +209,53 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                     return;
                 }
                 let drawing_visible = app_state.drawing_visible;
-                if !cfg!(target_os = "windows")
-                    && drawing_visible
+                let drawing_tool_active = drawing_visible && app_state.drawing_tool != "pointer";
+                if drawing_visible
                     && shortcut_pressed(
                         &app_state.pressed_keys,
                         &app_state.drawing_pointer_shortcut,
                     )
                 {
                     drop(app_state);
-                    if let Err(error) = set_drawing_pointer_mode(&app_handle) {
+                    if let Err(error) = set_drawing_pointer_mode(app_handle) {
                         record_error(format!("Failed to set drawing pointer shortcut: {error}"));
                     }
                     return;
                 }
-                if !cfg!(target_os = "windows")
-                    && drawing_visible
+                if drawing_tool_active
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_clear_shortcut)
                 {
                     app_state.drawing_overlay.delete_selection_or_clear();
                     return;
                 }
-                if !cfg!(target_os = "windows")
-                    && drawing_visible
-                    && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_undo_shortcut)
-                {
-                    app_state.drawing_overlay.undo();
-                    return;
+                if drawing_tool_active {
+                    // Redo is the undo shortcut plus Shift (Ctrl+Shift+Z for the
+                    // default Ctrl+Z). Shortcut matching ignores extra pressed
+                    // keys, so check redo before undo.
+                    let undo_has_shift = app_state
+                        .drawing_undo_shortcut
+                        .iter()
+                        .any(|key| key.starts_with("Shift"));
+                    let shift_down = app_state
+                        .pressed_keys
+                        .iter()
+                        .any(|key| key.starts_with("Shift"));
+                    if shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_undo_shortcut) {
+                        let redo = !undo_has_shift && shift_down;
+                        app_state.drawing_overlay.history_shortcut(redo);
+                        return;
+                    }
                 }
-                if !cfg!(target_os = "windows")
-                    && drawing_visible
+                // Scope for the close shortcut (Esc by default): while a
+                // drawing tool is active our input layer owns the keyboard, so
+                // Esc clearly targets the drawing session. In pointer mode the
+                // user is working in another application; only honor Esc when
+                // one of our own windows is in the foreground, and never while
+                // the radial menu is using it.
+                if drawing_visible
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_close_shortcut)
+                    && (drawing_tool_active || foreground_is_own_window())
+                    && !crate::app::native_drawing::radial_consumes_close()
                 {
                     app_state.pressed_keys.clear();
                     drop(app_state);
@@ -196,7 +266,7 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 }
                 // check if toggle shortcut is pressed
                 if shortcut_pressed(&app_state.pressed_keys, &app_state.toggle_shortcut) {
-                    app_state.toggle_listener(&app_handle, &toggle_menu_item);
+                    app_state.toggle_listener(app_handle, toggle_menu_item);
 
                     if !app_state.listening {
                         // emit key releases for all pressed keys
@@ -298,102 +368,14 @@ pub fn start_listener(app_handle: AppHandle, toggle_menu_item: MenuItem<Wry>) {
                 }
             };
 
-            if let Err(error) = app_handle.emit("input-event", input_event) {
+            // Only the visualization window ("main") listens to input events;
+            // a broadcast would wake every webview for every keystroke.
+            if let Err(error) = app_handle.emit_to("main", "input-event", input_event) {
                 record_error(format!("Failed to emit input event: {error}"));
             }
-        }) {
-            let message = format!("rdev listen failed: {err:?}");
-            record_error(message.clone());
-            if let Ok(mut app_state) = status_app_handle.state::<Mutex<AppState>>().lock() {
-                app_state.mouse_hook_status = "failed".to_string();
-                app_state.mouse_hook_last_error = Some(message);
-            }
-        }
-    });
-}
-
-#[cfg(target_os = "windows")]
-fn key_is_down(vk: i32) -> bool {
-    unsafe { (GetAsyncKeyState(vk) as u16 & 0x8000) != 0 }
-}
-
-#[cfg(target_os = "windows")]
-fn raw_key_is_down(raw_key: &str) -> bool {
-    match raw_key {
-        "Shift" | "ShiftLeft" => key_is_down(VK_SHIFT.0 as i32) || key_is_down(VK_LSHIFT.0 as i32),
-        "ShiftRight" => key_is_down(VK_RSHIFT.0 as i32),
-        "Control" | "ControlLeft" => {
-            key_is_down(VK_CONTROL.0 as i32) || key_is_down(VK_LCONTROL.0 as i32)
-        }
-        "ControlRight" => key_is_down(VK_RCONTROL.0 as i32),
-        "Alt" | "AltLeft" => key_is_down(VK_MENU.0 as i32) || key_is_down(VK_LMENU.0 as i32),
-        "AltRight" => key_is_down(VK_RMENU.0 as i32),
-        "Meta" | "MetaLeft" => key_is_down(VK_LWIN.0 as i32),
-        "MetaRight" => key_is_down(VK_RWIN.0 as i32),
-        "Num0" | "Kp0" => key_is_down(0x30) || key_is_down(0x60),
-        "Num1" | "Kp1" => key_is_down(0x31) || key_is_down(0x61),
-        "Num2" | "Kp2" => key_is_down(0x32) || key_is_down(0x62),
-        "Num3" | "Kp3" => key_is_down(0x33) || key_is_down(0x63),
-        "Num4" | "Kp4" => key_is_down(0x34) || key_is_down(0x64),
-        "Num5" | "Kp5" => key_is_down(0x35) || key_is_down(0x65),
-        "Num6" | "Kp6" => key_is_down(0x36) || key_is_down(0x66),
-        "Num7" | "Kp7" => key_is_down(0x37) || key_is_down(0x67),
-        "Num8" | "Kp8" => key_is_down(0x38) || key_is_down(0x68),
-        "Num9" | "Kp9" => key_is_down(0x39) || key_is_down(0x69),
-        "KeyA" => key_is_down(0x41),
-        "KeyB" => key_is_down(0x42),
-        "KeyC" => key_is_down(0x43),
-        "KeyD" => key_is_down(0x44),
-        "KeyE" => key_is_down(0x45),
-        "KeyF" => key_is_down(0x46),
-        "KeyG" => key_is_down(0x47),
-        "KeyH" => key_is_down(0x48),
-        "KeyI" => key_is_down(0x49),
-        "KeyJ" => key_is_down(0x4a),
-        "KeyK" => key_is_down(0x4b),
-        "KeyL" => key_is_down(0x4c),
-        "KeyM" => key_is_down(0x4d),
-        "KeyN" => key_is_down(0x4e),
-        "KeyO" => key_is_down(0x4f),
-        "KeyP" => key_is_down(0x50),
-        "KeyQ" => key_is_down(0x51),
-        "KeyR" => key_is_down(0x52),
-        "KeyS" => key_is_down(0x53),
-        "KeyT" => key_is_down(0x54),
-        "KeyU" => key_is_down(0x55),
-        "KeyV" => key_is_down(0x56),
-        "KeyW" => key_is_down(0x57),
-        "KeyX" => key_is_down(0x58),
-        "KeyY" => key_is_down(0x59),
-        "KeyZ" => key_is_down(0x5a),
-        "F1" => key_is_down(0x70),
-        "F2" => key_is_down(0x71),
-        "F3" => key_is_down(0x72),
-        "F4" => key_is_down(0x73),
-        "F5" => key_is_down(0x74),
-        "F6" => key_is_down(0x75),
-        "F7" => key_is_down(0x76),
-        "F8" => key_is_down(0x77),
-        "F9" => key_is_down(0x78),
-        "F10" => key_is_down(0x79),
-        "F11" => key_is_down(0x7a),
-        "F12" => key_is_down(0x7b),
-        "Delete" => key_is_down(0x2e),
-        "Escape" => key_is_down(0x1b),
-        "Backspace" => key_is_down(0x08),
-        "Tab" => key_is_down(0x09),
-        "Return" | "KpReturn" => key_is_down(0x0d),
-        "Space" => key_is_down(0x20),
-        _ => false,
     }
 }
 
-#[cfg(target_os = "windows")]
-fn shortcut_is_down(shortcut: &[String]) -> bool {
-    !shortcut.is_empty() && shortcut.iter().all(|key| raw_key_is_down(key))
-}
-
-#[cfg(target_os = "windows")]
 fn set_drawing_pointer_mode(app_handle: &AppHandle) -> Result<(), String> {
     let state = app_handle.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
@@ -416,121 +398,14 @@ fn set_drawing_pointer_mode(app_handle: &AppHandle) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
-#[cfg(target_os = "windows")]
-fn start_drawing_shortcut_poller(app_handle: AppHandle) {
-    thread::spawn(move || {
-        let mut toggle_was_down = false;
-        let mut pointer_was_down = false;
-        let mut clear_was_down = false;
-        let mut undo_was_down = false;
-        let mut close_was_down = false;
-
-        loop {
-            thread::sleep(Duration::from_millis(40));
-
-            let (toggle_shortcut, pointer_shortcut, clear_shortcut, undo_shortcut, close_shortcut) = {
-                let state = app_handle.state::<Mutex<AppState>>();
-                let shortcuts = match state.lock() {
-                    Ok(app_state) => (
-                        app_state.drawing_toggle_shortcut.clone(),
-                        app_state.drawing_pointer_shortcut.clone(),
-                        app_state.drawing_clear_shortcut.clone(),
-                        app_state.drawing_undo_shortcut.clone(),
-                        app_state.drawing_close_shortcut.clone(),
-                    ),
-                    Err(_) => (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()),
-                };
-                shortcuts
-            };
-
-            let toggle_down = shortcut_is_down(&toggle_shortcut);
-            let pointer_down = shortcut_is_down(&pointer_shortcut);
-            let clear_down = shortcut_is_down(&clear_shortcut);
-            let undo_down = shortcut_is_down(&undo_shortcut);
-            let close_down = shortcut_is_down(&close_shortcut);
-
-            if toggle_down && !toggle_was_down {
-                let drawing_visible = {
-                    let state = app_handle.state::<Mutex<AppState>>();
-                    state
-                        .lock()
-                        .map(|app_state| app_state.drawing_visible)
-                        .unwrap_or(false)
-                };
-                let result = if drawing_visible {
-                    crate::close_screen_drawing_impl(app_handle.clone())
-                } else {
-                    crate::show_drawing_window(&app_handle)
-                };
-                if let Err(error) = result {
-                    record_error(format!(
-                        "Failed to toggle screen drawing poller shortcut: {error}"
-                    ));
-                }
-            }
-
-            if clear_down && !clear_was_down {
-                let state = app_handle.state::<Mutex<AppState>>();
-                if let Ok(mut app_state) = state.lock() {
-                    if app_state.drawing_visible {
-                        app_state.drawing_overlay.delete_selection_or_clear();
-                        app_state.pressed_keys.clear();
-                    }
-                };
-            }
-
-            if undo_down && !undo_was_down {
-                let state = app_handle.state::<Mutex<AppState>>();
-                if let Ok(mut app_state) = state.lock() {
-                    if app_state.drawing_visible {
-                        app_state.drawing_overlay.undo();
-                        app_state.pressed_keys.clear();
-                    }
-                };
-            }
-
-            if close_down && !close_was_down {
-                let drawing_visible = {
-                    let state = app_handle.state::<Mutex<AppState>>();
-                    state
-                        .lock()
-                        .map(|app_state| app_state.drawing_visible)
-                        .unwrap_or(false)
-                };
-                if drawing_visible {
-                    if let Err(error) = crate::close_screen_drawing_impl(app_handle.clone()) {
-                        record_error(format!(
-                            "Failed to close screen drawing poller shortcut: {error}"
-                        ));
-                    }
-                }
-            }
-
-            if pointer_down && !pointer_was_down {
-                if let Err(error) = set_drawing_pointer_mode(&app_handle) {
-                    record_error(format!(
-                        "Failed to set drawing pointer poller shortcut: {error}"
-                    ));
-                }
-            }
-
-            toggle_was_down = toggle_down;
-            pointer_was_down = pointer_down;
-            clear_was_down = clear_down;
-            undo_was_down = undo_down;
-            close_was_down = close_down;
-        }
-    });
-}
-
-#[cfg(not(target_os = "windows"))]
-fn start_drawing_shortcut_poller(_app_handle: AppHandle) {}
-
 fn start_cursor_updater(app_handle: AppHandle) {
     let mut last_refresh = Instant::now() - Duration::from_secs(1);
+    // ~30 fps while the cursor highlight is in use; a slow heartbeat when the
+    // feature is off and the mouse is idle, so an idle app stays quiet.
+    let mut idle = false;
 
     thread::spawn(move || loop {
-        thread::sleep(Duration::from_millis(33));
+        thread::sleep(Duration::from_millis(if idle { 150 } else { 33 }));
 
         let update = {
             let state = app_handle.state::<Mutex<AppState>>();
@@ -542,8 +417,10 @@ fn start_cursor_updater(app_handle: AppHandle) {
                 && now.duration_since(last_refresh) >= Duration::from_millis(250);
 
             if !app_state.cursor_update_pending && !refresh_due {
+                idle = !app_state.cursor_keep_highlight;
                 continue;
             }
+            idle = false;
 
             app_state.cursor_update_pending = false;
             let visible = app_state.cursor_keep_highlight;
@@ -587,7 +464,8 @@ fn start_cursor_updater(app_handle: AppHandle) {
             last_refresh = Instant::now();
         }
 
-        let _ = app_handle.emit(
+        let _ = app_handle.emit_to(
+            "main",
             "input-event",
             InputEvent::MouseMoveEvent {
                 x: x - offset_x as f64,

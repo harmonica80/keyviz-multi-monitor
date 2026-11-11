@@ -1,0 +1,8 @@
+[
+  { "id": "pearl", "label": "01 Pearl", "fill": "#fcfbfc", "ink": "#292c30", "accent": "#292c30", "selectedInk": "#ffffff", "divider": "#d8d5dc" },
+  { "id": "graphite", "label": "02 Graphite", "fill": "#292d30", "ink": "#ffffff", "accent": "#e4e7eb", "selectedInk": "#292d30", "divider": "#555b62" },
+  { "id": "ocean", "label": "03 Ocean", "fill": "#173b55", "ink": "#ffffff", "accent": "#32a5f5", "selectedInk": "#ffffff", "divider": "#49657b" },
+  { "id": "butter", "label": "04 Butter Yellow", "fill": "#fcfbfc", "ink": "#49331d", "accent": "#e7b838", "selectedInk": "#49331d", "divider": "#ddd6ca" },
+  { "id": "orange", "label": "05 Bright Orange", "fill": "#fce4ec", "ink": "#372328", "accent": "#ff8a24", "selectedInk": "#ffffff", "divider": "#e9c7d2" },
+  { "id": "sand", "label": "06 Sand", "fill": "#f7ebdf", "ink": "#513726", "accent": "#b97555", "selectedInk": "#ffffff", "divider": "#dfcfc1" }
+]

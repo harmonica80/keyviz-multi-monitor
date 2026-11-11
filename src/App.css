@@ -219,14 +219,21 @@ body.drawing-page #root {
   width: 100%;
   height: auto;
   box-sizing: border-box;
-  padding: 1px;
+  padding: 5px 3px 18px;
   overflow: visible;
   flex-direction: column;
   gap: 1px;
   border: 0;
-  border-radius: 4px;
-  background: #f7f7f7;
-  box-shadow: none;
+  border-radius: 24px;
+  color: var(--tool-ink);
+  background: var(--tool-fill);
+  box-shadow: inset 0 0 0 1px var(--tool-divider);
+}
+
+html.drawing-toolbar-page,
+html.drawing-toolbar-page body,
+html.drawing-toolbar-page #root {
+  background: var(--tool-fill, #fcfbfc) !important;
 }
 
 .drawing-toolbar button {
@@ -236,16 +243,22 @@ body.drawing-page #root {
   min-width: 0;
   min-height: 38px;
   padding: 0;
-  border: 1px solid #9a9a9a;
-  border-radius: 2px;
-  color: #333;
-  background: #fff;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--tool-ink);
+  background: transparent;
 }
 
 .drawing-toolbar button:hover,
 .drawing-toolbar button.active {
-  border-color: #333;
-  background: #d9d9d9;
+  border-color: var(--tool-divider);
+  color: var(--tool-selected-ink);
+  background: var(--tool-accent);
+}
+
+.drawing-toolbar button:focus-visible {
+  outline: 2px solid var(--tool-accent);
+  outline-offset: -2px;
 }
 
 .drawing-toolbar button:disabled {
@@ -259,15 +272,118 @@ body.drawing-page #root {
 
 .drawing-toolbar .drawing-close {
   color: #fff;
-  border-color: #8d1f1f;
+  border-color: transparent;
   background: #c83737;
+  border-radius: 10px;
 }
+
+.drawing-window-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  height: 38px;
+}
+
+.drawing-toolbar .drawing-window-actions svg {
+  width: 16px;
+  height: 16px;
+}
+
+.radial-style-preview {
+  filter: drop-shadow(0 4px 5px rgb(0 0 0 / 24%));
+  --radial-line: var(--tool-divider);
+  --radial-fill: var(--tool-fill);
+  --radial-ink: var(--tool-ink);
+  position: relative;
+  display: block;
+  width: 104px;
+  height: 104px;
+  max-width: 100%;
+  aspect-ratio: 1;
+  margin-inline: auto;
+  color: var(--radial-ink);
+}
+
+.radial-preview-ring {
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--radial-line);
+  border-radius: 50%;
+  background: repeating-conic-gradient(from -30deg, var(--radial-line) 0deg 0.6deg, transparent 0.6deg 60deg), var(--radial-fill);
+}
+
+.radial-preview-inner {
+  inset: 22%;
+  background: repeating-conic-gradient(from -30deg, var(--radial-line) 0deg 0.8deg, transparent 0.8deg 60deg), var(--radial-fill);
+}
+
+.radial-preview-icon {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  transform: translate(-50%, -50%);
+}
+
+.radial-preview-icon svg {
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.2;
+}
+
+.radial-preview-center {
+  position: absolute;
+  inset: 44%;
+  border: 1px solid var(--radial-line);
+  border-radius: 50%;
+  background: var(--radial-fill);
+}
+
+.drawing-theme-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.theme-preview-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 3px;
+  border: 1px solid var(--tool-divider);
+  border-radius: 20px;
+  background: var(--tool-fill);
+  color: var(--tool-ink);
+  box-shadow: 0 3px 6px rgb(0 0 0 / 18%);
+}
+
+.theme-preview-toolbar > span {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+
+.theme-preview-toolbar svg { width: 14px; height: 14px; }
+.theme-preview-toolbar .active {
+  color: var(--tool-selected-ink);
+  background: var(--tool-accent);
+}
+
+.drawing-theme-preview .radial-preview-inner {
+  background: conic-gradient(from -30deg, var(--tool-accent) 0deg 60deg, transparent 60deg),
+    repeating-conic-gradient(from -30deg, var(--radial-line) 0deg 0.8deg, transparent 0.8deg 60deg), var(--radial-fill);
+}
+
+.drawing-theme-preview .radial-preview-icon:nth-of-type(3) { color: var(--tool-selected-ink); }
 
 .drawing-toolbar .drawing-drag-handle {
   min-height: 24px;
   cursor: move;
-  color: #555;
-  background: #e8e8e8;
+  color: var(--tool-ink);
+  background: transparent;
 }
 
 .drawing-toolbar .drawing-drag-handle svg {
@@ -278,7 +394,23 @@ body.drawing-page #root {
 .drawing-divider {
   height: 1px;
   margin: 2px 0;
-  background: #aaa;
+  background: var(--tool-divider);
+}
+
+.drawing-operation-hint {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  z-index: 20;
+  width: 100%;
+  padding: 2px;
+  font-size: 10px;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: anywhere;
+  color: #173e65;
+  background: #eef6ff;
+  pointer-events: none;
 }
 
 .drawing-colors {
@@ -323,9 +455,9 @@ body.drawing-page #root {
   align-items: center;
   min-height: 26px;
   padding: 2px 4px;
-  border: 1px solid #9a9a9a;
-  border-radius: 2px;
-  background: #fff;
+  border: 1px solid var(--tool-divider);
+  border-radius: 12px;
+  background: var(--tool-fill);
 }
 
 .drawing-width-slider input {
@@ -336,7 +468,7 @@ body.drawing-page #root {
   appearance: none;
   -webkit-appearance: none;
   background: transparent;
-  accent-color: #333;
+  accent-color: var(--tool-accent);
 }
 
 .drawing-width-slider input::-webkit-slider-runnable-track {
@@ -392,7 +524,7 @@ body.drawing-page #root {
 
 .drawing-footer-actions {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
 }
 
@@ -401,6 +533,17 @@ body.drawing-page #root {
 }
 
 .drawing-toolbar .drawing-footer-actions svg {
+  width: 14px;
+  height: 14px;
+}
+
+.drawing-history-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+}
+
+.drawing-toolbar .drawing-history-actions svg {
   width: 18px;
   height: 18px;
 }
