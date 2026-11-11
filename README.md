@@ -4,20 +4,23 @@
 
 This is a customized Windows build based on [mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for tutorials, presentations, screen recording, and live teaching workflows, with multi-monitor support, Traditional Chinese UI, cursor highlighting, and on-screen drawing tools.
 
-## 下載最新正式版
+## 下載最新版本（v1.0.27）
 
-**[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
+**[下載 Keyviz v1.0.27 Windows 免安裝版（GitHub Actions 建置產物）](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42939243002)**
 
-目前最新正式版為 **v1.0.26**。上方連結直接下載正式版 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+開啟連結後，在頁面底部 **Artifacts** 區下載 `keyviz-portable`（zip，解壓縮後即為 `keyviz-portable.exe`）。下載 Actions 產物需要先登入 GitHub。
 
-**v1.0.26** 更新與實際工具列一致的設定頁預覽；圓形選單的兩個快捷色預設為紅、藍，可自訂並保存；中央改為空白，仍可點擊關閉選單。六款統一主題與既有繪圖操作保留。
+目前 `main` 為 **v1.0.27**（Claude 修正版）。此版本以穩定性與多螢幕為主，未新增功能；因尚未完成實機測試，**尚未發佈為 GitHub Release**。[Releases 頁面](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest)上的「最新正式版」仍是 v1.0.26，其直接下載連結為：[keyviz-portable.exe（v1.0.26）](https://github.com/harmonica80/keyviz-multi-monitor/releases/download/v1.0.26/keyviz-portable.exe)。
 
-- [v1.0.26 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.26)
-- [v1.0.26 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42452533922)
-- [v1.0.26 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.26)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.26`。
+**v1.0.27** 重點：低階鍵鼠 Hook 回呼瘦身（避免按鍵顯示失效與死結）、移除 40ms 快捷鍵輪詢並統一單一路徑、Esc 關閉繪圖只在繪圖中或 Keyviz 自己為前景時生效、置頂看門狗改為「被降級才重排」、支援螢幕接上／拔除時就地重建覆蓋層、設定以前端為單一真相來源、原生執行緒改事件驅動降低閒置喚醒，並新增 `keyviz.log` 診斷記錄。
 
-The latest stable release is **v1.0.26**. The direct EXE download above does not require GitHub sign-in. Settings preview uses the real toolbar renderer; the circular menu has customizable red/blue quick colors and a blank dismissible center. All six unified themes and existing drawing controls remain available. Exit the old version before running the new EXE and confirm `v1.0.26` in the title bar. The v1.0.26 tag contains the exact source used for this build.
+- [v1.0.27 更新說明](release-notes-v1.0.27.md)
+- [修正檔案與交接說明（handoff.md）](handoff.md)
+- [v1.0.27 Windows 建置與自動測試紀錄](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42939243002)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.27`。
+- 發生異常時，診斷記錄位於應用程式日誌資料夾下的 `keyviz.log`，回報問題時請一併附上。
+
+**Latest build: v1.0.27.** Download the `keyviz-portable` artifact from the [Actions run](https://github.com/harmonica80/keyviz-multi-monitor/actions/runs/42939243002) (GitHub sign-in required; unzip to get `keyviz-portable.exe`). This version focuses on stability and multi-monitor handling (slimmed-down low-level hook callbacks, a single shortcut path, scoped Esc-to-close, topmost watchdog that only re-raises when demoted, overlay rebuild on display changes, frontend as the single source of settings, event-driven native threads, and a `keyviz.log` diagnostic file). It has not been field-tested yet and is **not published as a GitHub Release**; the latest Release is still [v1.0.26](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.26). See [release-notes-v1.0.27.md](release-notes-v1.0.27.md) and [handoff.md](handoff.md). Exit the old version before running the new EXE and confirm `v1.0.27` in the title bar.
 
 ## v1.0.26：一致預覽與自訂圓形選單顏色
 
@@ -66,7 +69,7 @@ The circular menu supports Left Alt + right mouse immediately after startup, hid
 - 文字內容可點擊中間插入／刪除、拖曳選取、方向鍵移動、Shift 選取與 Ctrl+A 全選；文字物件可在編輯／選取時換色，顏色套用至整個文字物件。
 - 已通過 37 項原生測試與 47 項快捷鍵相關檢查；不同電腦的實際鍵鼠操作仍需驗證。
 
-以下整理 v1.0.26 正式版的功能；各版本更新內容請參閱對應的 Release 說明。
+以下整理 v1.0.26 起的主要功能（v1.0.27 僅修正穩定性與多螢幕處理，未新增功能）；各版本更新內容請參閱對應的 Release 說明或 release-notes 檔案。
 
 - 即時顯示鍵盤按鍵與快速鍵，方便教學、簡報、錄影與直播。
 - 支援多螢幕環境，可選擇按鍵顯示所在螢幕與位置。
@@ -130,7 +133,7 @@ The circular menu supports Left Alt + right mouse immediately after startup, hid
 
 ## Features
 
-This list describes the v1.0.26 stable release, including unified drawing themes, a matching toolbar preview, customizable radial quick colors, a blank radial hub, hidden-toolbar drawing, text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
+This list describes the v1.0.26 feature set (v1.0.27 adds no features, only fixes), including unified drawing themes, a matching toolbar preview, customizable radial quick colors, a blank radial hub, hidden-toolbar drawing, text sizes 15–45, double-click editing, caret navigation, text selection, and whole-object text color changes. See each Release's notes for version-specific changes.
 
 - Real-time keyboard and shortcut visualization for tutorials, presentations, screen recording, and live demos.
 - Multi-monitor support with configurable display and overlay position.
