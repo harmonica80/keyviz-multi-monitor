@@ -78,7 +78,9 @@ assert.deepEqual(migrated.radialColors, DEFAULT_RADIAL_COLORS);
 assert.equal(migrated.items[0].id, "pen");
 assert.equal(migrated.items[0].visible, false);
 assert.equal(migrated.side, "left");
-assert.deepEqual(migrated.radialShortcut, ["KeyR"]);
+assert.deepEqual(migrated.radialShortcut, []); // Q circular-menu shortcut was removed (v1.0.29)
+assert.equal(migrated.saveDir, "");
+assert.equal(store.options.migrate({saveDir: " D:\\Shots "}).saveDir, "D:\\Shots");
 assert.deepEqual(migrated.hoverEdit, {pen: false});
 assert.equal(store.options.merge({...oldState, radialStyle: "orange"}, store.getState()).radialStyle, "orange");
 assert.deepEqual(store.options.merge({...oldState, radialColors: ["#123456", "#654321"]}, store.getState()).radialColors, ["#123456", "#654321"]);
