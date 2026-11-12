@@ -17,6 +17,7 @@ import { useKeyEvent } from "@/stores/key_event";
 import { listenForUpdates } from "@/stores/sync";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   KeyboardEvent as ReactKeyboardEvent,
@@ -498,6 +499,33 @@ export default function ScreenDrawing() {
     };
   }, [drawingCloseShortcut, drawingUndoShortcut, finishTextEditor, isToolbar, notifyHistory, redraw, resizeCanvas, updateTextEditor]);
 
+  const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+  const saveScreen = async (kind: "png" | "json") => {
+    try {
+      const path = await invoke<string>("drawing_export", { kind });
+      setOperationHint({ text: `${t("Saved")} ${baseName(path)}` });
+    } catch (error) {
+      console.error(error);
+      setOperationHint({ text: t(String(error)) });
+    }
+  };
+  const openJson = async () => {
+    try {
+      const defaultPath = await invoke<string>("drawing_export_dir").catch(() => undefined);
+      const selected = await openFileDialog({
+        multiple: false,
+        defaultPath,
+        filters: [{ name: "Keyviz JSON", extensions: ["json"] }],
+      });
+      if (typeof selected !== "string") return;
+      await invoke("drawing_import", { path: selected });
+      setOperationHint({ text: `${t("Opened")} ${baseName(selected)}` });
+    } catch (error) {
+      console.error(error);
+      setOperationHint({ text: t(String(error)) });
+    }
+  };
+
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {
       await invoke("drawing_set_tool", { tool: command.value }).catch((error) => {
@@ -688,6 +716,9 @@ export default function ScreenDrawing() {
           .catch((error) => console.error("Failed to toggle key display:", error));
       }}
       onSettings={() => void invoke("open_settings_window")}
+      onSavePng={() => void saveScreen("png")}
+      onSaveJson={() => void saveScreen("json")}
+      onOpenJson={() => void openJson()}
       onRecover={() => {
         void invoke("drawing_recover").then(() => setOperationHint({ text: t("Display recovery requested") }))
           .catch(() => setOperationHint({ text: t("Display recovery failed") }));

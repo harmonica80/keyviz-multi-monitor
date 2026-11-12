@@ -67,6 +67,7 @@ mod platform {
 
     include!("drawing_radial.rs");
     include!("drawing_radial_render.rs");
+    include!("drawing_export.rs");
 
     #[repr(C)]
     struct GdiplusStartupInput {
@@ -266,6 +267,8 @@ mod platform {
         ToggleHoverEdit { epoch: u64 },
         ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String, colors: [String; 2] },
         SetToolbarHidden(bool),
+        Export { kind: ExportKind, reply: Sender<Result<String, String>> },
+        Import { path: String, reply: Sender<Result<String, String>> },
         OpenPointerRadial { epoch: u64 },
         RequestPointerRadial,
         SetKeyboardVisible(bool),
@@ -455,6 +458,8 @@ mod platform {
         /// pointer leaves it) until the next click elsewhere, so the toolbar can
         /// be used to recolour it.
         hover_sticky: bool,
+        /// Frozen screenshot shown under the drawings after opening a JSON file.
+        background: Option<ScreenBackground>,
         window_alt: AltTapTracker,
         input_epoch: u64,
         app: AppHandle,
@@ -865,6 +870,26 @@ mod platform {
             if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::Recover); }
         }
 
+        /// Saves the monitor under the pointer; `kind` is "png" or "json". Returns the file path.
+        pub fn export_screen(&self, kind: &str) -> Result<String, String> {
+            let kind = match kind {
+                "png" => ExportKind::Png,
+                "json" => ExportKind::Json,
+                _ => return Err("Unknown export format".into()),
+            };
+            let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
+            let (reply, receiver) = mpsc::channel();
+            sender.send(DrawingCommand::Export { kind, reply }).map_err(|e| e.to_string())?;
+            receiver.recv_timeout(Duration::from_secs(30)).map_err(|_| "Saving timed out".to_string())?
+        }
+
+        pub fn import_json(&self, path: &str) -> Result<String, String> {
+            let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
+            let (reply, receiver) = mpsc::channel();
+            sender.send(DrawingCommand::Import { path: path.to_string(), reply }).map_err(|e| e.to_string())?;
+            receiver.recv_timeout(Duration::from_secs(30)).map_err(|_| "Opening timed out".to_string())?
+        }
+
         pub fn probe_layer(&self, input: bool) -> Result<(), String> {
             let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
             let (reply, receiver) = mpsc::channel();
@@ -1025,6 +1050,7 @@ mod platform {
                     hover_edit: std::collections::HashMap::new(),
                     hover_edit_active: false,
                     hover_sticky: false,
+                    background: None,
                     window_alt: AltTapTracker::default(),
                     input_epoch: 0,
                     app,
@@ -1574,6 +1600,7 @@ mod platform {
                 state.gesture_before = None;
                 state.last_wheel = None;
                 state.drawings.clear();
+                state.background = None;
                 state.active = None;
                 state.selected.clear();
                 state.selection = None;
@@ -1661,7 +1688,21 @@ mod platform {
                 }
                 refresh_overlay(state);
             }
-            DrawingCommand::Clear => clear_drawings(state),
+            DrawingCommand::Clear => {
+                // A second "clear" with nothing left to clear also drops an opened screenshot.
+                if state.drawings.is_empty() && state.background.is_some() {
+                    state.background = None;
+                    refresh_overlay(state);
+                } else {
+                    clear_drawings(state);
+                }
+            }
+            DrawingCommand::Export { kind, reply } => {
+                let _ = reply.send(export_screen(state, kind));
+            }
+            DrawingCommand::Import { path, reply } => {
+                let _ = reply.send(import_json(state, &path));
+            }
             DrawingCommand::Undo | DrawingCommand::Redo | DrawingCommand::HistoryShortcut { .. } => {
                 if state.edit.is_none() {
                     finish_gesture_history(state);
@@ -2754,7 +2795,10 @@ mod platform {
             let alpha = *pixel >> 24;
             if rgb == TRANSPARENT_PIXEL || (rgb == 0 && alpha == 0) {
                 *pixel = 0;
-                if let Some(menu) = &state.radial {
+                if let Some(background) = state.background.as_ref().and_then(|b| b.pixel(x, y)) {
+                    // Opened screenshot shows through wherever nothing is drawn (or erased).
+                    *pixel = background;
+                } else if let Some(menu) = &state.radial {
                     let point = Point { x: x - state.bounds.left, y: y - state.bounds.top };
                     if shadow_bounds.is_some_and(|bounds| point_in_rect(point, bounds)) {
                         *pixel = (radial_shadow_alpha(menu, &menu.panel, point) as u32) << 24;
@@ -5973,6 +6017,12 @@ mod platform_stub {
         pub fn history_shortcut(&self, _redo: bool) {}
         pub fn redo(&self) {}
         pub fn recover(&self) {}
+        pub fn export_screen(&self, _kind: &str) -> Result<String, String> {
+            Err("Saving is available on Windows only".into())
+        }
+        pub fn import_json(&self, _path: &str) -> Result<String, String> {
+            Err("Opening is available on Windows only".into())
+        }
         pub fn probe_layer(&self, _input: bool) -> Result<(), String> {
             Err("Layer tests are available on Windows only".into())
         }

@@ -155,7 +155,7 @@ export const DrawingToolbarSettings = () => {
             <Switch checked={radialRightClick} onCheckedChange={setRadialRightClick} aria-label={t("Right-click to Open Circular Menu")} />
           </label>
           <ItemDescription>{t("While using a drawing tool, right-click the canvas to open the menu; right-click again to cancel. Pointer mode, text entry and toolbar context menus are unchanged. The keyboard shortcut remains available.")}</ItemDescription>
-          <ItemDescription>{t("In pointer mode, hold Left Alt and click the right mouse button to open the circular menu. Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode, even when the toolbar is hidden.")}</ItemDescription>
+          <ItemDescription>{t("In pointer mode, hold Left or Right Alt and click the right mouse button to open the circular menu. Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode, even when the toolbar is hidden.")}</ItemDescription>
         </ItemContent>
       </Item>
 

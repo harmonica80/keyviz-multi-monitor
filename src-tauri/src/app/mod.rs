@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod diagnostics;
 pub mod event;
+pub mod export_io;
 pub mod native_cursor;
 pub mod native_drawing;
 pub mod native_keys;

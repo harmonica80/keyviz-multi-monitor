@@ -2014,10 +2014,12 @@ dependencies = [
 
 [[package]]
 name = "keyviz"
-version = "1.0.28"
+version = "1.0.29"
 dependencies = [
+ "base64 0.22.1",
  "cocoa 0.25.0",
  "objc",
+ "png",
  "rdev",
  "serde",
  "serde_json",

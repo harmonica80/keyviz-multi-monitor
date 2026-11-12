@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -49,6 +49,19 @@
 | `.github/workflows/build-portable.yml` | 新增 `v*` 標籤觸發編譯並自動發佈 Release；`workflow_dispatch` 新增 `release_tag` 輸入，可把 exe 附到已存在的 Release。 |
 | `package.json`、`src-tauri/Cargo.toml`、`Cargo.lock`、`tauri.conf.json` | 版本 1.0.28。 |
 | `release-notes-v1.0.28.md`、`README.md` | 新增／更新說明。 |
+
+## v1.0.29 追加（相對 v1.0.28）
+| 檔案 | 修改內容 |
+|---|---|
+| `src-tauri/src/app/drawing_radial.rs` | 圓形選單閘門 `GetAsyncKeyState(0xa4) || (0xa5)`：左／右 Alt 都可叫出；`extra` 清單移除 0xa5（Ctrl 仍在，AltGr 不誤觸）。 |
+| `src-tauri/src/app/export_io.rs`（新） | 與平台無關：`write_numbered`（`YYYYMMDD-NN.ext` 自動遞增、`create_new` 避免覆蓋）、PNG 編解碼（`png` crate）、base64；含單元測試。 |
+| `src-tauri/src/app/drawing_export.rs`（新，`include!` 進 `native_drawing.rs` 的 `platform`） | `export_screen`：以 `SetWindowDisplayAffinity(0x11)` 暫時把自家 overlay／工具列排除於擷取，`BitBlt|CAPTUREBLT` 擷取游標所在螢幕；繪圖物件先畫在透明圖層再合成（橡皮擦行為與畫面一致）。JSON 座標為螢幕左上角為 0,0 的相對座標。`import_json`：還原繪圖物件（可復原）並以 `ScreenBackground` 當底圖。 |
+| `src-tauri/src/app/native_drawing.rs` | 新增 `DrawingCommand::Export/Import`、`OverlayState.background`；alpha 轉換迴圈在透明處改取底圖；`Clear` 在無繪圖物件時移除底圖，`Hide` 重置。 |
+| `src-tauri/src/app/commands.rs`、`lib.rs` | 新增命令 `drawing_export(kind)`、`drawing_import(path)`、`drawing_export_dir`。 |
+| `src/components/drawing-toolbar-view.tsx`、`src/pages/screen-drawing.tsx`、`src/App.css`、`src/lib/i18n.ts` | 工具列新增三顆按鈕（存 PNG／存 JSON／開啟 JSON，開啟用 `@tauri-apps/plugin-dialog`）與中文字串；說明文字改為「左或右 Alt」。 |
+| `Cargo.toml`／`Cargo.lock` | 新增直接依賴 `png 0.17`、`base64 0.22`（原本已是間接依賴），windows 啟用 `Win32_System_SystemInformation`。版本 1.0.29。 |
+
+**未實機驗證**：擷取排除（需 Win10 2004+）、DWM 套用延遲（目前 `Sleep(180)`）、多螢幕座標換算、底圖疊合。若截圖含有 Keyviz 自己的視窗，優先檢查 `capture_screen`。
 
 發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.28`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.28`，exe 會自動附到該 Release。
 

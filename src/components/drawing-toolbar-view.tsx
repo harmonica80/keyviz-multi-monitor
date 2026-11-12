@@ -3,7 +3,7 @@ import { drawingThemeVariables } from "@/lib/drawing-themes";
 import { useTranslation } from "@/lib/i18n";
 import type { useOverlayProbe } from "@/lib/overlay-probe";
 import type { DrawingToolbarItem, RadialStyle } from "@/stores/drawing_toolbar";
-import { Check, EyeOff, GripHorizontal, Group, Keyboard, KeyboardOff, Redo2, Undo2, RefreshCw, Settings, Trash2, X } from "lucide-react";
+import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, Redo2, Undo2, RefreshCw, Settings, Trash2, X } from "lucide-react";
 import type { CSSProperties, Ref } from "react";
 
 export const DRAWING_TOOLBAR_COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
@@ -41,6 +41,9 @@ interface DrawingToolbarViewProps {
   onToggleKeyDisplay?: () => void;
   onSettings?: () => void;
   onRecover?: () => void;
+  onSavePng?: () => void;
+  onSaveJson?: () => void;
+  onOpenJson?: () => void;
 }
 
 const noop = () => {};
@@ -54,6 +57,7 @@ export function DrawingToolbarView({
   probeMenu = false, probe = { busy: false, result: null, run: async () => {} },
   keyDisplayEnabled = true, sendCommand = noop, setProbeMenu = noop,
   onDrag, onHide, onClose, onToggleKeyDisplay, onSettings, onRecover,
+  onSavePng, onSaveJson, onOpenJson,
 }: DrawingToolbarViewProps) {
   const { t } = useTranslation();
   const toolButtons = toolbarItems.filter((item) => item.visible).map((item) => DRAWING_TOOL_BY_ID[item.id]);
@@ -151,6 +155,12 @@ export function DrawingToolbarView({
       <button title={t("Clear All")} onClick={() => void sendCommand({ type: "clear" })}>
         <Trash2 />
       </button>
+      <div className="drawing-divider" />
+      <div className="drawing-file-actions">
+        <button title={t("Save screen as PNG")} aria-label={t("Save screen as PNG")} onClick={onSavePng}><ImageDown /></button>
+        <button title={t("Save screen as JSON (editable)")} aria-label={t("Save screen as JSON (editable)")} onClick={onSaveJson}><FileJson /></button>
+        <button title={t("Open JSON to edit")} aria-label={t("Open JSON to edit")} onClick={onOpenJson}><FolderOpen /></button>
+      </div>
       <div className="drawing-divider" />
       <div className="drawing-footer-actions">
         {probeMenu ? <>

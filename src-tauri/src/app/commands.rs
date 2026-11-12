@@ -312,6 +312,38 @@ pub fn drawing_recover(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub async fn drawing_export(app: tauri::AppHandle, kind: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let overlay = {
+            let state = app.state::<Mutex<AppState>>();
+            let state = state.lock().map_err(|e| e.to_string())?;
+            state.drawing_overlay.clone()
+        };
+        overlay.export_screen(&kind)
+    }).await.map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn drawing_import(app: tauri::AppHandle, path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let overlay = {
+            let state = app.state::<Mutex<AppState>>();
+            let state = state.lock().map_err(|e| e.to_string())?;
+            state.drawing_overlay.clone()
+        };
+        overlay.import_json(&path)
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// Folder that holds saved PNG / JSON files (created on demand).
+#[tauri::command]
+pub fn drawing_export_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = app.path().picture_dir().unwrap_or_else(|_| std::env::temp_dir()).join("Keyviz");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 pub async fn drawing_probe_layer(app: tauri::AppHandle, layer: String) -> Result<serde_json::Value, String> {
     let input = match layer.as_str() {
         "input" => true,

@@ -326,8 +326,10 @@ mod radial_keyboard {
             }
             if wparam.0 as u32 != WM_RBUTTONDOWN { return false; }
             let foreground = GetAncestor(GetForegroundWindow(), GA_ROOTOWNER).0;
-            let extra = [0x11, 0x10, 0xa5, 0x5b, 0x5c, 1].iter().any(|key| GetAsyncKeyState(*key) < 0);
-            if !pointer_radial_allowed(gate.pointer, gate.open, GetAsyncKeyState(0xa4) < 0,
+            // Right Alt now opens the menu like Left Alt. AltGr layouts report Ctrl (0x11)
+            // together with Right Alt, so they still count as "extra" and stay untouched.
+            let extra = [0x11, 0x10, 0x5b, 0x5c, 1].iter().any(|key| GetAsyncKeyState(*key) < 0);
+            if !pointer_radial_allowed(gate.pointer, gate.open, GetAsyncKeyState(0xa4) < 0 || GetAsyncKeyState(0xa5) < 0,
                 extra, gate.settings != 0 && foreground == gate.settings) { return false; }
             let epoch = gate.epoch;
             drop(gate);

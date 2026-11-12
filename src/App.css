@@ -522,12 +522,14 @@ html.drawing-toolbar-page #root {
   transform: scaleX(-1);
 }
 
-.drawing-footer-actions {
+.drawing-footer-actions,
+.drawing-file-actions {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 1px;
 }
 
+.drawing-toolbar .drawing-file-actions button,
 .drawing-toolbar .drawing-footer-actions button {
   min-height: 28px;
 }
@@ -535,10 +537,12 @@ html.drawing-toolbar-page #root {
 /* Hide-toolbar button and the three footer buttons use the same rounded
    rectangle as the red close button instead of an ellipse on hover/press. */
 .drawing-toolbar .drawing-window-actions button,
+.drawing-toolbar .drawing-file-actions button,
 .drawing-toolbar .drawing-footer-actions button {
   border-radius: 10px;
 }
 
+.drawing-toolbar .drawing-file-actions svg,
 .drawing-toolbar .drawing-footer-actions svg {
   width: 14px;
   height: 14px;
