@@ -502,7 +502,8 @@ export default function ScreenDrawing() {
   const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
   const saveScreen = async (kind: "png" | "json") => {
     try {
-      const path = await invoke<string>("drawing_export", { kind });
+      const dir = useDrawingToolbar.getState().saveDir || null;
+      const path = await invoke<string>("drawing_export", { kind, dir });
       setOperationHint({ text: `${t("Saved")} ${baseName(path)}` });
     } catch (error) {
       console.error(error);
@@ -511,7 +512,9 @@ export default function ScreenDrawing() {
   };
   const openJson = async () => {
     try {
-      const defaultPath = await invoke<string>("drawing_export_dir").catch(() => undefined);
+      const defaultPath = await invoke<string>("drawing_export_dir", {
+        dir: useDrawingToolbar.getState().saveDir || null,
+      }).catch(() => undefined);
       const selected = await openFileDialog({
         multiple: false,
         defaultPath,

@@ -10,17 +10,16 @@ import {
 import { DRAWING_THEMES, drawingThemeVariables } from "@/lib/drawing-themes";
 import { Button } from "@/components/ui/button";
 import { DrawingToolbarView } from "@/components/drawing-toolbar-view";
-import { ShortcutRecorder } from "@/components/shortcut-recorder";
-import { radialShortcutError } from "@/lib/radial-shortcut";
-import { useKeyEvent } from "@/stores/key_event";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { invoke } from "@tauri-apps/api/core";
+import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
 import {
   Check,
   ChevronDown,
   ChevronUp,
+  FolderOpen,
   GripVertical,
   PanelLeft,
   PanelRight,
@@ -44,15 +43,15 @@ export const DrawingToolbarSettings = () => {
   const setToolVisible = useDrawingToolbar((state) => state.setToolVisible);
   const setSide = useDrawingToolbar((state) => state.setSide);
   const resetToolbar = useDrawingToolbar((state) => state.resetToolbar);
-  const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
-  const setRadialShortcut = useDrawingToolbar((state) => state.setRadialShortcut);
+  const saveDir = useDrawingToolbar((state) => state.saveDir);
+  const setSaveDir = useDrawingToolbar((state) => state.setSaveDir);
+  const [effectiveSaveDir, setEffectiveSaveDir] = useState("");
   const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
   const setRadialRightClick = useDrawingToolbar((state) => state.setRadialRightClick);
   const radialStyle = useDrawingToolbar((state) => state.radialStyle);
   const setRadialStyle = useDrawingToolbar((state) => state.setRadialStyle);
   const radialColors = useDrawingToolbar((state) => state.radialColors);
   const setRadialColor = useDrawingToolbar((state) => state.setRadialColor);
-  const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
   const dragSession = useRef<ToolbarDragSession | null>(null);
@@ -62,6 +61,25 @@ export const DrawingToolbarSettings = () => {
       console.error("Failed to update drawing toolbar side:", error);
     });
   }, [side]);
+
+  useEffect(() => {
+    void invoke<string>("drawing_export_dir", { dir: saveDir || null })
+      .then(setEffectiveSaveDir)
+      .catch(() => setEffectiveSaveDir(saveDir));
+  }, [saveDir]);
+
+  const chooseSaveDir = async () => {
+    try {
+      const selected = await openFolderDialog({
+        directory: true,
+        multiple: false,
+        defaultPath: effectiveSaveDir || undefined,
+      });
+      if (typeof selected === "string") setSaveDir(selected);
+    } catch (error) {
+      console.error("Failed to choose save folder:", error);
+    }
+  };
 
   const reorder = (sourceId: DrawingTool, targetId: DrawingTool) => {
     if (sourceId === targetId) return;
@@ -108,26 +126,46 @@ export const DrawingToolbarSettings = () => {
             {t("Reorder drawing tools and choose which buttons appear in the toolbar.")}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => { resetToolbar(); setShortcutError(null); }}>
+        <Button variant="outline" size="sm" onClick={() => { resetToolbar(); }}>
           <RotateCcw className="mr-2 size-4" />
           {t("Restore Default Toolbar")}
         </Button>
       </div>
 
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Default Save Location")}</ItemTitle>
+          <ItemDescription>{t("Folder for saved screen PNG files and JSON drawing projects. Files are named date-number, e.g. 20261112-01.png.")}</ItemDescription>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 truncate rounded-lg border bg-background px-3 py-1.5 text-sm" title={effectiveSaveDir}>
+              {effectiveSaveDir || t("Downloads")}
+            </code>
+            <Button variant="outline" size="sm" onClick={() => void chooseSaveDir()}>
+              <FolderOpen className="mr-2 size-4" />
+              {t("Choose Folder")}
+            </Button>
+            <Button variant="outline" size="sm" disabled={!saveDir} onClick={() => setSaveDir("")}>
+              <RotateCcw className="mr-2 size-4" />
+              {t("Use Downloads")}
+            </Button>
+          </div>
+        </ItemContent>
+      </Item>
+
       <h2 className="text-lg font-semibold">{t("Circular Menu Settings")}</h2>
       <Item variant="muted">
         <ItemContent>
           <ItemDescription>{t("Choose the two quick colors shown in the circular menu. These colors do not change the toolbar palette.")}</ItemDescription>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {([0, 1] as const).map((index) => (
-              <label key={index} className="flex items-center justify-between gap-3 rounded-lg border p-3">
+              <label key={index} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-1.5">
                 <span>{t(index === 0 ? "Quick Color 1" : "Quick Color 2")}</span>
                 <input
                   type="color"
                   value={radialColors[index]}
                   onChange={(event) => setRadialColor(index, event.currentTarget.value)}
                   aria-label={t(index === 0 ? "Quick Color 1" : "Quick Color 2")}
-                  className="h-9 w-12 cursor-pointer rounded border"
+                  className="h-7 w-12 cursor-pointer rounded border"
                 />
               </label>
             ))}
@@ -138,23 +176,11 @@ export const DrawingToolbarSettings = () => {
 
       <Item variant="muted">
         <ItemContent>
-          <ItemTitle>{t("Circular Tool Menu Shortcut")}</ItemTitle>
-          <ItemDescription>{t("Press Q while drawing to open the two-ring icon menu beside the mouse. Click a tool to switch; press Esc or right-click to cancel. In pointer mode, settings or text entry, this shortcut is inactive.")}</ItemDescription>
-          <ShortcutRecorder value={radialShortcut} onChange={(keys) => {
-            const state = useKeyEvent.getState();
-            const error = radialShortcutError(keys, [state.toggleShortcut, state.drawingToggleShortcut,
-              state.drawingPointerShortcut, state.drawingClearShortcut, state.drawingUndoShortcut,
-              state.drawingCloseShortcut, ["ControlLeft", "ShiftLeft", "KeyZ"]]);
-            setShortcutError(error);
-            if (!error) setRadialShortcut(keys);
-          }} placeholder={t("Disabled (click to set)")} />
-          <ItemDescription>{t("Default: Q. Click to record a new shortcut; Backspace or Delete disables it. Hidden tools leave empty sectors to keep positions stable.")}</ItemDescription>
-          {shortcutError && <p role="alert" className="text-sm text-destructive">{t(shortcutError)}</p>}
-          <label className="mt-3 flex items-center justify-between gap-3 rounded-lg border p-3">
+          <label className="flex items-center justify-between gap-3 rounded-lg border p-3">
             <span>{t("Right-click to Open Circular Menu")}</span>
             <Switch checked={radialRightClick} onCheckedChange={setRadialRightClick} aria-label={t("Right-click to Open Circular Menu")} />
           </label>
-          <ItemDescription>{t("While using a drawing tool, right-click the canvas to open the menu; right-click again to cancel. Pointer mode, text entry and toolbar context menus are unchanged. The keyboard shortcut remains available.")}</ItemDescription>
+          <ItemDescription>{t("While using a drawing tool, right-click the canvas to open the menu; right-click again to cancel. Pointer mode, text entry and toolbar context menus are unchanged.")}</ItemDescription>
           <ItemDescription>{t("In pointer mode, hold Left or Right Alt and click the right mouse button to open the circular menu. Press F7 (or your configured Return To Mouse Mode shortcut) to return to pointer mode, even when the toolbar is hidden.")}</ItemDescription>
         </ItemContent>
       </Item>

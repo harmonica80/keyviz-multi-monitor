@@ -59,6 +59,8 @@
 | `src-tauri/src/app/native_drawing.rs` | 新增 `DrawingCommand::Export/Import`、`OverlayState.background`；alpha 轉換迴圈在透明處改取底圖；`Clear` 在無繪圖物件時移除底圖，`Hide` 重置。 |
 | `src-tauri/src/app/commands.rs`、`lib.rs` | 新增命令 `drawing_export(kind)`、`drawing_import(path)`、`drawing_export_dir`。 |
 | `src/components/drawing-toolbar-view.tsx`、`src/pages/screen-drawing.tsx`、`src/App.css`、`src/lib/i18n.ts` | 工具列新增三顆按鈕（存 PNG／存 JSON／開啟 JSON，開啟用 `@tauri-apps/plugin-dialog`）與中文字串；說明文字改為「左或右 Alt」。 |
+| `drawing_export.rs`（續） | `blend_layer_pixel`：圖層像素為預乘 alpha，與 `UpdateLayeredWindow` 相同方式混合到螢幕圖（先前強制不透明造成黑邊）。儲存資料夾由設定 `saveDir`（空字串＝Downloads）傳入 `drawing_export(kind, dir)`；`export_io::export_directory` 解析。 |
+| `src/stores/drawing_toolbar.ts`、`settings/drawing-toolbar.tsx` | 新增 `saveDir`（persist 版本 8）；Q 快捷鍵移除（`radialShortcut` 一律為空，欄位僅為相容舊設定檔）；快捷顏色區塊縮小。 |
 | `Cargo.toml`／`Cargo.lock` | 新增直接依賴 `png 0.17`、`base64 0.22`（原本已是間接依賴），windows 啟用 `Win32_System_SystemInformation`。版本 1.0.29。 |
 
 **未實機驗證**：擷取排除（需 Win10 2004+）、DWM 套用延遲（目前 `Sleep(180)`）、多螢幕座標換算、底圖疊合。若截圖含有 Keyviz 自己的視窗，優先檢查 `capture_screen`。

@@ -267,7 +267,7 @@ mod platform {
         ToggleHoverEdit { epoch: u64 },
         ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String, colors: [String; 2] },
         SetToolbarHidden(bool),
-        Export { kind: ExportKind, reply: Sender<Result<String, String>> },
+        Export { kind: ExportKind, dir: Option<String>, reply: Sender<Result<String, String>> },
         Import { path: String, reply: Sender<Result<String, String>> },
         OpenPointerRadial { epoch: u64 },
         RequestPointerRadial,
@@ -871,7 +871,7 @@ mod platform {
         }
 
         /// Saves the monitor under the pointer; `kind` is "png" or "json". Returns the file path.
-        pub fn export_screen(&self, kind: &str) -> Result<String, String> {
+        pub fn export_screen(&self, kind: &str, dir: Option<String>) -> Result<String, String> {
             let kind = match kind {
                 "png" => ExportKind::Png,
                 "json" => ExportKind::Json,
@@ -879,7 +879,7 @@ mod platform {
             };
             let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
             let (reply, receiver) = mpsc::channel();
-            sender.send(DrawingCommand::Export { kind, reply }).map_err(|e| e.to_string())?;
+            sender.send(DrawingCommand::Export { kind, dir, reply }).map_err(|e| e.to_string())?;
             receiver.recv_timeout(Duration::from_secs(30)).map_err(|_| "Saving timed out".to_string())?
         }
 
@@ -1697,8 +1697,8 @@ mod platform {
                     clear_drawings(state);
                 }
             }
-            DrawingCommand::Export { kind, reply } => {
-                let _ = reply.send(export_screen(state, kind));
+            DrawingCommand::Export { kind, dir, reply } => {
+                let _ = reply.send(export_screen(state, kind, dir.as_deref()));
             }
             DrawingCommand::Import { path, reply } => {
                 let _ = reply.send(import_json(state, &path));
@@ -6017,7 +6017,7 @@ mod platform_stub {
         pub fn history_shortcut(&self, _redo: bool) {}
         pub fn redo(&self) {}
         pub fn recover(&self) {}
-        pub fn export_screen(&self, _kind: &str) -> Result<String, String> {
+        pub fn export_screen(&self, _kind: &str, _dir: Option<String>) -> Result<String, String> {
             Err("Saving is available on Windows only".into())
         }
         pub fn import_json(&self, _path: &str) -> Result<String, String> {

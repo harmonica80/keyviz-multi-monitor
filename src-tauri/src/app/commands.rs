@@ -312,14 +312,14 @@ pub fn drawing_recover(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn drawing_export(app: tauri::AppHandle, kind: String) -> Result<String, String> {
+pub async fn drawing_export(app: tauri::AppHandle, kind: String, dir: Option<String>) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let overlay = {
             let state = app.state::<Mutex<AppState>>();
             let state = state.lock().map_err(|e| e.to_string())?;
             state.drawing_overlay.clone()
         };
-        overlay.export_screen(&kind)
+        overlay.export_screen(&kind, dir)
     }).await.map_err(|e| e.to_string())?
 }
 
@@ -335,12 +335,10 @@ pub async fn drawing_import(app: tauri::AppHandle, path: String) -> Result<Strin
     }).await.map_err(|e| e.to_string())?
 }
 
-/// Folder that holds saved PNG / JSON files (created on demand).
+/// Effective save folder: the configured one, or Downloads when empty.
 #[tauri::command]
-pub fn drawing_export_dir(app: tauri::AppHandle) -> Result<String, String> {
-    let dir = app.path().picture_dir().unwrap_or_else(|_| std::env::temp_dir()).join("Keyviz");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    Ok(dir.to_string_lossy().into_owned())
+pub fn drawing_export_dir(app: tauri::AppHandle, dir: Option<String>) -> Result<String, String> {
+    Ok(crate::app::export_io::export_directory(&app, dir.as_deref()).to_string_lossy().into_owned())
 }
 
 #[tauri::command]

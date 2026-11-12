@@ -2,11 +2,20 @@
 //! date + sequence file names, PNG encode/decode and the base64 image field.
 
 use base64::{engine::general_purpose::STANDARD, Engine};
+use tauri::{AppHandle, Manager};
 use std::{
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
 };
+
+/// Configured folder, or the user's Downloads folder when none is set.
+pub fn export_directory(app: &AppHandle, configured: Option<&str>) -> PathBuf {
+    match configured.map(str::trim).filter(|dir| !dir.is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => app.path().download_dir().unwrap_or_else(|_| std::env::temp_dir()),
+    }
+}
 
 pub const JSON_FORMAT: &str = "keyviz-drawing";
 pub const JSON_VERSION: u32 = 1;

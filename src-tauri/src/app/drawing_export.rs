@@ -111,12 +111,6 @@ fn today_stamp() -> String {
     format!("{:04}{:02}{:02}", now.wYear, now.wMonth, now.wDay)
 }
 
-fn export_directory(app: &AppHandle) -> std::path::PathBuf {
-    app.path()
-        .picture_dir()
-        .unwrap_or_else(|_| std::env::temp_dir())
-        .join("Keyviz")
-}
 
 /// Monitor (surface) under the pointer, falling back to the first one.
 unsafe fn target_surface(state: &OverlayState) -> Option<usize> {
@@ -277,7 +271,7 @@ unsafe fn render_drawings_layer(state: &OverlayState, rect: RECT) -> Result<DibS
     Ok(layer)
 }
 
-unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind) -> Result<String, String> {
+unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<&str>) -> Result<String, String> {
     if !state.visible {
         return Err("Open the drawing mode before saving".into());
     }
@@ -296,17 +290,14 @@ unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind) -> Result<St
     let to_rgba = |pixels: &[u32]| -> Vec<u8> {
         pixels.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 255]).collect()
     };
-    let directory = export_directory(&state.app);
+    let directory = crate::app::export_io::export_directory(&state.app, dir);
     let date = today_stamp();
     let path = match kind {
         ExportKind::Png => {
             let layer = render_drawings_layer(state, rect)?;
             let mut composed = base;
             for (target, source) in composed.iter_mut().zip(layer.pixels().iter()) {
-                let rgb = *source & 0x00ff_ffff;
-                if rgb != 0 && rgb != TRANSPARENT_PIXEL {
-                    *target = *source | 0xff00_0000;
-                }
+                *target = blend_layer_pixel(*target, *source);
             }
             layer.free();
             let png = crate::app::export_io::encode_png(width as u32, height as u32, &to_rgba(&composed))?;
@@ -405,4 +396,39 @@ unsafe fn import_json(state: &mut OverlayState, path: &str) -> Result<String, St
 
 fn same_rect(a: &RECT, b: &RECT) -> bool {
     a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom
+}
+
+/// Same rule as the on-screen overlay (`UpdateLayeredWindow` with AC_SRC_ALPHA): layer pixels
+/// carry premultiplied alpha, so anti-aliased edges must be blended, not forced opaque
+/// (forcing them opaque produced a dark outline around every object).
+fn blend_layer_pixel(base: u32, layer: u32) -> u32 {
+    let rgb = layer & 0x00ff_ffff;
+    let alpha = layer >> 24;
+    if rgb == TRANSPARENT_PIXEL || (rgb == 0 && alpha == 0) {
+        return base;
+    }
+    if alpha == 0 || alpha == 255 {
+        return layer | 0xff00_0000;
+    }
+    let channel = |shift: u32| -> u32 {
+        let source = (layer >> shift) & 0xff;
+        let below = (base >> shift) & 0xff;
+        (source + below * (255 - alpha) / 255).min(255)
+    };
+    0xff00_0000 | (channel(16) << 16) | (channel(8) << 8) | channel(0)
+}
+
+#[cfg(test)]
+mod export_blend_tests {
+    use super::*;
+
+    #[test]
+    fn blend_keeps_edges_soft_instead_of_black() {
+        let base = 0x00ff_ffff;
+        assert_eq!(blend_layer_pixel(base, 0), base);
+        assert_eq!(blend_layer_pixel(base, 0xffef_2b2d), 0xffef_2b2d);
+        // Half-transparent premultiplied red over white stays light, never near black.
+        let edge = blend_layer_pixel(base, 0x8077_1516);
+        assert!((edge >> 16) & 0xff > 0xc0);
+    }
 }
