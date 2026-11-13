@@ -4,11 +4,17 @@
 
 This is a customized Windows build based on [mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for tutorials, presentations, screen recording, and live teaching workflows, with multi-monitor support, Traditional Chinese UI, cursor highlighting, and on-screen drawing tools.
 
-## 下載最新正式版（v1.0.28）
+## 下載最新正式版（v1.0.31）
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-目前最新正式版為 **v1.0.28**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+目前最新正式版為 **v1.0.31**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+
+**v1.0.31** 更新內容（含 v1.0.29、v1.0.30）：
+- 新增「存成 PNG／存成 JSON／開啟 JSON」：PNG 含畫面與繪圖物件；JSON 把影像與繪圖物件存在同一個檔，可再開啟編輯。檔名為「日期+序號」（如 `20261112-01.png`），預設存到「下載」資料夾，可在設定中更改。
+- 儲存成功會顯示資料夾與檔名，並可一鍵開啟檔案總管；開啟 JSON 後顯示操作說明，編輯完按「存成 JSON」即以原檔名覆蓋並自動關閉，按 ESC 則不儲存離開。
+- 按住右邊 Alt + 滑鼠右鍵也能叫出圓形選單；移除 Q 快速鍵；快捷顏色區塊縮小；設定中快捷鍵說明改為整行顯示。
+- 修正 F7 切換游標工具與 ESC 離開偶爾失效的問題；圓形選單更銳利。
 
 **v1.0.28** 更新內容：
 - 選取物件後，點工具列的顏色色塊即可更換該物件顏色（線條、形狀、文字、數字皆適用，可復原）。
@@ -19,14 +25,14 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 **v1.0.27** 重點（穩定性與多螢幕）：低階鍵鼠 Hook 回呼瘦身、移除 40ms 快捷鍵輪詢並統一單一路徑、Esc 關閉繪圖只在繪圖中或 Keyviz 自己為前景時生效、置頂看門狗改為「被降級才重排」、支援螢幕接上／拔除時就地重建覆蓋層、設定以前端為單一真相來源、原生執行緒改事件驅動，並新增 `keyviz.log` 診斷記錄。
 
-- [v1.0.28 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.28)
-- [v1.0.28 更新說明檔](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
+- [v1.0.31 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.31)
+- [v1.0.31 更新說明檔](release-notes-v1.0.31.md)、[v1.0.30](release-notes-v1.0.30.md)、[v1.0.29](release-notes-v1.0.29.md)、[v1.0.28](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
 - [修正檔案與交接說明（handoff.md）](handoff.md)
-- [v1.0.28 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.28)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.28`。
+- [v1.0.31 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.31)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.31`。
 - 發生異常時，診斷記錄位於應用程式日誌資料夾下的 `keyviz.log`，回報問題時請一併附上。
 
-The latest stable release is **v1.0.28**; the direct EXE download above needs no GitHub sign-in. It lets you recolour selected objects from the toolbar swatches, keeps a clicked object selected in hover-edit mode, fixes the key filter failing after IME switching (e.g. Boshiamy) by dropping keys whose release event was never delivered, gives the hide/footer toolbar buttons rounded-rectangle hover backgrounds, and uses the toolbar's select icon in the right-click radial menu. v1.0.27 focused on stability and multi-monitor handling. Exit the old version before running the new EXE and confirm `v1.0.28` in the title bar. See [release-notes-v1.0.28.md](release-notes-v1.0.28.md) and [handoff.md](handoff.md).
+The latest stable release is **v1.0.31**; the direct EXE download above needs no GitHub sign-in. It adds saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit), right Alt + right-click for the radial menu, and F7/Esc fixes. v1.0.28 let you recolour selected objects from the toolbar swatches, keeps a clicked object selected in hover-edit mode, fixes the key filter failing after IME switching (e.g. Boshiamy) by dropping keys whose release event was never delivered, gives the hide/footer toolbar buttons rounded-rectangle hover backgrounds, and uses the toolbar's select icon in the right-click radial menu. v1.0.27 focused on stability and multi-monitor handling. Exit the old version before running the new EXE and confirm `v1.0.28` in the title bar. See [release-notes-v1.0.28.md](release-notes-v1.0.28.md) and [handoff.md](handoff.md).
 
 ## v1.0.26：一致預覽與自訂圓形選單顏色
 
