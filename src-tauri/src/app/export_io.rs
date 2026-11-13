@@ -17,6 +17,14 @@ pub fn export_directory(app: &AppHandle, configured: Option<&str>) -> PathBuf {
     }
 }
 
+/// Result of saving the screen: the written file, and whether an opened JSON was
+/// overwritten and closed (the overlay returns to normal desktop use).
+#[derive(serde::Serialize)]
+pub struct ExportResult {
+    pub path: String,
+    pub closed: bool,
+}
+
 pub const JSON_FORMAT: &str = "keyviz-drawing";
 pub const JSON_VERSION: u32 = 1;
 

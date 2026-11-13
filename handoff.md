@@ -65,6 +65,12 @@
 
 **未實機驗證**：擷取排除（需 Win10 2004+）、DWM 套用延遲（目前 `Sleep(180)`）、多螢幕座標換算、底圖疊合。若截圖含有 Keyviz 自己的視窗，優先檢查 `capture_screen`。
 
+## v1.0.30 追加（相對 v1.0.29）
+| 檔案 | 修改內容 |
+|---|---|
+| `export_io.rs`、`drawing_export.rs`、`native_drawing.rs`、`commands.rs`、`lib.rs` | `drawing_export` 回傳 `ExportResult{path, closed}`；`OverlayState.opened_json` 記住開啟的 JSON，存 JSON 時覆蓋原檔並清除底圖／繪圖／歷史（`closed=true`）；新增命令 `reveal_in_explorer`（`explorer /select,`）。 |
+| `src/pages/screen-drawing.tsx`、`capabilities/default.json`、`lib/i18n.ts` | 以 `@tauri-apps/plugin-dialog` 的 `ask`／`message` 顯示儲存成功／開啟成功對話方塊（新增 `dialog:allow-ask`、`dialog:allow-message`）；`closed` 時前端切回游標工具。 |
+
 發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.28`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.28`，exe 會自動附到該 Release。
 
 ## 刻意沒改（以及原因）

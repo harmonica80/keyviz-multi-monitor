@@ -271,7 +271,7 @@ unsafe fn render_drawings_layer(state: &OverlayState, rect: RECT) -> Result<DibS
     Ok(layer)
 }
 
-unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<&str>) -> Result<String, String> {
+unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<&str>) -> Result<crate::app::export_io::ExportResult, String> {
     if !state.visible {
         return Err("Open the drawing mode before saving".into());
     }
@@ -292,6 +292,7 @@ unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<
     };
     let directory = crate::app::export_io::export_directory(&state.app, dir);
     let date = today_stamp();
+    let mut closed = false;
     let path = match kind {
         ExportKind::Png => {
             let layer = render_drawings_layer(state, rect)?;
@@ -313,11 +314,31 @@ unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<
                 "drawings": drawings_to_json(&state.drawings, state.bounds.left - rect.left, state.bounds.top - rect.top),
             });
             let text = serde_json::to_vec_pretty(&document).map_err(|e| e.to_string())?;
-            crate::app::export_io::write_numbered(&directory, &date, "json", &text)?
+            match state.opened_json.clone() {
+                // Editing an opened file: overwrite it under its own name, then close it.
+                Some(original) => {
+                    std::fs::write(&original, &text).map_err(|e| format!("Cannot write {original}: {e}"))?;
+                    closed = true;
+                    std::path::PathBuf::from(original)
+                }
+                None => crate::app::export_io::write_numbered(&directory, &date, "json", &text)?,
+            }
         }
     };
     record_event(format!("Saved screen to {}", path.display()));
-    Ok(path.to_string_lossy().into_owned())
+    if closed {
+        // Back to the normal desktop: drop the frozen screenshot and all drawings.
+        state.drawings.clear();
+        state.background = None;
+        state.opened_json = None;
+        state.active = None;
+        state.selected.clear();
+        state.selection = None;
+        state.next_number = 1;
+        state.history = DrawingHistory::default();
+        refresh_overlay(state);
+    }
+    Ok(crate::app::export_io::ExportResult { path: path.to_string_lossy().into_owned(), closed })
 }
 
 unsafe fn import_json(state: &mut OverlayState, path: &str) -> Result<String, String> {
@@ -383,6 +404,7 @@ unsafe fn import_json(state: &mut OverlayState, path: &str) -> Result<String, St
     state.drawings = loaded;
     state.next_group_id = state.drawings.iter().filter_map(drawing_group).max().unwrap_or(0).saturating_add(1);
     state.background = background;
+    state.opened_json = Some(path.to_string());
     state.active = None;
     state.selected.clear();
     state.selection = None;

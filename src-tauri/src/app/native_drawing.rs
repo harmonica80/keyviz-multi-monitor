@@ -267,7 +267,7 @@ mod platform {
         ToggleHoverEdit { epoch: u64 },
         ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String, colors: [String; 2] },
         SetToolbarHidden(bool),
-        Export { kind: ExportKind, dir: Option<String>, reply: Sender<Result<String, String>> },
+        Export { kind: ExportKind, dir: Option<String>, reply: Sender<Result<crate::app::export_io::ExportResult, String>> },
         Import { path: String, reply: Sender<Result<String, String>> },
         OpenPointerRadial { epoch: u64 },
         RequestPointerRadial,
@@ -460,6 +460,8 @@ mod platform {
         hover_sticky: bool,
         /// Frozen screenshot shown under the drawings after opening a JSON file.
         background: Option<ScreenBackground>,
+        /// File the current background/drawings were opened from; "save JSON" overwrites it.
+        opened_json: Option<String>,
         window_alt: AltTapTracker,
         input_epoch: u64,
         app: AppHandle,
@@ -871,7 +873,7 @@ mod platform {
         }
 
         /// Saves the monitor under the pointer; `kind` is "png" or "json". Returns the file path.
-        pub fn export_screen(&self, kind: &str, dir: Option<String>) -> Result<String, String> {
+        pub fn export_screen(&self, kind: &str, dir: Option<String>) -> Result<crate::app::export_io::ExportResult, String> {
             let kind = match kind {
                 "png" => ExportKind::Png,
                 "json" => ExportKind::Json,
@@ -1051,6 +1053,7 @@ mod platform {
                     hover_edit_active: false,
                     hover_sticky: false,
                     background: None,
+                    opened_json: None,
                     window_alt: AltTapTracker::default(),
                     input_epoch: 0,
                     app,
@@ -1601,6 +1604,7 @@ mod platform {
                 state.last_wheel = None;
                 state.drawings.clear();
                 state.background = None;
+                state.opened_json = None;
                 state.active = None;
                 state.selected.clear();
                 state.selection = None;
@@ -1692,6 +1696,7 @@ mod platform {
                 // A second "clear" with nothing left to clear also drops an opened screenshot.
                 if state.drawings.is_empty() && state.background.is_some() {
                     state.background = None;
+                    state.opened_json = None;
                     refresh_overlay(state);
                 } else {
                     clear_drawings(state);
@@ -6017,7 +6022,7 @@ mod platform_stub {
         pub fn history_shortcut(&self, _redo: bool) {}
         pub fn redo(&self) {}
         pub fn recover(&self) {}
-        pub fn export_screen(&self, _kind: &str, _dir: Option<String>) -> Result<String, String> {
+        pub fn export_screen(&self, _kind: &str, _dir: Option<String>) -> Result<crate::app::export_io::ExportResult, String> {
             Err("Saving is available on Windows only".into())
         }
         pub fn import_json(&self, _path: &str) -> Result<String, String> {

@@ -17,7 +17,7 @@ import { useKeyEvent } from "@/stores/key_event";
 import { listenForUpdates } from "@/stores/sync";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
+import { ask, message, open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import {
   KeyboardEvent as ReactKeyboardEvent,
@@ -499,12 +499,29 @@ export default function ScreenDrawing() {
     };
   }, [drawingCloseShortcut, drawingUndoShortcut, finishTextEditor, isToolbar, notifyHistory, redraw, resizeCanvas, updateTextEditor]);
 
-  const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;
+  const splitPath = (path: string) => {
+    const cut = Math.max(path.lastIndexOf("\\"), path.lastIndexOf("/"));
+    return { dir: cut >= 0 ? path.slice(0, cut) : "", name: path.slice(cut + 1) };
+  };
   const saveScreen = async (kind: "png" | "json") => {
     try {
       const dir = useDrawingToolbar.getState().saveDir || null;
-      const path = await invoke<string>("drawing_export", { kind, dir });
-      setOperationHint({ text: `${t("Saved")} ${baseName(path)}` });
+      const result = await invoke<{ path: string; closed: boolean }>("drawing_export", { kind, dir });
+      const { dir: folder, name } = splitPath(result.path);
+      if (result.closed) {
+        // The opened JSON was overwritten and closed: back to normal desktop use.
+        setTool("pointer");
+        void invoke("drawing_set_tool", { tool: "pointer" });
+      }
+      const lines = [`${t("Folder")}: ${folder}`, `${t("File")}: ${name}`];
+      if (result.closed) lines.push("", t("The original file was overwritten and closed. You are back to normal desktop use."));
+      const openFolder = await ask(lines.join("\n"), {
+        title: t("Saved successfully"),
+        kind: "info",
+        okLabel: t("Open Folder"),
+        cancelLabel: t("Close"),
+      });
+      if (openFolder) await invoke("reveal_in_explorer", { path: result.path });
     } catch (error) {
       console.error(error);
       setOperationHint({ text: t(String(error)) });
@@ -522,7 +539,10 @@ export default function ScreenDrawing() {
       });
       if (typeof selected !== "string") return;
       await invoke("drawing_import", { path: selected });
-      setOperationHint({ text: `${t("Opened")} ${baseName(selected)}` });
+      await message(
+        `${splitPath(selected).name}\n\n${t("Opened successfully. You can now edit the objects on screen. When finished, press the Save as JSON button: it overwrites this file under its original name, closes it and returns to normal desktop use.")}`,
+        { title: t("Opened successfully"), kind: "info", okLabel: t("OK") },
+      );
     } catch (error) {
       console.error(error);
       setOperationHint({ text: t(String(error)) });

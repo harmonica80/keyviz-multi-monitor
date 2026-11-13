@@ -312,7 +312,7 @@ pub fn drawing_recover(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn drawing_export(app: tauri::AppHandle, kind: String, dir: Option<String>) -> Result<String, String> {
+pub async fn drawing_export(app: tauri::AppHandle, kind: String, dir: Option<String>) -> Result<crate::app::export_io::ExportResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let overlay = {
             let state = app.state::<Mutex<AppState>>();
@@ -333,6 +333,25 @@ pub async fn drawing_import(app: tauri::AppHandle, path: String) -> Result<Strin
         };
         overlay.import_json(&path)
     }).await.map_err(|e| e.to_string())?
+}
+
+/// Shows a saved file selected in Windows Explorer.
+#[tauri::command]
+pub fn reveal_in_explorer(path: String) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        std::process::Command::new("explorer")
+            .arg("/select,")
+            .arg(&path)
+            .spawn()
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("Only available on Windows".into())
+    }
 }
 
 /// Effective save folder: the configured one, or Downloads when empty.

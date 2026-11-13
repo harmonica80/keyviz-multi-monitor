@@ -14,6 +14,7 @@ on:
       - claude-fix-1.0.27
       - claude-fix-1.0.28
       - claude-fix-1.0.29
+      - claude-fix-1.0.30
     tags:
       - 'v*'
 
