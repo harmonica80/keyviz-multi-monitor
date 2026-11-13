@@ -99,14 +99,21 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// is suppressed for a short window so the action can never run twice.
 static LAST_CLEAR_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
 
-fn claim_clear_shortcut() -> bool {
+static LAST_POINTER_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
+static LAST_CLOSE_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
+
+fn claim_shortcut(slot: &AtomicU64) -> bool {
     let now = unix_time_ms();
-    let last = LAST_CLEAR_SHORTCUT_MS.load(Ordering::Relaxed);
+    let last = slot.load(Ordering::Relaxed);
     if now.saturating_sub(last) < 300 {
         return false;
     }
-    LAST_CLEAR_SHORTCUT_MS.store(now, Ordering::Relaxed);
+    slot.store(now, Ordering::Relaxed);
     true
+}
+
+fn claim_clear_shortcut() -> bool {
+    claim_shortcut(&LAST_CLEAR_SHORTCUT_MS)
 }
 
 #[cfg(target_os = "windows")]
@@ -191,34 +198,46 @@ fn shortcut_is_down(shortcut: &[String]) -> bool {
 }
 
 
-/// Fallback for the clear shortcut that reads the real keyboard state instead
-/// of relying on low-level hook events. Before v1.0.27 this was the only path
-/// that handled Delete on Windows; the hook can miss events (elevated windows,
-/// hook timeouts, IME interference). It only polls while a drawing tool is
-/// active and otherwise sleeps, so it adds no idle load.
+/// Fallback for the drawing shortcuts (return to pointer mode, clear, close)
+/// that reads the real keyboard state instead of relying on low-level hook
+/// events. Before v1.0.27 this was the only path that handled them on Windows;
+/// the hook can miss events (elevated windows, hook timeouts, IME interference).
+/// The hook path and this poller share a claim window per action, so an action
+/// never runs twice. It sleeps while screen drawing is not visible.
 #[cfg(target_os = "windows")]
 fn start_clear_shortcut_poller(app_handle: AppHandle) {
     thread::spawn(move || {
-        let mut was_down = false;
+        let (mut was_pointer, mut was_clear, mut was_close) = (false, false, false);
         loop {
-            let (active, shortcut) = {
+            let (visible, tool_active, pointer, clear, close) = {
                 let state = app_handle.state::<Mutex<AppState>>();
                 let snapshot = match state.lock() {
                     Ok(app_state) => (
-                        app_state.drawing_visible && app_state.drawing_tool != "pointer",
+                        app_state.drawing_visible,
+                        app_state.drawing_tool != "pointer",
+                        app_state.drawing_pointer_shortcut.clone(),
                         app_state.drawing_clear_shortcut.clone(),
+                        app_state.drawing_close_shortcut.clone(),
                     ),
-                    Err(_) => (false, Vec::new()),
+                    Err(_) => (false, false, Vec::new(), Vec::new(), Vec::new()),
                 };
                 snapshot
             };
-            if !active {
-                was_down = false;
+            if !visible {
+                (was_pointer, was_clear, was_close) = (false, false, false);
                 thread::sleep(Duration::from_millis(200));
                 continue;
             }
-            let down = shortcut_is_down(&shortcut);
-            if down && !was_down && claim_clear_shortcut() {
+            let pointer_down = shortcut_is_down(&pointer);
+            if pointer_down && !was_pointer && claim_shortcut(&LAST_POINTER_SHORTCUT_MS) {
+                if let Err(error) = set_drawing_pointer_mode(&app_handle) {
+                    record_error(format!("Failed to set drawing pointer shortcut: {error}"));
+                }
+            }
+            was_pointer = pointer_down;
+
+            let clear_down = tool_active && shortcut_is_down(&clear);
+            if clear_down && !was_clear && claim_clear_shortcut() {
                 let state = app_handle.state::<Mutex<AppState>>();
                 let guard = state.lock();
                 if let Ok(app_state) = guard {
@@ -227,8 +246,21 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
                     }
                 }
             }
-            was_down = down;
-            thread::sleep(Duration::from_millis(40));
+            was_clear = clear_down;
+
+            let close_down = shortcut_is_down(&close);
+            if close_down
+                && !was_close
+                && (tool_active || foreground_is_own_window())
+                && !crate::app::native_drawing::radial_consumes_close()
+                && claim_shortcut(&LAST_CLOSE_SHORTCUT_MS)
+            {
+                if let Err(error) = crate::close_screen_drawing_impl(app_handle.clone()) {
+                    record_error(format!("Failed to close screen drawing shortcut: {error}"));
+                }
+            }
+            was_close = close_down;
+            thread::sleep(Duration::from_millis(if tool_active { 40 } else { 80 }));
         }
     });
 }
@@ -428,8 +460,10 @@ fn process_input_event(
                     )
                 {
                     drop(app_state);
-                    if let Err(error) = set_drawing_pointer_mode(app_handle) {
-                        record_error(format!("Failed to set drawing pointer shortcut: {error}"));
+                    if claim_shortcut(&LAST_POINTER_SHORTCUT_MS) {
+                        if let Err(error) = set_drawing_pointer_mode(app_handle) {
+                            record_error(format!("Failed to set drawing pointer shortcut: {error}"));
+                        }
                     }
                     return;
                 }
@@ -472,8 +506,10 @@ fn process_input_event(
                 {
                     app_state.pressed_keys.clear();
                     drop(app_state);
-                    if let Err(error) = crate::close_screen_drawing_impl(app_handle.clone()) {
-                        record_error(format!("Failed to close screen drawing shortcut: {error}"));
+                    if claim_shortcut(&LAST_CLOSE_SHORTCUT_MS) {
+                        if let Err(error) = crate::close_screen_drawing_impl(app_handle.clone()) {
+                            record_error(format!("Failed to close screen drawing shortcut: {error}"));
+                        }
                     }
                     return;
                 }

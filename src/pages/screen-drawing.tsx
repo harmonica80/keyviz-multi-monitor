@@ -539,8 +539,13 @@ export default function ScreenDrawing() {
       });
       if (typeof selected !== "string") return;
       await invoke("drawing_import", { path: selected });
+      // Select tool: edit objects directly, and Esc closes the session.
+      setTool("select");
+      await invoke("drawing_set_tool", { tool: "select" });
       await message(
-        `${splitPath(selected).name}\n\n${t("Opened successfully. You can now edit the objects on screen. When finished, press the Save as JSON button: it overwrites this file under its original name, closes it and returns to normal desktop use.")}`,
+        `${splitPath(selected).name}
+
+${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects, or press Delete to remove them.\n2. When finished, press Save as JSON: it overwrites the original file and closes it.\n3. To leave without saving, press Esc.")}`,
         { title: t("Opened successfully"), kind: "info", okLabel: t("OK") },
       );
     } catch (error) {

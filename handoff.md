@@ -71,6 +71,13 @@
 | `export_io.rs`、`drawing_export.rs`、`native_drawing.rs`、`commands.rs`、`lib.rs` | `drawing_export` 回傳 `ExportResult{path, closed}`；`OverlayState.opened_json` 記住開啟的 JSON，存 JSON 時覆蓋原檔並清除底圖／繪圖／歷史（`closed=true`）；新增命令 `reveal_in_explorer`（`explorer /select,`）。 |
 | `src/pages/screen-drawing.tsx`、`capabilities/default.json`、`lib/i18n.ts` | 以 `@tauri-apps/plugin-dialog` 的 `ask`／`message` 顯示儲存成功／開啟成功對話方塊（新增 `dialog:allow-ask`、`dialog:allow-message`）；`closed` 時前端切回游標工具。 |
 
+## v1.0.31 追加（相對 v1.0.30）
+| 檔案 | 修改內容 |
+|---|---|
+| `src-tauri/src/app/event.rs` | `start_clear_shortcut_poller` 擴充為備援輪詢：回到滑鼠模式（F7）、清除、關閉（Esc）；`claim_shortcut(&AtomicU64)` 各動作獨立防重複（hook 與輪詢誰先到誰執行）。drawing_visible 時才輪詢（滑鼠模式 80ms、繪圖工具 40ms）。F7 失效根因為推測（hook 漏事件，與 Delete 同型），未實機驗證。 |
+| `src/pages/screen-drawing.tsx`、`lib/i18n.ts` | 開啟 JSON 成功後切到框選物件工具；說明改為三點條列。 |
+| `src/components/settings/general.tsx` | `ShortcutRow` 說明文字改為整列寬度。 |
+
 發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.28`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.28`，exe 會自動附到該 Release。
 
 ## 刻意沒改（以及原因）

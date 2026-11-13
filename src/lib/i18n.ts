@@ -75,7 +75,7 @@ const zhTW: Record<string, string> = {
   "OK": "確定",
   "Opened successfully": "開啟成功",
   "The original file was overwritten and closed. You are back to normal desktop use.": "已以原檔名覆蓋儲存並關閉檔案，回到一般電腦操作畫面。",
-  "Opened successfully. You can now edit the objects on screen. When finished, press the Save as JSON button: it overwrites this file under its original name, closes it and returns to normal desktop use.": "已開啟檔案，現在可以編輯畫面中的物件。編輯完成後按下「存成 JSON」按鈕，就會以原檔名覆蓋儲存、關閉此檔案，並回到一般電腦操作畫面。",
+  "1. JSON file opened. Use the Select tool to move, resize or recolor objects, or press Delete to remove them.\n2. When finished, press Save as JSON: it overwrites the original file and closes it.\n3. To leave without saving, press Esc.": "1. 已開啟 JSON 檔案，請使用「框選物件」工具進行物件的位置、大小、顏色編輯，或是按下 Delete 刪除\n2. 完成編輯後，按下「存成 JSON」按鈕，就會以原檔名覆蓋儲存，並自動關閉此檔案\n3. 離開不儲存，請按 ESC",
   "Display recovery requested": "已送出恢復要求",
   "Display recovery failed": "恢復要求失敗",
   "Rebuild drawing and cursor display windows while preserving annotations.": "重新建立繪圖與游標醒目顯示視窗，保留目前標註。",

@@ -245,8 +245,11 @@ const ShortcutRow = ({
     value: string[];
     onChange: (shortcut: string[]) => void;
 }) => (
-    <div className="grid gap-2 md:grid-cols-[10rem_1fr] md:items-center" title={description}>
-        <span className="text-sm text-muted-foreground">{label}{description && <span className="mt-1 block text-xs">{description}</span>}</span>
-        <ShortcutRecorder value={value} onChange={onChange} />
+    <div className="flex flex-col gap-1.5" title={description}>
+        <div className="grid gap-2 md:grid-cols-[10rem_1fr] md:items-center">
+            <span className="text-sm text-muted-foreground">{label}</span>
+            <ShortcutRecorder value={value} onChange={onChange} />
+        </div>
+        {description && <p className="text-xs text-muted-foreground">{description}</p>}
     </div>
 );
