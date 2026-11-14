@@ -2014,7 +2014,7 @@ dependencies = [
 
 [[package]]
 name = "keyviz"
-version = "1.0.31"
+version = "1.0.32"
 dependencies = [
  "base64 0.22.1",
  "cocoa 0.25.0",

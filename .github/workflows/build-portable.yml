@@ -13,6 +13,7 @@ on:
       - codex/publish-keyviz-multi-monitor
       - claude-fix-1.0.27
       - claude-fix-1.0.28
+      - claude-fix-1.0.32
       - claude-fix-1.0.29
       - claude-fix-1.0.30
       - claude-fix-1.0.31

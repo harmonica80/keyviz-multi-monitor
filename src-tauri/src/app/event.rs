@@ -101,11 +101,21 @@ static LAST_CLEAR_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
 
 static LAST_POINTER_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_CLOSE_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
+static LAST_UNDO_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
 
 fn claim_shortcut(slot: &AtomicU64) -> bool {
+    claim_shortcut_window(slot, 300)
+}
+
+/// Like `claim_shortcut` but with a caller-chosen dedup window. Undo/redo uses
+/// a shorter window than the other drawing shortcuts: the window only has to
+/// cover the gap between the hook path and the poller seeing the same
+/// keystroke (tens of ms), and users legitimately press Ctrl+Z several times
+/// per second to step back through history.
+fn claim_shortcut_window(slot: &AtomicU64, window_ms: u64) -> bool {
     let now = unix_time_ms();
     let last = slot.load(Ordering::Relaxed);
-    if now.saturating_sub(last) < 300 {
+    if now.saturating_sub(last) < window_ms {
         return false;
     }
     slot.store(now, Ordering::Relaxed);
@@ -207,9 +217,10 @@ fn shortcut_is_down(shortcut: &[String]) -> bool {
 #[cfg(target_os = "windows")]
 fn start_clear_shortcut_poller(app_handle: AppHandle) {
     thread::spawn(move || {
-        let (mut was_pointer, mut was_clear, mut was_close) = (false, false, false);
+        let (mut was_pointer, mut was_clear, mut was_close, mut was_undo) =
+            (false, false, false, false);
         loop {
-            let (visible, tool_active, pointer, clear, close) = {
+            let (visible, tool_active, pointer, clear, close, undo) = {
                 let state = app_handle.state::<Mutex<AppState>>();
                 let snapshot = match state.lock() {
                     Ok(app_state) => (
@@ -218,13 +229,14 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
                         app_state.drawing_pointer_shortcut.clone(),
                         app_state.drawing_clear_shortcut.clone(),
                         app_state.drawing_close_shortcut.clone(),
+                        app_state.drawing_undo_shortcut.clone(),
                     ),
-                    Err(_) => (false, false, Vec::new(), Vec::new(), Vec::new()),
+                    Err(_) => (false, false, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
                 };
                 snapshot
             };
             if !visible {
-                (was_pointer, was_clear, was_close) = (false, false, false);
+                (was_pointer, was_clear, was_close, was_undo) = (false, false, false, false);
                 thread::sleep(Duration::from_millis(200));
                 continue;
             }
@@ -247,6 +259,23 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
                 }
             }
             was_clear = clear_down;
+
+            // Undo / redo (Ctrl+Z / Ctrl+Shift+Z by default). Same fallback as
+            // the shortcuts above: the hook can miss keystrokes, so read the
+            // real keyboard state. Edge-triggered, deduped with the hook path
+            // via LAST_UNDO_SHORTCUT_MS.
+            let undo_down = tool_active && shortcut_is_down(&undo);
+            if undo_down && !was_undo && claim_shortcut_window(&LAST_UNDO_SHORTCUT_MS, 150) {
+                let undo_has_shift = undo.iter().any(|key| key.starts_with("Shift"));
+                let redo = !undo_has_shift && raw_key_is_down("Shift");
+                let state = app_handle.state::<Mutex<AppState>>();
+                if let Ok(app_state) = state.lock() {
+                    if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
+                        app_state.drawing_overlay.history_shortcut(redo);
+                    }
+                }
+            }
+            was_undo = undo_down;
 
             let close_down = shortcut_is_down(&close);
             if close_down
@@ -489,7 +518,9 @@ fn process_input_event(
                         .any(|key| key.starts_with("Shift"));
                     if shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_undo_shortcut) {
                         let redo = !undo_has_shift && shift_down;
-                        app_state.drawing_overlay.history_shortcut(redo);
+                        if claim_shortcut_window(&LAST_UNDO_SHORTCUT_MS, 150) {
+                            app_state.drawing_overlay.history_shortcut(redo);
+                        }
                         return;
                     }
                 }
