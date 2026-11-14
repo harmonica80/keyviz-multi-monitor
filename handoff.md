@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -78,7 +78,13 @@
 | `src/pages/screen-drawing.tsx`、`lib/i18n.ts` | 開啟 JSON 成功後切到框選物件工具；說明改為三點條列。 |
 | `src/components/settings/general.tsx` | `ShortcutRow` 說明文字改為整列寬度。 |
 
-發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.31`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.31`，exe 會自動附到該 Release。
+發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.32`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.32`，exe 會自動附到該 Release。
+
+## v1.0.32（Ctrl+Z 還原失效修正）
+
+- 使用者回報：繪圖中 Ctrl+Z 還原失效。根本原因與 v1.0.31 的 F7/Delete/ESC 相同：還原只走低階 Hook 路徑，Hook 在部分環境會漏掉按鍵。
+- 修正：`start_clear_shortcut_poller` 新增還原／重做偵測（GetAsyncKeyState，邊緣觸發）；新增 `LAST_UNDO_SHORTCUT_MS` 與 `claim_shortcut_window(slot, ms)`，Hook 與輪詢共用防重入時間窗。還原用 150ms（其他 300ms），以保留連按 Ctrl+Z 逐步還原。
+- 檔案：`src-tauri/src/app/event.rs`。詳見 `release-notes-v1.0.32.md`。已於實機測試確認。
 
 ## 刻意沒改（以及原因）
 - `fs:allow-write-text-file` 未加 scope：鍵帽主題匯入／匯出透過對話框存任意路徑，加 scope 會壞。
