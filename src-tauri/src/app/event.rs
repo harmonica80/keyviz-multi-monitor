@@ -269,7 +269,8 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
                 let undo_has_shift = undo.iter().any(|key| key.starts_with("Shift"));
                 let redo = !undo_has_shift && raw_key_is_down("Shift");
                 let state = app_handle.state::<Mutex<AppState>>();
-                if let Ok(app_state) = state.lock() {
+                let guard = state.lock();
+                if let Ok(app_state) = guard {
                     if app_state.drawing_visible && app_state.drawing_tool != "pointer" {
                         app_state.drawing_overlay.history_shortcut(redo);
                     }
