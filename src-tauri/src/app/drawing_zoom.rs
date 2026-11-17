@@ -345,8 +345,6 @@ unsafe fn exit_zoom(state: &mut OverlayState, allow_close: bool) {
     if state.cursor.0 != 0 && !state.click_through {
         SetCursor(state.cursor);
     }
-    // Cursors replaced during the live zoom were kept alive for the magnifier.
-    destroy_retired_cursors(state);
     refresh_overlay(state);
     let _ = state.app.emit("drawing-zoom-changed", false);
     record_event("Zoom ended");
@@ -367,7 +365,6 @@ unsafe fn discard_zoom(state: &mut OverlayState) {
         if zoom.live {
             stop_live_magnifier();
         }
-        destroy_retired_cursors(state);
         let _ = state.app.emit("drawing-zoom-changed", false);
     }
 }

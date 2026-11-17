@@ -5270,12 +5270,6 @@ mod platform {
     }
 
     unsafe fn destroy_retired_cursors(state: &mut OverlayState) {
-        // The Windows full-screen magnifier keeps drawing an enlarged copy of the pointer image;
-        // destroying a cursor it may still use can leave a striped garbage block next to the
-        // pointer. Keep replaced cursors alive until the live zoom ends.
-        if live_zoom_running(state) {
-            return;
-        }
         for cursor in state.retired_cursors.drain(..) {
             if cursor.0 != 0 && cursor != state.cursor {
                 let _ = DestroyCursor(cursor);
