@@ -10,13 +10,16 @@ const source = read("src/lib/drawing-themes.ts").replace(
 const js = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
 const { normalizeDrawingTheme, drawingThemeVariables } = await import(`data:text/javascript;base64,${Buffer.from(js).toString("base64")}`);
 const colorJs = ts.transpileModule(read("src/lib/radial-colors.ts"), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-const { DEFAULT_RADIAL_COLORS, normalizeRadialColors } = await import(`data:text/javascript;base64,${Buffer.from(colorJs).toString("base64")}`);
+const { DEFAULT_RADIAL_COLORS, normalizeRadialColors, DEFAULT_TOOLBAR_COLORS, normalizeToolbarColors } = await import(`data:text/javascript;base64,${Buffer.from(colorJs).toString("base64")}`);
 assert.deepEqual(DEFAULT_RADIAL_COLORS, ["#ef2b2d", "#2d37d6"]);
 for (const value of [null, undefined, {}, [], ["invalid", "#fff"], [1, false]]) {
   assert.deepEqual(normalizeRadialColors(value), DEFAULT_RADIAL_COLORS);
 }
 assert.deepEqual(normalizeRadialColors(["#ABCDEF", "#000000"]), ["#abcdef", "#000000"]);
 assert.deepEqual(normalizeRadialColors(["bad", "#123456"]), ["#ef2b2d", "#123456"]);
+assert.equal(DEFAULT_TOOLBAR_COLORS.length, 4);
+assert.deepEqual(normalizeToolbarColors(null), DEFAULT_TOOLBAR_COLORS);
+assert.deepEqual(normalizeToolbarColors(["#ABCDEF", "bad"]), ["#abcdef", ...DEFAULT_TOOLBAR_COLORS.slice(1)]);
 assert.deepEqual(themes.map(({ id }) => id), ["pearl", "graphite", "ocean", "butter", "orange", "sand"]);
 for (const theme of themes) {
   assert.equal(normalizeDrawingTheme(theme.id), theme.id);
@@ -44,6 +47,8 @@ const DRAWING_TOOLS = [{id: "pointer"}, {id: "pen"}, {id: "text"}];
 const normalizeDrawingTheme = ${normalizeDrawingTheme.toString()};
 const DEFAULT_RADIAL_COLORS = ${JSON.stringify(DEFAULT_RADIAL_COLORS)};
 const normalizeRadialColors = ${normalizeRadialColors.toString()};
+const DEFAULT_TOOLBAR_COLORS = ${JSON.stringify(DEFAULT_TOOLBAR_COLORS)};
+const normalizeToolbarColors = ${normalizeToolbarColors.toString()};
 const themes = ${JSON.stringify(themes)};
 const getCurrentWindow = () => ({label: "settings"});
 const createJSONStorage = () => ({});
@@ -66,11 +71,15 @@ assert.deepEqual(store.getState().radialColors, DEFAULT_RADIAL_COLORS);
 store.getState().setRadialColor(0, "#ABCDEF");
 store.getState().setRadialColor(1, "#000000");
 assert.deepEqual(store.getState().radialColors, ["#abcdef", "#000000"]);
+assert.deepEqual(store.getState().toolbarColors, DEFAULT_TOOLBAR_COLORS);
+store.getState().setToolbarColor(3, "#FFFFFF");
+assert.equal(store.getState().toolbarColors[3], "#ffffff");
 store.getState().setRadialStyle("ocean");
 assert.equal(store.getState().radialStyle, "ocean");
 store.getState().resetToolbar();
 assert.equal(store.getState().radialStyle, "pearl");
 assert.deepEqual(store.getState().radialColors, DEFAULT_RADIAL_COLORS);
+assert.deepEqual(store.getState().toolbarColors, DEFAULT_TOOLBAR_COLORS);
 const oldState = {radialStyle: "classic", items: [{id: "pen", visible: false}, {id: "pointer", visible: true}], side: "left", radialShortcut: ["KeyR"], hoverEdit: {pen: false}};
 const migrated = store.options.migrate(oldState);
 assert.equal(migrated.radialStyle, "pearl");
@@ -82,6 +91,8 @@ assert.deepEqual(migrated.radialShortcut, []); // Q circular-menu shortcut was r
 assert.equal(migrated.saveDir, "");
 assert.equal(store.options.migrate({saveDir: " D:\\Shots "}).saveDir, "D:\\Shots");
 assert.deepEqual(migrated.hoverEdit, {pen: false});
+assert.deepEqual(migrated.toolbarColors, DEFAULT_TOOLBAR_COLORS); // v1.0.33: six fixed swatches became four configurable ones
+assert.deepEqual(store.options.merge({...oldState, toolbarColors: ["#010203", "#040506", "#070809", "#0a0b0c"]}, store.getState()).toolbarColors, ["#010203", "#040506", "#070809", "#0a0b0c"]);
 assert.equal(store.options.merge({...oldState, radialStyle: "orange"}, store.getState()).radialStyle, "orange");
 assert.deepEqual(store.options.merge({...oldState, radialColors: ["#123456", "#654321"]}, store.getState()).radialColors, ["#123456", "#654321"]);
 console.log("Drawing themes: six palettes, exact fills, legacy fallback, store reset/migration/merge passed.");

@@ -88,6 +88,7 @@
 - 放大運算在 `zoom_math.rs`（跨平台，可在 Linux 跑單元測試）；游標下的像素固定（`start = (c+0.5)(1-1/z)`）。
 - 擷取：`capture_screen(.., all_own_windows=true)` 以 `EnumWindows` 排除本程式所有可見頂層視窗（按鍵顯示、點擊特效）。PNG 存檔仍傳 `false`，行為不變。
 - 快速鍵：Hook 路徑＋備援輪詢共用 `LAST_ZOOM_SHORTCUT_MS`；放大中的 Esc 走 `exit_zoom_by_close_shortcut`（共用 `LAST_CLOSE_SHORTCUT_MS`），不會關掉整個繪圖。
+- 同版另含：工具列顏色改為四色可自訂（`toolbarColors`，persist v9）；選取物件時工具列勾選物件顏色（`DrawingSelectionPayload.color`，混色或不在四色中則不勾）；`resize_drawing_toolbar` 高度上限由固定 820 改為所在螢幕高度（原本加入放大鏡按鈕後底部被截斷）。
 - **未實機驗證**：4K 螢幕平移效能（每次滑鼠移動整面重繪＋`UpdateLayeredWindow`）、「捲動非使用中視窗」關閉時滾輪是否仍送到放大層、多螢幕。第二階段候選：放大中繪圖、放大畫面存 PNG、放大動畫。
 
 ## v1.0.32（Ctrl+Z 還原失效修正）

@@ -51,6 +51,8 @@ export const DrawingToolbarSettings = () => {
   const radialStyle = useDrawingToolbar((state) => state.radialStyle);
   const setRadialStyle = useDrawingToolbar((state) => state.setRadialStyle);
   const radialColors = useDrawingToolbar((state) => state.radialColors);
+  const toolbarColors = useDrawingToolbar((state) => state.toolbarColors);
+  const setToolbarColor = useDrawingToolbar((state) => state.setToolbarColor);
   const setRadialColor = useDrawingToolbar((state) => state.setRadialColor);
   const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
   const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
@@ -131,6 +133,27 @@ export const DrawingToolbarSettings = () => {
           {t("Restore Default Toolbar")}
         </Button>
       </div>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Toolbar Colors")}</ItemTitle>
+          <ItemDescription>{t("Choose the four colors shown on the drawing toolbar.")}</ItemDescription>
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {([0, 1, 2, 3] as const).map((index) => (
+              <label key={index} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5">
+                <span>{t("Color")} {index + 1}</span>
+                <input
+                  type="color"
+                  value={toolbarColors[index]}
+                  onChange={(event) => setToolbarColor(index, event.currentTarget.value)}
+                  aria-label={`${t("Toolbar Colors")} ${index + 1}`}
+                  className="h-7 w-12 cursor-pointer rounded border"
+                />
+              </label>
+            ))}
+          </div>
+        </ItemContent>
+      </Item>
 
       <Item variant="muted">
         <ItemContent>
@@ -360,7 +383,7 @@ export const DrawingToolbarSettings = () => {
         <div className="sticky top-6 rounded-xl border bg-muted/40 p-4">
           <p className="mb-3 text-sm font-medium">{t("Toolbar Preview")}</p>
           <div className="mx-auto w-12">
-            <DrawingToolbarView toolbarItems={items} radialStyle={radialStyle} preview />
+            <DrawingToolbarView toolbarItems={items} radialStyle={radialStyle} colors={toolbarColors} color={toolbarColors[0]} preview />
           </div>
         </div>
       </div>

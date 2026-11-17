@@ -52,6 +52,8 @@ const zhTW: Record<string, string> = {
   "Redo": "重做",
   "Resizing Object": "調整物件大小",
   "Restore Overlay Display": "恢復透明顯示層",
+  "Toolbar Colors": "工具列顏色",
+  "Choose the four colors shown on the drawing toolbar.": "自訂繪圖工具列上的四個常用顏色。選取物件時，工具列會勾選該物件的顏色（不在這四色中則不勾選）。",
   "Screen Magnifier": "螢幕放大鏡",
   "Magnify the screen around the mouse, even without opening the drawing toolbar. Scroll the wheel forward to zoom in and back to zoom out, move the mouse to look around, and press the shortcut again, Esc or right-click to leave.": "以滑鼠位置為中心放大螢幕，不必先開繪圖工具列也能使用。滾輪往前放大、往後縮小，移動滑鼠可查看其他位置；再按一次快速鍵、按 Esc 或滑鼠右鍵即可離開。",
   "Screen magnifier": "螢幕放大鏡",

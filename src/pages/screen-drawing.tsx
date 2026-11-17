@@ -45,7 +45,8 @@ type DrawingCommand =
   | { type: "undo" }
   | { type: "redo" };
 type ToolChangedPayload = { tool: Tool };
-type DrawingSelectionPayload = { count: number; grouped: boolean };
+/** `color`: shared color of the selected objects (null when mixed or nothing is selected). */
+type DrawingSelectionPayload = { count: number; grouped: boolean; color?: string | null };
 
 const COLORS = DRAWING_TOOLBAR_COLORS;
 const WIDTHS = [2, 5, 9, 15];
@@ -288,6 +289,7 @@ export default function ScreenDrawing() {
   const closeShortcutLabel = formatShortcut(drawingCloseShortcut);
   const undoShortcutLabel = formatShortcut(drawingUndoShortcut);
   const drawingZoomShortcut = useKeyEvent((state) => state.drawingZoomShortcut);
+  const toolbarColors = useDrawingToolbar((state) => state.toolbarColors);
   const zoomShortcutLabel = formatShortcut(drawingZoomShortcut);
 
   const notifyHistory = useCallback(() => {}, []);
@@ -742,7 +744,6 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       toolbarItems={toolbarItems}
       radialStyle={radialStyle}
       tool={tool}
-      color={color}
       width={width}
       minWidth={minWidth}
       maxWidth={maxWidth}
@@ -755,6 +756,8 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       probeMenu={probeMenu}
       probe={probe}
       keyDisplayEnabled={keyDisplayEnabled}
+      colors={toolbarColors}
+      color={selectionState.count > 0 ? selectionState.color ?? "" : color}
       zoomActive={zoomActive}
       zoomShortcutLabel={zoomShortcutLabel}
       onToggleZoom={toggleZoom}

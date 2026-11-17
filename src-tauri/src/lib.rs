@@ -837,6 +837,16 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
     let window = app
         .get_webview_window("drawing-toolbar")
         .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+    // Fit the whole toolbar: allow up to the height of the monitor it is on (logical px).
+    // A fixed 820px cap cut off the bottom buttons once the magnifier button was added.
+    let max_height = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .map(|monitor| f64::from(monitor.size().height) / monitor.scale_factor() - 8.0)
+        .unwrap_or(820.0)
+        .max(320.0);
+    let height = height.clamp(32.0, max_height);
 
     #[cfg(target_os = "windows")]
     {
@@ -850,7 +860,7 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
         let target = if root.0 == 0 { hwnd } else { root };
         let scale = window.scale_factor().unwrap_or(1.0);
         let physical_width = (48.0 * scale).round().max(1.0) as i32;
-        let physical_height = (height.clamp(32.0, 820.0) * scale).ceil().max(1.0) as i32;
+        let physical_height = (height * scale).ceil().max(1.0) as i32;
         let result = unsafe {
             SetWindowPos(
                 target,
@@ -871,7 +881,7 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
     window
         .set_size(tauri::LogicalSize {
             width: 48.0,
-            height: height.clamp(32.0, 820.0),
+            height,
         })
         .map_err(|error| error.to_string())?;
 

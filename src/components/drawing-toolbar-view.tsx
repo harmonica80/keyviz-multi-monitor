@@ -3,10 +3,11 @@ import { drawingThemeVariables } from "@/lib/drawing-themes";
 import { useTranslation } from "@/lib/i18n";
 import type { useOverlayProbe } from "@/lib/overlay-probe";
 import type { DrawingToolbarItem, RadialStyle } from "@/stores/drawing_toolbar";
+import { DEFAULT_TOOLBAR_COLORS } from "@/lib/radial-colors";
 import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, Redo2, Undo2, RefreshCw, Settings, Trash2, X, ZoomIn } from "lucide-react";
 import type { CSSProperties, Ref } from "react";
 
-export const DRAWING_TOOLBAR_COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
+export const DRAWING_TOOLBAR_COLORS: readonly string[] = DEFAULT_TOOLBAR_COLORS;
 
 type ToolbarCommand =
   | { type: "tool"; value: DrawingTool }
@@ -18,6 +19,8 @@ interface DrawingToolbarViewProps {
   toolbarRef?: Ref<HTMLElement>;
   toolbarItems: DrawingToolbarItem[];
   radialStyle: RadialStyle;
+  /** Toolbar swatches; the check marks the one equal to `color` (none when it is not listed). */
+  colors?: readonly string[];
   preview?: boolean;
   tool?: DrawingTool;
   color?: string;
@@ -52,7 +55,7 @@ interface DrawingToolbarViewProps {
 const noop = () => {};
 
 export function DrawingToolbarView({
-  toolbarRef, toolbarItems, radialStyle, preview = false,
+  toolbarRef, toolbarItems, radialStyle, colors = DRAWING_TOOLBAR_COLORS, preview = false,
   tool = "pen", color = DRAWING_TOOLBAR_COLORS[0], width = 5,
   minWidth = 1, maxWidth = 15, canUndo = false, canRedo = false,
   closeShortcutLabel = "", undoShortcutLabel = "",
@@ -65,7 +68,8 @@ export function DrawingToolbarView({
 }: DrawingToolbarViewProps) {
   const { t } = useTranslation();
   const toolButtons = toolbarItems.filter((item) => item.visible).map((item) => DRAWING_TOOL_BY_ID[item.id]);
-  const COLORS = DRAWING_TOOLBAR_COLORS;
+  const COLORS = colors;
+  const activeColor = color.toLowerCase();
   return (
     <aside ref={toolbarRef} className="drawing-toolbar" style={drawingThemeVariables(radialStyle)} aria-label={t("Screen Drawing")} inert={preview || undefined}>
       <button
@@ -127,12 +131,12 @@ export function DrawingToolbarView({
         {COLORS.map((value) => (
           <button
             key={value}
-            className={`drawing-color ${color === value ? "active" : ""}`}
+            className={`drawing-color ${activeColor === value.toLowerCase() ? "active" : ""}`}
             title={value}
             style={{ "--drawing-color": value } as CSSProperties}
             onClick={() => void sendCommand({ type: "color", value })}
           >
-            {color === value && <Check className="drawing-color-check" />}
+            {activeColor === value.toLowerCase() && <Check className="drawing-color-check" />}
           </button>
         ))}
       </div>

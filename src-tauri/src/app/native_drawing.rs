@@ -592,6 +592,8 @@ mod platform {
     struct DrawingSelectionPayload {
         count: usize,
         grouped: bool,
+        /// Shared color of the selected objects ("#rrggbb"); None when mixed or empty.
+        color: Option<String>,
     }
 
     static OVERLAY_STATE: OnceLock<Mutex<Option<OverlayState>>> = OnceLock::new();
@@ -1704,6 +1706,7 @@ mod platform {
                     }
                     if changed {
                         record_change(state, before);
+                        emit_selection_state(state);
                     }
                 }
                 if matches!(
@@ -5601,8 +5604,29 @@ mod platform {
             DrawingSelectionPayload {
                 count: state.selected.len(),
                 grouped: selected_common_group(state).is_some(),
+                color: selected_common_color(state).map(color_hex),
             },
         );
+    }
+
+    /// The color every selected (non-eraser) object shares, so the toolbar can check it.
+    fn selected_common_color(state: &OverlayState) -> Option<COLORREF> {
+        let mut common: Option<COLORREF> = None;
+        for index in &state.selected {
+            let color = match state.drawings.get(*index)? {
+                DrawingItem::Stroke { erase: true, .. } => continue,
+                DrawingItem::Stroke { color, .. }
+                | DrawingItem::Shape { color, .. }
+                | DrawingItem::Text { color, .. }
+                | DrawingItem::Number { color, .. } => *color,
+            };
+            match common {
+                None => common = Some(color),
+                Some(existing) if existing.0 != color.0 => return None,
+                Some(_) => {}
+            }
+        }
+        common
     }
 
     #[cfg(test)]

@@ -13,6 +13,12 @@
 - **放大的是按下當下的畫面快照（凍結畫面）**：會包含目前的繪圖物件，但不含 Keyviz 自己的工具列、按鍵顯示與點擊特效（擷取時自動排除，螢幕上照常顯示）。需要 Windows 10 2004 以上。
 - 放大期間暫停繪圖、圓形選單、Ctrl+Z 與 Delete；在工具列點選其他繪圖工具會先離開放大鏡。
 
+## 工具列顏色改為四個、可自訂
+
+- 繪圖工具列的顏色由固定六色改為**四色**（預設紅、綠、藍、黑），可在設定 →「繪圖工具列」→「工具列顏色」自行指定。
+- 選取物件時（移入編輯物件模式或框選工具），工具列的勾勾會自動移到**該物件的顏色**；顏色不在這四色中、或選了多個不同顏色的物件時，不顯示勾勾。取消選取後，勾勾回到目前畫筆的顏色。
+- 修正：工具列高度原本固定上限 820 像素，加上放大鏡按鈕後底部按鈕被截斷；現在上限改為工具列所在螢幕的高度。
+
 ## 快速鍵選擇說明
 
 - 預設 F6：和 F7（回到游標）、F8（開關繪圖）排在一起；在瀏覽器／Office 中 F6 只會切換焦點，不會改到內容。
@@ -27,3 +33,6 @@
 - `src-tauri/src/app/event.rs`：放大快速鍵（Hook＋備援輪詢，共用防重入時間窗）；放大中 Esc 只離開放大鏡。
 - `src-tauri/src/lib.rs`、`commands.rs`、`state.rs`：`toggle_screen_zoom`、`drawing_set_zoom` 指令、`drawing_zoom_shortcut` 設定（預設 F6）。
 - 前端：工具列放大鏡按鈕、設定頁快速鍵列、i18n。
+- 工具列顏色：`src/lib/radial-colors.ts`（`DEFAULT_TOOLBAR_COLORS`／`normalizeToolbarColors`）、`stores/drawing_toolbar.ts`（`toolbarColors`，persist version 9）、`settings/drawing-toolbar.tsx`、`drawing-toolbar-view.tsx`（`colors` 屬性）。
+- 勾選物件顏色：`native_drawing.rs` 的 `DrawingSelectionPayload` 新增 `color`（`selected_common_color`），換色後重送；前端選取中以物件顏色顯示勾勾。
+- 工具列高度：`lib.rs` 的 `resize_drawing_toolbar` 上限改為所在螢幕高度。
