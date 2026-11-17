@@ -472,7 +472,6 @@ unsafe fn import_json(state: &mut OverlayState, path: &str) -> Result<String, St
         return Err("The file contains no drawings or image".into());
     }
 
-    let before = state.drawings.clone();
     // Group ids from the file must not collide with groups created later.
     let offset = state.next_group_id;
     for item in &mut loaded {
@@ -488,7 +487,10 @@ unsafe fn import_json(state: &mut OverlayState, path: &str) -> Result<String, St
     state.selected.clear();
     state.selection = None;
     sync_next_number(state);
-    record_change(state, before);
+    // Opening a file starts a fresh edit history: undo must not bring back the drawings from
+    // before it (they belonged to other screens / files while this file's picture stays shown).
+    state.history = DrawingHistory::default();
+    emit_history(state);
     emit_selection_state(state);
     refresh_overlay(state);
     record_event(format!("Opened drawing file {path}"));

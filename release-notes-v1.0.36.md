@@ -21,6 +21,11 @@
 - 移除「滑鼠移入編輯物件」設定區塊（移入編輯一律對所有物件類型生效，仍以 Alt 開關）。
 - 「自訂繪圖工具」清單新增「螢幕放大鏡」，可以和其他工具一樣調整順序或隱藏。舊設定會自動把它加在最後，也就是原本的位置。
 
+## 開啟 JSON 編輯時的修正
+
+- 修正：開啟 JSON 後，工具列周圍會露出一塊即時桌面（例如影片桌布），而且跟著工具列移動。現在工具列後方也顯示 JSON 的凍結畫面。
+- 開啟 JSON 視為重新開始編輯，還原（Ctrl+Z）只會復原開啟之後的修改，不會再把開啟前、屬於其他螢幕或其他檔案的繪圖物件還原回來。
+
 ## 變更檔案
 
 - `src-tauri/src/app/drawing_export.rs`：`monitors_with_drawings`、`toolbar_monitor`、`export_targets`、`export_monitor`；`export_screen` 新增 `all_drawn` 參數。
@@ -29,6 +34,7 @@
 - `src-tauri/src/app/native_drawing.rs`：`ExportMonitorCount` 指令。
 - `src-tauri/src/app/commands.rs`、`lib.rs`：`drawing_export` 新增 `allDrawn` 參數，新增 `drawing_export_monitor_count`。
 - 前端：存檔前詢問、列出多個檔名。
+- `native_drawing.rs`：工具列穿透區在有 JSON 背景時改顯示背景；`drawing_export.rs` 的 `import_json` 開檔後重設還原紀錄。
 - `src/components/settings/preset-color-picker.tsx`（新）：12 色預設＋自訂選色。
 - `src/lib/drawing-tools.tsx`：新增 `ToolbarItemId`（工具＋`zoom`）、`TOOLBAR_ITEM_BY_ID`、`isDrawingToolItem`；工具列 store 的 items 納入 `zoom`，圓形選單只送出繪圖工具。
 - `src/components/settings/drawing-toolbar.tsx`：移除移入編輯區塊，改用新選色器。

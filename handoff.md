@@ -86,6 +86,7 @@
 - 條紋色塊：放大時指標右下方出現過彩色條紋。使用者表示可能是同時執行的其他螢幕擷取工具造成，暫不處理。若之後確認是 Keyviz 造成，可先懷疑放大時銷毀舊的自訂指標（`destroy_retired_cursors`）。
 - 存檔：`export_targets` 的規則依序為：開啟中的 JSON 用其背景螢幕；只有一個螢幕有繪圖時用該螢幕；`all_drawn` 時用所有有繪圖的螢幕；其餘情況用工具列所在螢幕（`toolbar_monitor` 取工具列視窗中心點）。是否有繪圖以 `drawing_bounds` 與螢幕相交判斷，橡皮擦筆跡不算。多螢幕時每個螢幕各存一個檔案，JSON 只含與該螢幕相交的物件。前端先呼叫 `drawing_export_monitor_count`，數量大於等於 2 時用 `ask` 詢問。
 - 設定頁：12 色預設選色器（`PresetColorPicker`）；移除「滑鼠移入編輯物件」區塊，`hoverEdit` 欄位保留但不再有 UI，預設全部啟用；放大鏡按鈕成為工具列項目 `zoom`（`ToolbarItemId`），可排序或隱藏。送給後端的圓形選單工具清單會用 `isDrawingToolItem` 濾掉 `zoom`。
+- JSON 編輯：工具列穿透矩形原本把像素設為 0（透明），有 `background` 時會露出即時桌面；改為填入背景像素（滑鼠輸入仍穿透到工具列）。`import_json` 改為重設 `history`，不再以 `record_change` 記錄，避免還原到開啟前的物件。
 - 擷取一律排除滑鼠圓形外框視窗（`KeyvizNativeCursorOverlay`）。使用者回報它被存進 PNG 正中央。按鍵顯示仍維持會被擷取（既有行為）。
 
 ## v1.0.35（放大鏡：邊緣平移、放大時可操作電腦，測試版）

@@ -2885,7 +2885,9 @@ mod platform {
             let x = (index % width as usize) as i32 + surface.bounds.left;
             let y = (index / width as usize) as i32 + surface.bounds.top;
             if is_toolbar_passthrough_point(state, Point { x, y }, true) {
-                *pixel = 0;
+                // Keep an opened JSON's frozen picture behind the toolbar; otherwise the live
+                // desktop (e.g. a video wallpaper) would show through a hole that follows it.
+                *pixel = state.background.as_ref().and_then(|b| b.pixel(x, y)).unwrap_or(0);
                 frame_stats.observe(*pixel);
                 continue;
             }
