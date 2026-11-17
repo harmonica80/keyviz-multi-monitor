@@ -4,11 +4,17 @@
 
 This is a customized Windows build based on [mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for tutorials, presentations, screen recording, and live teaching workflows, with multi-monitor support, Traditional Chinese UI, cursor highlighting, and on-screen drawing tools.
 
-## 下載最新正式版（v1.0.32）
+## 下載最新正式版（v1.0.33）
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-目前最新正式版為 **v1.0.32**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+目前最新正式版為 **v1.0.33**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+
+**v1.0.33** 更新內容：
+- 新增**螢幕放大鏡**（類似 ZoomIt）：按 **F6** 或工具列的放大鏡按鈕，以滑鼠位置為中心放大；滾輪往前放大、往後縮小（1～8 倍），移動滑鼠查看其他位置；再按 F6、Esc 或右鍵離開。不必先開繪圖工具列也能使用，快速鍵可在設定中更改。
+- 工具列顏色改為**四色**，可在設定 →「繪圖工具列」→「工具列顏色」自訂。
+- 選取物件時，工具列的勾勾會自動移到該物件的顏色（不在四色中則不勾選）。
+- 修正工具列底部按鈕被截斷的問題（高度上限改為所在螢幕高度）。
 
 **v1.0.32** 更新內容：
 - 修正繪圖中 Ctrl+Z 還原／Ctrl+Shift+Z 重做偶爾失效的問題（與 F7/ESC 同樣改用直接讀取鍵盤狀態的備援偵測）。
@@ -28,14 +34,14 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 **v1.0.27** 重點（穩定性與多螢幕）：低階鍵鼠 Hook 回呼瘦身、移除 40ms 快捷鍵輪詢並統一單一路徑、Esc 關閉繪圖只在繪圖中或 Keyviz 自己為前景時生效、置頂看門狗改為「被降級才重排」、支援螢幕接上／拔除時就地重建覆蓋層、設定以前端為單一真相來源、原生執行緒改事件驅動，並新增 `keyviz.log` 診斷記錄。
 
-- [v1.0.32 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.32)
-- [v1.0.32 更新說明檔](release-notes-v1.0.32.md)、[v1.0.31](release-notes-v1.0.31.md)、[v1.0.30](release-notes-v1.0.30.md)、[v1.0.29](release-notes-v1.0.29.md)、[v1.0.28](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
+- [v1.0.33 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.33)
+- [v1.0.33 更新說明檔](release-notes-v1.0.33.md)、[v1.0.32](release-notes-v1.0.32.md)、[v1.0.31](release-notes-v1.0.31.md)、[v1.0.30](release-notes-v1.0.30.md)、[v1.0.29](release-notes-v1.0.29.md)、[v1.0.28](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
 - [修正檔案與交接說明（handoff.md）](handoff.md)
-- [v1.0.32 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.32)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.32`。
+- [v1.0.33 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.33)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.33`。
 - 發生異常時，診斷記錄位於應用程式日誌資料夾下的 `keyviz.log`，回報問題時請一併附上。
 
-The latest stable release is **v1.0.32** (fixes Ctrl+Z undo / Ctrl+Shift+Z redo sometimes not responding while drawing); v1.0.31 the direct EXE download above needs no GitHub sign-in. It adds saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit), right Alt + right-click for the radial menu, and F7/Esc fixes. v1.0.28 let you recolour selected objects from the toolbar swatches, keeps a clicked object selected in hover-edit mode, fixes the key filter failing after IME switching (e.g. Boshiamy) by dropping keys whose release event was never delivered, gives the hide/footer toolbar buttons rounded-rectangle hover backgrounds, and uses the toolbar's select icon in the right-click radial menu. v1.0.27 focused on stability and multi-monitor handling. Exit the old version before running the new EXE and confirm `v1.0.28` in the title bar. See [release-notes-v1.0.28.md](release-notes-v1.0.28.md) and [handoff.md](handoff.md).
+The latest stable release is **v1.0.33** (adds a ZoomIt-style screen magnifier on F6 / the toolbar, four configurable toolbar colors, and a toolbar check mark that follows the selected object's color); v1.0.32 Ctrl+Z undo / Ctrl+Shift+Z redo sometimes not responding while drawing); v1.0.31 the direct EXE download above needs no GitHub sign-in. It adds saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit), right Alt + right-click for the radial menu, and F7/Esc fixes. v1.0.28 let you recolour selected objects from the toolbar swatches, keeps a clicked object selected in hover-edit mode, fixes the key filter failing after IME switching (e.g. Boshiamy) by dropping keys whose release event was never delivered, gives the hide/footer toolbar buttons rounded-rectangle hover backgrounds, and uses the toolbar's select icon in the right-click radial menu. v1.0.27 focused on stability and multi-monitor handling. Exit the old version before running the new EXE and confirm `v1.0.28` in the title bar. See [release-notes-v1.0.28.md](release-notes-v1.0.28.md) and [handoff.md](handoff.md).
 
 ## v1.0.26：一致預覽與自訂圓形選單顏色
 
