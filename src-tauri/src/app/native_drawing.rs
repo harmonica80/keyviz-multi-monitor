@@ -1299,6 +1299,11 @@ mod platform {
             let mut wait_ms = SAFETY_TIMEOUT_MS;
             if let Some(mut guard) = lock_overlay_state() {
                 if let Some(state) = guard.as_mut() {
+                    // A live zoom follows the cursor even when no message reaches our windows.
+                    if live_zoom_running(state) {
+                        zoom_tick(state);
+                        wait_ms = 15;
+                    }
                     if let Some(probe) = state.probe.as_ref() {
                         if Instant::now() >= probe.deadline {
                             finish_layer_probe(state, Ok(()));
@@ -1402,14 +1407,20 @@ mod platform {
             }
         }
 
-        // While magnifying, the snapshot owns the mouse: no drawing, menus or keyboard edits.
-        if state.zoom.is_some() {
+        // While magnifying: in a live zoom every drawing tool keeps working (DWM just scales the
+        // screen); viewing (pointer tool, or a frozen snapshot) owns the mouse instead.
+        if let Some(live) = state.zoom.as_ref().map(|zoom| zoom.live) {
+            let view_only = zoom_view_only(state);
             match &command {
                 DrawingCommand::ToggleHoverEdit { .. } | DrawingCommand::OpenPointerRadial { .. }
                 | DrawingCommand::RequestPointerRadial | DrawingCommand::ToggleRadial
                 | DrawingCommand::RadialClick { .. } | DrawingCommand::PointerDown { .. }
-                | DrawingCommand::PointerMove { .. } | DrawingCommand::PointerUp { .. }
-                | DrawingCommand::HistoryShortcut { .. } | DrawingCommand::DeleteSelectionOrClear => return,
+                | DrawingCommand::PointerMove { .. } | DrawingCommand::PointerUp { .. } if view_only => return,
+                DrawingCommand::HistoryShortcut { .. } | DrawingCommand::DeleteSelectionOrClear if !live => return,
+                // A frozen snapshot cannot be drawn on: picking a drawing tool leaves it.
+                DrawingCommand::SetTool { tool, .. } if !live && !matches!(tool, NativeTool::Pointer) => {
+                    exit_zoom(state, false)
+                }
                 DrawingCommand::Probe { reply, .. } => {
                     let _ = reply.send(Err("Leave the magnifier before testing layers".into()));
                     return;
@@ -1994,7 +2005,7 @@ mod platform {
                 if let Some(mut guard) = lock_overlay_state() {
                     if let Some(state) = guard.as_mut() {
                         state.window_alt.candidate = None;
-                        if is_surface_hwnd(state, hwnd) && state.zoom.is_some() {
+                        if is_surface_hwnd(state, hwnd) && zoom_view_only(state) {
                             exit_zoom(state, true);
                         } else if is_surface_hwnd(state, hwnd) {
                             if let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) {
@@ -2097,7 +2108,7 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
-        if state.zoom.is_some() {
+        if zoom_view_only(state) {
             return;
         }
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
@@ -2111,7 +2122,7 @@ mod platform {
         let Some(mut guard) = lock_overlay_state() else { return false; };
         let Some(state) = guard.as_mut() else { return false; };
         if !state.visible || !hover_edit_mode(state) || state.edit.is_some()
-            || state.radial.is_some() || state.probe.is_some() || state.zoom.is_some() { return false; }
+            || state.radial.is_some() || state.probe.is_some() || zoom_view_only(state) { return false; }
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else { return false; };
         if is_toolbar_passthrough_point(state, point, false) { return false; }
         let Some(index) = hit_test_drawing(state, point) else { return false; };
@@ -5261,10 +5272,10 @@ mod platform {
         let Some(state) = state_guard.as_ref() else {
             return false;
         };
-        if !is_surface_hwnd(state, hwnd) || !state.visible || (state.cursor.0 == 0 && state.zoom.is_none()) {
+        if !is_surface_hwnd(state, hwnd) || !state.visible || (state.cursor.0 == 0 && !zoom_view_only(state)) {
             return false;
         }
-        if state.radial.is_some() || state.zoom.is_some() {
+        if state.radial.is_some() || zoom_view_only(state) {
             SetCursor(LoadCursorW(None, IDC_ARROW).unwrap_or_default());
         } else {
             SetCursor(state.cursor);

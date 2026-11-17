@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -79,6 +79,14 @@
 | `src/components/settings/general.tsx` | `ShortcutRow` 說明文字改為整列寬度。 |
 
 發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.33`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.33`，exe 會自動附到該 Release。
+
+## v1.0.34（螢幕放大鏡第二階段：即時放大＋放大時繪圖，測試版）
+
+- 改用 `MagSetFullscreenTransform` 做即時全螢幕放大。DWM 會連同 overlay 與工具列一起放大，而輸入座標仍是真實螢幕座標，所以所有繪圖工具不必轉換座標就能使用。offset = 游標 ×(1−1/z)（以主螢幕原點為準，等於虛擬座標原點），游標下的點固定不動、顯示位置等於真實位置。
+- 訊息迴圈在即時放大時以 15ms 週期呼叫 `zoom_tick`，並在 `WM_MOUSEMOVE` 時立即更新。所有 Mag* 呼叫都在 overlay 執行緒（`MagInitialize` 同一執行緒）。
+- `zoom_view_only`（凍結模式或游標工具）時才擋滑鼠點擊、圓形選單與 Hook 轉送的指標事件。即時放大加繪圖工具時，右鍵仍開圓形選單；凍結模式選繪圖工具會由原生端自動離開放大。
+- 備援：`MagInitialize` 或 `MagSetFullscreenTransform` 失敗時，以及開啟 JSON（有 background）時，使用 v1.0.33 的凍結模式。
+- **未實機驗證**：多螢幕時其他螢幕的顯示（全螢幕放大作用於整個虛擬桌面）、行程異常結束時放大是否自動還原、與 Windows 放大鏡同時使用時的情況、系統游標顯示。
 
 ## v1.0.33（螢幕放大鏡，第一階段）
 

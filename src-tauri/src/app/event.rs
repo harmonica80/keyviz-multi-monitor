@@ -314,7 +314,9 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
             was_zoom = zoom_down;
 
             let close_down = shortcut_is_down(&close);
-            if close_down && !was_close && crate::app::native_drawing::zoom_active() {
+            if close_down && !was_close && crate::app::native_drawing::zoom_active()
+                && !crate::app::native_drawing::radial_consumes_close()
+            {
                 exit_zoom_by_close_shortcut(&app_handle);
                 was_close = true;
                 thread::sleep(Duration::from_millis(40));
@@ -531,6 +533,7 @@ fn process_input_event(
                 let drawing_visible = app_state.drawing_visible;
                 if drawing_visible
                     && crate::app::native_drawing::zoom_active()
+                    && !crate::app::native_drawing::radial_consumes_close()
                     && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_close_shortcut)
                 {
                     app_state.pressed_keys.clear();

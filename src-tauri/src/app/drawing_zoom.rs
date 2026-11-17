@@ -1,9 +1,17 @@
 // Screen magnifier (ZoomIt-style). Included into `platform` (see native_drawing.rs).
 //
-// Entering zoom captures the monitor under the cursor (without any Keyviz window), blends the
-// current drawings onto it and shows that frozen snapshot magnified on the monitor's overlay
-// surface. The mouse pans (the point under the cursor stays fixed), the wheel changes the level,
-// and the zoom shortcut / magnifier button / Esc / right-click leave it again.
+// Live mode (default): the Windows full-screen magnifier (Magnification API,
+// `MagSetFullscreenTransform`) scales the real, moving desktop - including our drawing overlay and
+// toolbar - so every drawing tool keeps working while zoomed: input arrives in normal screen
+// coordinates and DWM shows the result magnified. The offset follows the cursor so the point under
+// the cursor stays fixed (offset = c * (1 - 1/z)); it is refreshed from the overlay message loop.
+//
+// Frozen mode (fallback when the Magnification API is unavailable, e.g. another magnifier owns it):
+// the monitor under the cursor is captured once (without any Keyviz window), the drawings are
+// blended on, and that snapshot is shown magnified on the overlay surface. Drawing is not possible.
+//
+// The wheel changes the level; the zoom shortcut / magnifier button / Esc leave it, and so does a
+// right-click while the pointer tool is active (with a drawing tool right-click keeps its menu).
 
 use crate::app::zoom_math::{next_zoom_level, render_zoom, ZOOM_START};
 
@@ -16,9 +24,11 @@ pub fn zoom_active() -> bool {
 }
 
 struct ZoomSession {
+    /// Live full-screen magnification (true) or a frozen snapshot on the overlay (false).
+    live: bool,
     /// Monitor rectangle in virtual-screen coordinates.
     rect: RECT,
-    /// Opaque snapshot (screen + drawings), `rect`-sized.
+    /// Frozen mode only: opaque snapshot (screen + drawings), `rect`-sized.
     pixels: Vec<u32>,
     level: f64,
     /// Last cursor position in virtual-screen coordinates.
@@ -27,6 +37,72 @@ struct ZoomSession {
     saved_click_through: bool,
     /// Started from the plain desktop: leaving the zoom also ends the drawing session.
     close_on_exit: bool,
+    /// Live mode: last transform sent to the magnifier (level, x offset, y offset).
+    applied: Option<(f64, i32, i32)>,
+}
+
+/// Viewing only (no drawing): frozen snapshots, or the pointer tool while zoomed.
+fn zoom_view_only(state: &OverlayState) -> bool {
+    state.zoom.as_ref().is_some_and(|zoom| !zoom.live || matches!(state.tool, NativeTool::Pointer))
+}
+
+/// Offset of the full-screen magnifier that keeps virtual-screen point `cursor` in place.
+/// Offsets are measured from the primary monitor's origin, which is (0,0) in virtual coordinates.
+fn live_zoom_offset(cursor: WinPoint, level: f64) -> (i32, i32) {
+    let keep = 1.0 - 1.0 / level.max(1.0);
+    ((f64::from(cursor.x) * keep).round() as i32, (f64::from(cursor.y) * keep).round() as i32)
+}
+
+/// Pushes the live transform for the current level / cursor; false when the API refused it.
+unsafe fn apply_live_zoom(zoom: &mut ZoomSession) -> bool {
+    use windows::Win32::UI::Magnification::MagSetFullscreenTransform;
+    let (x, y) = live_zoom_offset(zoom.cursor, zoom.level);
+    if zoom.applied == Some((zoom.level, x, y)) {
+        return true;
+    }
+    if !MagSetFullscreenTransform(zoom.level as f32, x, y).as_bool() {
+        return false;
+    }
+    zoom.applied = Some((zoom.level, x, y));
+    true
+}
+
+/// Starts the full-screen magnifier; false when this Windows / session cannot do it.
+unsafe fn start_live_magnifier(zoom: &mut ZoomSession) -> bool {
+    use windows::Win32::UI::Magnification::{MagInitialize, MagUninitialize};
+    if !MagInitialize().as_bool() {
+        record_error(format!("MagInitialize failed: {}", std::io::Error::last_os_error()));
+        return false;
+    }
+    if apply_live_zoom(zoom) {
+        return true;
+    }
+    record_error(format!("MagSetFullscreenTransform failed: {}", std::io::Error::last_os_error()));
+    MagUninitialize();
+    false
+}
+
+unsafe fn stop_live_magnifier() {
+    use windows::Win32::UI::Magnification::{MagSetFullscreenTransform, MagUninitialize};
+    if !MagSetFullscreenTransform(1.0, 0, 0).as_bool() {
+        record_error(format!("Resetting the magnifier failed: {}", std::io::Error::last_os_error()));
+    }
+    MagUninitialize();
+}
+
+/// Called from the overlay message loop while a live zoom runs: follow the cursor.
+unsafe fn zoom_tick(state: &mut OverlayState) {
+    let Some(zoom) = state.zoom.as_mut().filter(|zoom| zoom.live) else {
+        return;
+    };
+    if let Some(cursor) = cursor_position() {
+        zoom.cursor = cursor;
+        apply_live_zoom(zoom);
+    }
+}
+
+fn live_zoom_running(state: &OverlayState) -> bool {
+    state.zoom.as_ref().is_some_and(|zoom| zoom.live)
 }
 
 unsafe fn cursor_position() -> Option<WinPoint> {
@@ -54,6 +130,32 @@ unsafe fn enter_zoom(state: &mut OverlayState, close_on_exit: bool) -> Result<()
 
     let index = target_surface(state).ok_or("No drawing surface is available")?;
     let rect = state.surfaces[index].bounds;
+    let cursor = cursor_position().unwrap_or(WinPoint {
+        x: (rect.left + rect.right) / 2,
+        y: (rect.top + rect.bottom) / 2,
+    });
+    let mut session = ZoomSession {
+        live: true,
+        rect,
+        pixels: Vec::new(),
+        level: ZOOM_START,
+        cursor,
+        saved_click_through: state.click_through,
+        close_on_exit,
+        applied: None,
+    };
+    // An opened JSON shows a frozen picture anyway; magnify that snapshot instead.
+    let use_live = state.background.is_none();
+    if use_live && start_live_magnifier(&mut session) {
+        state.zoom = Some(session);
+        ZOOM_ACTIVE.store(true, Ordering::Relaxed);
+        finish_zoom_entry(state, "live");
+        return Ok(());
+    }
+    if use_live {
+        let _ = state.app.emit_to("drawing-toolbar", "drawing-zoom-error",
+            "Live zoom is unavailable on this computer; showing a frozen snapshot instead");
+    }
     let base: Vec<u32> = match &state.background {
         Some(background) if same_rect(&background.rect, &rect) => background.pixels.clone(),
         _ => capture_screen(state, rect, true)?,
@@ -64,32 +166,31 @@ unsafe fn enter_zoom(state: &mut OverlayState, close_on_exit: bool) -> Result<()
         *target = blend_layer_pixel(*target, *source) | 0xff00_0000;
     }
     layer.free();
-
-    let cursor = cursor_position().unwrap_or(WinPoint {
-        x: (rect.left + rect.right) / 2,
-        y: (rect.top + rect.bottom) / 2,
-    });
-    state.zoom = Some(ZoomSession {
-        rect,
-        pixels,
-        level: ZOOM_START,
-        cursor,
-        saved_click_through: state.click_through,
-        close_on_exit,
-    });
+    session.live = false;
+    session.pixels = pixels;
+    state.zoom = Some(session);
     ZOOM_ACTIVE.store(true, Ordering::Relaxed);
-    // The magnifier needs the mouse (move = pan, wheel = level) even in pointer mode.
+    finish_zoom_entry(state, "frozen");
+    Ok(())
+}
+
+unsafe fn finish_zoom_entry(state: &mut OverlayState, mode: &str) {
+    // The magnifier needs the mouse (wheel = level, and in pointer mode move = pan) even when
+    // the pointer tool normally lets clicks through.
     state.click_through = false;
     sync_input_surface_visibility(state);
-    SetCursor(LoadCursorW(None, IDC_ARROW).unwrap_or_default());
+    if zoom_view_only(state) {
+        SetCursor(LoadCursorW(None, IDC_ARROW).unwrap_or_default());
+    }
     refresh_overlay(state);
     raise_toolbar(&state.app);
     let _ = state.app.emit("drawing-zoom-changed", true);
-    record_event(format!(
-        "Zoom started on monitor ({},{},{},{})",
-        rect.left, rect.top, rect.right, rect.bottom
-    ));
-    Ok(())
+    if let Some(zoom) = state.zoom.as_ref() {
+        record_event(format!(
+            "Zoom started ({mode}) on monitor ({},{},{},{})",
+            zoom.rect.left, zoom.rect.top, zoom.rect.right, zoom.rect.bottom
+        ));
+    }
 }
 
 /// Leaves the magnifier. `allow_close`: a zoom started from the desktop also ends the session.
@@ -98,6 +199,9 @@ unsafe fn exit_zoom(state: &mut OverlayState, allow_close: bool) {
         return;
     };
     ZOOM_ACTIVE.store(false, Ordering::Relaxed);
+    if zoom.live {
+        stop_live_magnifier();
+    }
     state.click_through = zoom.saved_click_through;
     sync_input_surface_visibility(state);
     if state.cursor.0 != 0 && !state.click_through {
@@ -116,10 +220,13 @@ unsafe fn exit_zoom(state: &mut OverlayState, allow_close: bool) {
     }
 }
 
-/// Drops the zoom without side effects (session hidden / monitors rebuilt).
-fn discard_zoom(state: &mut OverlayState) {
-    if state.zoom.take().is_some() {
+/// Drops the zoom without other side effects (session hidden).
+unsafe fn discard_zoom(state: &mut OverlayState) {
+    if let Some(zoom) = state.zoom.take() {
         ZOOM_ACTIVE.store(false, Ordering::Relaxed);
+        if zoom.live {
+            stop_live_magnifier();
+        }
         let _ = state.app.emit("drawing-zoom-changed", false);
     }
 }
@@ -158,9 +265,18 @@ unsafe fn refresh_zoom_surface(state: &mut OverlayState) {
 
 /// Pans the zoom to the cursor. Returns true when the zoom consumed the move.
 unsafe fn zoom_mouse_move(state: &mut OverlayState) -> bool {
+    let view_only = zoom_view_only(state);
     let Some(zoom) = state.zoom.as_mut() else {
         return false;
     };
+    if zoom.live {
+        // Follow the cursor right away (the loop tick also does); drawing tools keep the move.
+        if let Some(cursor) = cursor_position() {
+            zoom.cursor = cursor;
+            apply_live_zoom(zoom);
+        }
+        return view_only;
+    }
     let Some(cursor) = cursor_position() else {
         return true;
     };
@@ -185,6 +301,13 @@ unsafe fn zoom_mouse_wheel(state: &mut OverlayState, delta: i16) -> bool {
         return true;
     }
     zoom.level = level;
+    if zoom.live {
+        if let Some(cursor) = cursor_position() {
+            zoom.cursor = cursor;
+        }
+        apply_live_zoom(zoom);
+        return true;
+    }
     if let Some(cursor) = cursor_position() {
         let inside = cursor.x >= zoom.rect.left && cursor.x < zoom.rect.right
             && cursor.y >= zoom.rect.top && cursor.y < zoom.rect.bottom;
@@ -198,7 +321,7 @@ unsafe fn zoom_mouse_wheel(state: &mut OverlayState, delta: i16) -> bool {
 
 /// Fills a surface's pixels with the magnified view when it is the zoomed monitor.
 fn render_zoom_surface(state: &OverlayState, bounds: &RECT, pixels: &mut [u32], width: i32, height: i32) -> bool {
-    let Some(zoom) = state.zoom.as_ref().filter(|zoom| same_rect(&zoom.rect, bounds)) else {
+    let Some(zoom) = state.zoom.as_ref().filter(|zoom| !zoom.live && same_rect(&zoom.rect, bounds)) else {
         return false;
     };
     render_zoom(

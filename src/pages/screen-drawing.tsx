@@ -234,7 +234,6 @@ export default function ScreenDrawing() {
   }, [operationHint]);
   const [keyDisplayEnabled, setKeyDisplayEnabled] = useState(true);
   const [zoomActive, setZoomActive] = useState(false);
-  const zoomActiveRef = useRef(false);
   const [selectionState, setSelectionState] = useState<DrawingSelectionPayload>({
     count: 0,
     grouped: false,
@@ -312,7 +311,6 @@ export default function ScreenDrawing() {
       setTool(event.payload.tool);
     });
     const zoomListener = listen<boolean>("drawing-zoom-changed", (event) => {
-      zoomActiveRef.current = event.payload;
       setZoomActive(event.payload);
     });
     return () => {
@@ -578,8 +576,7 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
 
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {
-      // Picking a tool while magnifying leaves the magnifier first.
-      if (zoomActiveRef.current) await invoke("drawing_set_zoom", { enabled: false }).catch(console.error);
+      // Live zoom keeps every tool usable; the native side leaves a frozen-snapshot zoom itself.
       await invoke("drawing_set_tool", { tool: command.value }).catch((error) => {
         console.error(error);
         setOperationHint({ text: t("Wait for settings to finish opening") });
