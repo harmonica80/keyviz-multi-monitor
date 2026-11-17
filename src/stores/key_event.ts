@@ -10,6 +10,7 @@ const FILTER_VALUES = new Set<KeyEventState["filter"]>(["none", "modifiers", "cu
 const SCROLL_LINGER_MS = 300;
 const DEFAULT_DRAWING_TOGGLE_SHORTCUT = [RawKey.F8];
 const DEFAULT_DRAWING_POINTER_SHORTCUT = [RawKey.F7];
+const DEFAULT_DRAWING_ZOOM_SHORTCUT = [RawKey.F6];
 const LEGACY_DRAWING_TOGGLE_SHORTCUT = [RawKey.ControlLeft, RawKey.Num0];
 const LEGACY_DRAWING_POINTER_SHORTCUT = [RawKey.ControlLeft, RawKey.Num9];
 
@@ -51,6 +52,7 @@ export interface KeyEventState {
     drawingClearShortcut: string[];
     drawingUndoShortcut: string[];
     drawingCloseShortcut: string[];
+    drawingZoomShortcut: string[];
 }
 
 interface KeyEventActions {
@@ -68,6 +70,7 @@ interface KeyEventActions {
     setDrawingClearShortcut(value: KeyEventState["drawingClearShortcut"]): void;
     setDrawingUndoShortcut(value: KeyEventState["drawingUndoShortcut"]): void;
     setDrawingCloseShortcut(value: KeyEventState["drawingCloseShortcut"]): void;
+    setDrawingZoomShortcut(value: KeyEventState["drawingZoomShortcut"]): void;
     // ───────────── event actions ─────────────
     onEvent(event: EventPayload): void;
     onKeyPress(event: RawKeyEvent): void;
@@ -107,6 +110,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         drawingClearShortcut: [RawKey.Delete],
         drawingUndoShortcut: [RawKey.ControlLeft, RawKey.KeyZ],
         drawingCloseShortcut: [RawKey.Escape],
+        drawingZoomShortcut: DEFAULT_DRAWING_ZOOM_SHORTCUT,
 
         setDragThreshold(value: number) {
             set({ dragThreshold: value });
@@ -144,6 +148,9 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
         },
         setDrawingCloseShortcut(value: string[]) {
             set({ drawingCloseShortcut: value });
+        },
+        setDrawingZoomShortcut(value: string[]) {
+            set({ drawingZoomShortcut: value });
         },
         onEvent(event: EventPayload) {
             const state = get();
@@ -463,6 +470,7 @@ const createKeyEventStore = createSyncedStore<KeyEventStore>(
                 drawingClearShortcut: state.drawingClearShortcut ?? [RawKey.Delete],
                 drawingUndoShortcut: state.drawingUndoShortcut ?? [RawKey.ControlLeft, RawKey.KeyZ],
                 drawingCloseShortcut: state.drawingCloseShortcut ?? [RawKey.Escape],
+                drawingZoomShortcut: state.drawingZoomShortcut ?? DEFAULT_DRAWING_ZOOM_SHORTCUT,
             };
         },
         partialize: (state) => {

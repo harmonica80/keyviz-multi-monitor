@@ -102,6 +102,32 @@ static LAST_CLEAR_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_POINTER_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_CLOSE_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_UNDO_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
+static LAST_ZOOM_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
+
+fn run_zoom_shortcut(app_handle: &AppHandle) {
+    if !claim_shortcut(&LAST_ZOOM_SHORTCUT_MS) {
+        return;
+    }
+    let app = app_handle.clone();
+    // Opening a session from the desktop creates windows; keep that off the hook thread.
+    thread::spawn(move || {
+        if let Err(error) = crate::toggle_screen_zoom(&app) {
+            record_error(format!("Failed to toggle screen zoom: {error}"));
+        }
+    });
+}
+
+/// Esc while magnifying leaves the zoom (not the drawing session).
+fn exit_zoom_by_close_shortcut(app_handle: &AppHandle) {
+    if !claim_shortcut(&LAST_CLOSE_SHORTCUT_MS) {
+        return;
+    }
+    let state = app_handle.state::<Mutex<AppState>>();
+    let guard = state.lock();
+    if let Ok(app_state) = guard {
+        app_state.drawing_overlay.set_zoom(Some(false), false);
+    }
+}
 
 fn claim_shortcut(slot: &AtomicU64) -> bool {
     claim_shortcut_window(slot, 300)
@@ -217,10 +243,10 @@ fn shortcut_is_down(shortcut: &[String]) -> bool {
 #[cfg(target_os = "windows")]
 fn start_clear_shortcut_poller(app_handle: AppHandle) {
     thread::spawn(move || {
-        let (mut was_pointer, mut was_clear, mut was_close, mut was_undo) =
-            (false, false, false, false);
+        let (mut was_pointer, mut was_clear, mut was_close, mut was_undo, mut was_zoom) =
+            (false, false, false, false, false);
         loop {
-            let (visible, tool_active, pointer, clear, close, undo) = {
+            let (visible, tool_active, pointer, clear, close, undo, zoom) = {
                 let state = app_handle.state::<Mutex<AppState>>();
                 let snapshot = match state.lock() {
                     Ok(app_state) => (
@@ -230,13 +256,14 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
                         app_state.drawing_clear_shortcut.clone(),
                         app_state.drawing_close_shortcut.clone(),
                         app_state.drawing_undo_shortcut.clone(),
+                        app_state.drawing_zoom_shortcut.clone(),
                     ),
-                    Err(_) => (false, false, Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+                    Err(_) => (false, false, Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new()),
                 };
                 snapshot
             };
             if !visible {
-                (was_pointer, was_clear, was_close, was_undo) = (false, false, false, false);
+                (was_pointer, was_clear, was_close, was_undo, was_zoom) = (false, false, false, false, false);
                 thread::sleep(Duration::from_millis(200));
                 continue;
             }
@@ -278,7 +305,21 @@ fn start_clear_shortcut_poller(app_handle: AppHandle) {
             }
             was_undo = undo_down;
 
+            // Zoom shortcut (F6 by default) while the session is open; from the plain
+            // desktop it is handled by the hook only, like the drawing toggle shortcut.
+            let zoom_down = shortcut_is_down(&zoom);
+            if zoom_down && !was_zoom {
+                run_zoom_shortcut(&app_handle);
+            }
+            was_zoom = zoom_down;
+
             let close_down = shortcut_is_down(&close);
+            if close_down && !was_close && crate::app::native_drawing::zoom_active() {
+                exit_zoom_by_close_shortcut(&app_handle);
+                was_close = true;
+                thread::sleep(Duration::from_millis(40));
+                continue;
+            }
             if close_down
                 && !was_close
                 && (tool_active || foreground_is_own_window())
@@ -481,7 +522,22 @@ fn process_input_event(
                     }
                     return;
                 }
+                if shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_zoom_shortcut) {
+                    app_state.pressed_keys.clear();
+                    drop(app_state);
+                    run_zoom_shortcut(app_handle);
+                    return;
+                }
                 let drawing_visible = app_state.drawing_visible;
+                if drawing_visible
+                    && crate::app::native_drawing::zoom_active()
+                    && shortcut_pressed(&app_state.pressed_keys, &app_state.drawing_close_shortcut)
+                {
+                    app_state.pressed_keys.clear();
+                    drop(app_state);
+                    exit_zoom_by_close_shortcut(app_handle);
+                    return;
+                }
                 let drawing_tool_active = drawing_visible && app_state.drawing_tool != "pointer";
                 if drawing_visible
                     && shortcut_pressed(

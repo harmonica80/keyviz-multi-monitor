@@ -36,6 +36,7 @@ export const GeneralSettings = () => {
         drawingClearShortcut, setDrawingClearShortcut,
         drawingUndoShortcut, setDrawingUndoShortcut,
         drawingCloseShortcut, setDrawingCloseShortcut,
+        drawingZoomShortcut, setDrawingZoomShortcut,
     } = useKeyEvent();
 
     const direction = useKeyStyle(state => state.appearance.flexDirection);
@@ -226,6 +227,15 @@ export const GeneralSettings = () => {
                         onChange={(shortcut) => {
                             setDrawingCloseShortcut(shortcut);
                             invoke("set_drawing_shortcuts", { closeShortcut: shortcut });
+                        }}
+                    />
+                    <ShortcutRow
+                        label={t("Screen Magnifier")}
+                        description={t("Magnify the screen around the mouse, even without opening the drawing toolbar. Scroll the wheel forward to zoom in and back to zoom out, move the mouse to look around, and press the shortcut again, Esc or right-click to leave.")}
+                        value={drawingZoomShortcut}
+                        onChange={(shortcut) => {
+                            setDrawingZoomShortcut(shortcut);
+                            invoke("set_drawing_shortcuts", { zoomShortcut: shortcut });
                         }}
                     />
                 </div>

@@ -68,6 +68,7 @@ mod platform {
     include!("drawing_radial.rs");
     include!("drawing_radial_render.rs");
     include!("drawing_export.rs");
+    include!("drawing_zoom.rs");
 
     #[repr(C)]
     struct GdiplusStartupInput {
@@ -269,6 +270,8 @@ mod platform {
         SetToolbarHidden(bool),
         Export { kind: ExportKind, dir: Option<String>, reply: Sender<Result<crate::app::export_io::ExportResult, String>> },
         Import { path: String, reply: Sender<Result<String, String>> },
+        /// Screen magnifier: `enable` None toggles. `close_on_exit`: started from the desktop.
+        Zoom { enable: Option<bool>, close_on_exit: bool },
         OpenPointerRadial { epoch: u64 },
         RequestPointerRadial,
         SetKeyboardVisible(bool),
@@ -462,6 +465,8 @@ mod platform {
         background: Option<ScreenBackground>,
         /// File the current background/drawings were opened from; "save JSON" overwrites it.
         opened_json: Option<String>,
+        /// Screen magnifier; while set, the zoomed monitor shows a magnified snapshot.
+        zoom: Option<ZoomSession>,
         window_alt: AltTapTracker,
         input_epoch: u64,
         app: AppHandle,
@@ -872,6 +877,13 @@ mod platform {
             if let Some(sender) = &self.sender { let _ = sender.send(DrawingCommand::Recover); }
         }
 
+        /// Screen magnifier on the monitor under the cursor; `enable` None toggles it.
+        pub fn set_zoom(&self, enable: Option<bool>, close_on_exit: bool) {
+            if let Some(sender) = &self.sender {
+                let _ = sender.send(DrawingCommand::Zoom { enable, close_on_exit });
+            }
+        }
+
         /// Saves the monitor under the pointer; `kind` is "png" or "json". Returns the file path.
         pub fn export_screen(&self, kind: &str, dir: Option<String>) -> Result<crate::app::export_io::ExportResult, String> {
             let kind = match kind {
@@ -1054,6 +1066,7 @@ mod platform {
                     hover_sticky: false,
                     background: None,
                     opened_json: None,
+                    zoom: None,
                     window_alt: AltTapTracker::default(),
                     input_epoch: 0,
                     app,
@@ -1387,6 +1400,31 @@ mod platform {
             }
         }
 
+        // While magnifying, the snapshot owns the mouse: no drawing, menus or keyboard edits.
+        if state.zoom.is_some() {
+            match &command {
+                DrawingCommand::ToggleHoverEdit { .. } | DrawingCommand::OpenPointerRadial { .. }
+                | DrawingCommand::RequestPointerRadial | DrawingCommand::ToggleRadial
+                | DrawingCommand::RadialClick { .. } | DrawingCommand::PointerDown { .. }
+                | DrawingCommand::PointerMove { .. } | DrawingCommand::PointerUp { .. }
+                | DrawingCommand::HistoryShortcut { .. } | DrawingCommand::DeleteSelectionOrClear => return,
+                DrawingCommand::Probe { reply, .. } => {
+                    let _ = reply.send(Err("Leave the magnifier before testing layers".into()));
+                    return;
+                }
+                DrawingCommand::SetClickThrough(enabled) => {
+                    // Applied when the zoom ends.
+                    if let Some(zoom) = state.zoom.as_mut() { zoom.saved_click_through = *enabled; }
+                    return;
+                }
+                DrawingCommand::Import { .. } | DrawingCommand::Resize { .. }
+                | DrawingCommand::SetTool { ready: Some(_), .. } => exit_zoom(state, false),
+                DrawingCommand::Hide => discard_zoom(state),
+                _ => {}
+            }
+        }
+        let is_set_tool = matches!(&command, DrawingCommand::SetTool { .. });
+
         if state.radial.is_some() && !matches!(&command,
             DrawingCommand::ToggleRadial | DrawingCommand::CancelRadial | DrawingCommand::Raise
             | DrawingCommand::RaiseIfDemoted
@@ -1708,6 +1746,9 @@ mod platform {
             DrawingCommand::Import { path, reply } => {
                 let _ = reply.send(import_json(state, &path));
             }
+            DrawingCommand::Zoom { enable, close_on_exit } => {
+                apply_zoom_command(state, enable, close_on_exit);
+            }
             DrawingCommand::Undo | DrawingCommand::Redo | DrawingCommand::HistoryShortcut { .. } => {
                 if state.edit.is_none() {
                     finish_gesture_history(state);
@@ -1850,6 +1891,16 @@ mod platform {
                 }
             }
         }
+        if is_set_tool {
+            // A tool picked during the zoom applies afterwards; keep the mouse on the magnifier.
+            if let Some(zoom) = state.zoom.as_mut() {
+                zoom.saved_click_through = state.click_through;
+                if state.click_through {
+                    state.click_through = false;
+                    sync_input_surface_visibility(state);
+                }
+            }
+        }
         sync_radial_gate(state);
     }
 
@@ -1940,7 +1991,9 @@ mod platform {
                 if let Some(mut guard) = lock_overlay_state() {
                     if let Some(state) = guard.as_mut() {
                         state.window_alt.candidate = None;
-                        if is_surface_hwnd(state, hwnd) {
+                        if is_surface_hwnd(state, hwnd) && state.zoom.is_some() {
+                            exit_zoom(state, true);
+                        } else if is_surface_hwnd(state, hwnd) {
                             if let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) {
                                 if !is_toolbar_passthrough_point(state, point, false) {
                                     radial_right_click(state);
@@ -2041,6 +2094,9 @@ mod platform {
         let Some(state) = state_guard.as_mut() else {
             return;
         };
+        if state.zoom.is_some() {
+            return;
+        }
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
             return;
         };
@@ -2052,7 +2108,7 @@ mod platform {
         let Some(mut guard) = lock_overlay_state() else { return false; };
         let Some(state) = guard.as_mut() else { return false; };
         if !state.visible || !hover_edit_mode(state) || state.edit.is_some()
-            || state.radial.is_some() || state.probe.is_some() { return false; }
+            || state.radial.is_some() || state.probe.is_some() || state.zoom.is_some() { return false; }
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else { return false; };
         if is_toolbar_passthrough_point(state, point, false) { return false; }
         let Some(index) = hit_test_drawing(state, point) else { return false; };
@@ -2218,6 +2274,9 @@ mod platform {
         if !is_surface_hwnd(state, hwnd) {
             return;
         }
+        if zoom_mouse_move(state) {
+            return;
+        }
 
         let Some(point) = virtual_point_from_client(state, hwnd, lparam_point(lparam)) else {
             return;
@@ -2368,6 +2427,9 @@ mod platform {
 
         let delta = ((wparam.0 >> 16) & 0xffff) as u16 as i16;
         if delta == 0 {
+            return;
+        }
+        if zoom_mouse_wheel(state, delta) {
             return;
         }
         let step = if delta > 0 { 1 } else { -1 };
@@ -2725,6 +2787,11 @@ mod platform {
         }
         let drawing_dc = HDC(canvas.memory_dc.0);
         let pixels = std::slice::from_raw_parts_mut(canvas.bits as *mut u32, pixel_count);
+        if render_zoom_surface(state, &surface.bounds, pixels, width, height) {
+            surface.frame_stats = None;
+            present_overlay_surface(surface, drawing_dc, width, height);
+            return;
+        }
         pixels.fill(0);
 
         let mut old_origin = WinPoint::default();
@@ -2815,7 +2882,11 @@ mod platform {
             frame_stats.observe(*pixel);
         }
         surface.frame_stats = Some(frame_stats);
+        present_overlay_surface(surface, drawing_dc, width, height);
+    }
 
+    /// Pushes the surface's finished premultiplied-ARGB canvas to its layered window.
+    unsafe fn present_overlay_surface(surface: &mut OverlaySurface, drawing_dc: HDC, width: i32, height: i32) {
         let destination = WinPoint {
             x: surface.bounds.left,
             y: surface.bounds.top,
@@ -5187,10 +5258,10 @@ mod platform {
         let Some(state) = state_guard.as_ref() else {
             return false;
         };
-        if !is_surface_hwnd(state, hwnd) || !state.visible || state.cursor.0 == 0 {
+        if !is_surface_hwnd(state, hwnd) || !state.visible || (state.cursor.0 == 0 && state.zoom.is_none()) {
             return false;
         }
-        if state.radial.is_some() {
+        if state.radial.is_some() || state.zoom.is_some() {
             SetCursor(LoadCursorW(None, IDC_ARROW).unwrap_or_default());
         } else {
             SetCursor(state.cursor);
@@ -6022,6 +6093,7 @@ mod platform_stub {
         pub fn history_shortcut(&self, _redo: bool) {}
         pub fn redo(&self) {}
         pub fn recover(&self) {}
+        pub fn set_zoom(&self, _enable: Option<bool>, _close_on_exit: bool) {}
         pub fn export_screen(&self, _kind: &str, _dir: Option<String>) -> Result<crate::app::export_io::ExportResult, String> {
             Err("Saving is available on Windows only".into())
         }
@@ -6049,6 +6121,10 @@ mod platform_stub {
     }
 
     pub fn radial_consumes_close() -> bool {
+        false
+    }
+
+    pub fn zoom_active() -> bool {
         false
     }
 }

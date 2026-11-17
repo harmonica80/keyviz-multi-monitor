@@ -232,6 +232,8 @@ export default function ScreenDrawing() {
     return () => window.clearTimeout(timer);
   }, [operationHint]);
   const [keyDisplayEnabled, setKeyDisplayEnabled] = useState(true);
+  const [zoomActive, setZoomActive] = useState(false);
+  const zoomActiveRef = useRef(false);
   const [selectionState, setSelectionState] = useState<DrawingSelectionPayload>({
     count: 0,
     grouped: false,
@@ -285,6 +287,8 @@ export default function ScreenDrawing() {
   const drawingCloseShortcut = useKeyEvent((state) => state.drawingCloseShortcut);
   const closeShortcutLabel = formatShortcut(drawingCloseShortcut);
   const undoShortcutLabel = formatShortcut(drawingUndoShortcut);
+  const drawingZoomShortcut = useKeyEvent((state) => state.drawingZoomShortcut);
+  const zoomShortcutLabel = formatShortcut(drawingZoomShortcut);
 
   const notifyHistory = useCallback(() => {}, []);
 
@@ -305,8 +309,13 @@ export default function ScreenDrawing() {
     const toolListener = listen<ToolChangedPayload>("drawing-tool-changed", (event) => {
       setTool(event.payload.tool);
     });
+    const zoomListener = listen<boolean>("drawing-zoom-changed", (event) => {
+      zoomActiveRef.current = event.payload;
+      setZoomActive(event.payload);
+    });
     return () => {
       void toolListener.then((unlisten) => unlisten());
+      void zoomListener.then((unlisten) => unlisten());
     };
   }, []);
 
@@ -415,6 +424,9 @@ export default function ScreenDrawing() {
         setOperationHint({ text: event.payload.object ? t("Resizing Object")
           : `${t(DRAWING_TOOL_BY_ID[event.payload.tool].label)}: ${event.payload.width}` });
       });
+      const zoomErrorListener = listen<string>("drawing-zoom-error", (event) => {
+        setOperationHint({ text: t(event.payload) });
+      });
       const hoverToggleListener = listen<boolean>("drawing-hover-edit-toggled", (event) => {
         setOperationHint({ text: t(event.payload ? "Object editing enabled (Alt)" : "Object editing disabled (Alt)") });
       });
@@ -441,6 +453,7 @@ export default function ScreenDrawing() {
         void scaleListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
         void hintListener.then((unlisten) => unlisten());
+        void zoomErrorListener.then((unlisten) => unlisten());
         void hoverToggleListener.then((unlisten) => unlisten());
         void widthListener.then((unlisten) => unlisten());
         void colorListener.then((unlisten) => unlisten());
@@ -554,8 +567,17 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
     }
   };
 
+  const toggleZoom = () => {
+    void invoke("drawing_set_zoom", { enabled: null }).catch((error) => {
+      console.error(error);
+      setOperationHint({ text: t(String(error)) });
+    });
+  };
+
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {
+      // Picking a tool while magnifying leaves the magnifier first.
+      if (zoomActiveRef.current) await invoke("drawing_set_zoom", { enabled: false }).catch(console.error);
       await invoke("drawing_set_tool", { tool: command.value }).catch((error) => {
         console.error(error);
         setOperationHint({ text: t("Wait for settings to finish opening") });
@@ -733,6 +755,9 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       probeMenu={probeMenu}
       probe={probe}
       keyDisplayEnabled={keyDisplayEnabled}
+      zoomActive={zoomActive}
+      zoomShortcutLabel={zoomShortcutLabel}
+      onToggleZoom={toggleZoom}
       sendCommand={sendCommand}
       setProbeMenu={setProbeMenu}
       onDrag={() => void invoke("start_drawing_toolbar_drag")}

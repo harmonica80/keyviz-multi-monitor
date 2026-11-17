@@ -21,6 +21,7 @@ pub struct AppState {
     pub drawing_clear_shortcut: Vec<String>,
     pub drawing_undo_shortcut: Vec<String>,
     pub drawing_close_shortcut: Vec<String>,
+    pub drawing_zoom_shortcut: Vec<String>,
     pub drawing_toolbar_side: String,
 
     pub monitor_name: Option<String>,
@@ -72,6 +73,7 @@ impl AppState {
         let mut drawing_clear_shortcut = default_drawing_clear_shortcut();
         let mut drawing_undo_shortcut = default_drawing_undo_shortcut();
         let mut drawing_close_shortcut = default_drawing_close_shortcut();
+        let mut drawing_zoom_shortcut = default_drawing_zoom_shortcut();
         let mut drawing_toolbar_side = default_drawing_toolbar_side();
         let mut locale = "zh-TW".to_string();
         let mut cursor_keep_highlight = true;
@@ -110,6 +112,7 @@ impl AppState {
                             drawing_clear_shortcut = parsed.state.drawing_clear_shortcut;
                             drawing_undo_shortcut = parsed.state.drawing_undo_shortcut;
                             drawing_close_shortcut = parsed.state.drawing_close_shortcut;
+                            drawing_zoom_shortcut = parsed.state.drawing_zoom_shortcut;
                         }
                         Err(error) => {
                             record_error(format!("Failed to parse inner config JSON: {error}"))
@@ -161,6 +164,7 @@ impl AppState {
             drawing_clear_shortcut,
             drawing_undo_shortcut,
             drawing_close_shortcut,
+            drawing_zoom_shortcut,
             drawing_toolbar_side,
             monitor_name: None,
             monitor_scale: 1.0,
@@ -278,6 +282,8 @@ struct KeyEventState {
     pub drawing_undo_shortcut: Vec<String>,
     #[serde(default = "default_drawing_close_shortcut")]
     pub drawing_close_shortcut: Vec<String>,
+    #[serde(default = "default_drawing_zoom_shortcut")]
+    pub drawing_zoom_shortcut: Vec<String>,
 }
 
 fn default_toggle_shortcut() -> Vec<String> {
@@ -306,6 +312,10 @@ fn default_drawing_clear_shortcut() -> Vec<String> {
 
 fn default_drawing_undo_shortcut() -> Vec<String> {
     vec!["ControlLeft".to_string(), "KeyZ".to_string()]
+}
+
+fn default_drawing_zoom_shortcut() -> Vec<String> {
+    vec!["F6".to_string()]
 }
 
 fn default_drawing_close_shortcut() -> Vec<String> {

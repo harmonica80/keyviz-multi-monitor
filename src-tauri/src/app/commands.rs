@@ -34,6 +34,7 @@ pub fn set_drawing_shortcuts(
     clear_shortcut: Option<Vec<String>>,
     undo_shortcut: Option<Vec<String>>,
     close_shortcut: Option<Vec<String>>,
+    zoom_shortcut: Option<Vec<String>>,
 ) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
@@ -51,6 +52,9 @@ pub fn set_drawing_shortcuts(
     }
     if let Some(shortcut) = close_shortcut {
         app_state.drawing_close_shortcut = shortcut;
+    }
+    if let Some(shortcut) = zoom_shortcut {
+        app_state.drawing_zoom_shortcut = shortcut;
     }
     Ok(())
 }
@@ -251,6 +255,18 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
     app_state.drawing_overlay.set_click_through(passthrough);
     app.emit("drawing-tool-changed", serde_json::json!({ "tool": tool.as_str() }))
         .map_err(|error| error.to_string())?;
+    Ok(())
+}
+
+/// Toolbar magnifier button: `enabled` None toggles the screen zoom.
+#[tauri::command]
+pub fn drawing_set_zoom(app: tauri::AppHandle, enabled: Option<bool>) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    if !app_state.drawing_visible {
+        return Err("Open the drawing mode before zooming".into());
+    }
+    app_state.drawing_overlay.set_zoom(enabled, false);
     Ok(())
 }
 

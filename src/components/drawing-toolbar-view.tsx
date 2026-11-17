@@ -3,7 +3,7 @@ import { drawingThemeVariables } from "@/lib/drawing-themes";
 import { useTranslation } from "@/lib/i18n";
 import type { useOverlayProbe } from "@/lib/overlay-probe";
 import type { DrawingToolbarItem, RadialStyle } from "@/stores/drawing_toolbar";
-import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, Redo2, Undo2, RefreshCw, Settings, Trash2, X } from "lucide-react";
+import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, Redo2, Undo2, RefreshCw, Settings, Trash2, X, ZoomIn } from "lucide-react";
 import type { CSSProperties, Ref } from "react";
 
 export const DRAWING_TOOLBAR_COLORS = ["#ef2b2d", "#16c43b", "#2d37d6", "#d1af4b", "#ffffff", "#111111"];
@@ -33,6 +33,9 @@ interface DrawingToolbarViewProps {
   probeMenu?: boolean;
   probe?: ReturnType<typeof useOverlayProbe>;
   keyDisplayEnabled?: boolean;
+  zoomActive?: boolean;
+  zoomShortcutLabel?: string;
+  onToggleZoom?: () => void;
   sendCommand?: (command: ToolbarCommand) => void;
   setProbeMenu?: (open: boolean) => void;
   onDrag?: () => void;
@@ -55,7 +58,8 @@ export function DrawingToolbarView({
   closeShortcutLabel = "", undoShortcutLabel = "",
   selectionState = { count: 0, grouped: false }, operationHint = null,
   probeMenu = false, probe = { busy: false, result: null, run: async () => {} },
-  keyDisplayEnabled = true, sendCommand = noop, setProbeMenu = noop,
+  keyDisplayEnabled = true, zoomActive = false, zoomShortcutLabel = "", onToggleZoom,
+  sendCommand = noop, setProbeMenu = noop,
   onDrag, onHide, onClose, onToggleKeyDisplay, onSettings, onRecover,
   onSavePng, onSaveJson, onOpenJson,
 }: DrawingToolbarViewProps) {
@@ -98,6 +102,15 @@ export function DrawingToolbarView({
           <Icon />
         </button>
       ))}
+      <button
+        className={`drawing-zoom-button ${zoomActive ? "active" : ""}`}
+        aria-pressed={zoomActive}
+        aria-label={t("Screen magnifier")}
+        title={`${t("Screen magnifier")}${zoomShortcutLabel ? ` (${zoomShortcutLabel})` : ""}\n${t("Wheel: zoom in/out · Esc or right-click: leave")}`}
+        onClick={onToggleZoom}
+      >
+        <ZoomIn />
+      </button>
       {tool === "select" && (
         <button
           className={selectionState.grouped ? "active" : ""}

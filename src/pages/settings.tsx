@@ -60,6 +60,7 @@ const pushSettingsToBackend = () => {
         clearShortcut: keyEvent.drawingClearShortcut,
         undoShortcut: keyEvent.drawingUndoShortcut,
         closeShortcut: keyEvent.drawingCloseShortcut,
+        zoomShortcut: keyEvent.drawingZoomShortcut,
     }).catch(console.error);
 
     const toolbar = useDrawingToolbar.getState();

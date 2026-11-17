@@ -127,7 +127,9 @@ unsafe fn target_surface(state: &OverlayState) -> Option<usize> {
 }
 
 /// Grabs the real screen (without any of our own overlay windows) as 0x??RRGGBB pixels.
-unsafe fn capture_screen(state: &OverlayState, rect: RECT) -> Result<Vec<u32>, String> {
+/// `all_own_windows`: also hide every other visible window of this process (key display,
+/// click highlight...); the magnifier uses it so live overlays are not frozen into the image.
+unsafe fn capture_screen(state: &OverlayState, rect: RECT, all_own_windows: bool) -> Result<Vec<u32>, String> {
     use windows::Win32::Graphics::Gdi::{BitBlt, ROP_CODE, CAPTUREBLT, SRCCOPY};
     use windows::Win32::UI::WindowsAndMessaging::{SetWindowDisplayAffinity, WINDOW_DISPLAY_AFFINITY};
     use windows::Win32::System::Threading::Sleep;
@@ -144,6 +146,13 @@ unsafe fn capture_screen(state: &OverlayState, rect: RECT) -> Result<Vec<u32>, S
             .and_then(|window| window.hwnd().ok()).map(|hwnd| hwnd.0 as isize).unwrap_or(0);
         if hwnd != 0 {
             targets.push((HWND(hwnd), false));
+        }
+    }
+    if all_own_windows {
+        for hwnd in own_top_level_windows() {
+            if !targets.iter().any(|(target, _)| *target == hwnd) {
+                targets.push((hwnd, false));
+            }
         }
     }
     // WDA_EXCLUDEFROMCAPTURE hides our windows from the capture only; they stay visible on screen.
@@ -285,7 +294,7 @@ unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<
     // Under an opened JSON the frozen image is the "screen"; otherwise grab the real one.
     let base: Vec<u32> = match &state.background {
         Some(background) if same_rect(&background.rect, &rect) => background.pixels.clone(),
-        _ => capture_screen(state, rect)?,
+        _ => capture_screen(state, rect, false)?,
     };
     let to_rgba = |pixels: &[u32]| -> Vec<u8> {
         pixels.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 255]).collect()

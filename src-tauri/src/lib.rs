@@ -9,7 +9,7 @@ use tauri::{
 
 mod app;
 use app::commands::{
-    drawing_clear, drawing_redo, drawing_recover, drawing_export, drawing_import, drawing_export_dir, reveal_in_explorer, drawing_probe_layer, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
+    drawing_clear, drawing_redo, drawing_recover, drawing_set_zoom, drawing_export, drawing_import, drawing_export_dir, reveal_in_explorer, drawing_probe_layer, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
     drawing_undo, get_cursor_settings, hide_native_key_overlay, log, set_cursor_settings,
     set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut, set_tray_locale,
     update_native_key_overlay,
@@ -468,6 +468,28 @@ pub(crate) fn start_pointer_radial(app: &AppHandle) -> Result<(), String> {
     }
     // Keep this behind Show/SetTool in the native queue, without waiting on the UI.
     state.drawing_overlay.request_pointer_radial();
+    Ok(())
+}
+
+/// Zoom shortcut: magnify the monitor under the cursor. From the plain desktop this opens a
+/// drawing session with a hidden toolbar first; leaving the zoom closes that session again.
+pub(crate) fn toggle_screen_zoom(app: &AppHandle) -> Result<(), String> {
+    {
+        let state = app.state::<Mutex<AppState>>();
+        let state = state.lock().map_err(|error| error.to_string())?;
+        if state.settings_opening {
+            return Err("Wait for settings to finish opening".into());
+        }
+        if state.drawing_visible {
+            state.drawing_overlay.set_zoom(None, false);
+            return Ok(());
+        }
+    }
+    initialize_drawing_session(app, true)?;
+    let state = app.state::<Mutex<AppState>>();
+    let state = state.lock().map_err(|error| error.to_string())?;
+    // Queued behind Show/SetTool, so the surfaces exist when the snapshot is taken.
+    state.drawing_overlay.set_zoom(Some(true), true);
     Ok(())
 }
 
@@ -1267,6 +1289,7 @@ pub fn run() {
             drawing_clear,
             drawing_redo,
             drawing_recover,
+            drawing_set_zoom,
             drawing_export,
             drawing_import,
             drawing_export_dir,
