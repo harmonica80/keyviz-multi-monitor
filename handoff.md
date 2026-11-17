@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -79,6 +79,14 @@
 | `src/components/settings/general.tsx` | `ShortcutRow` 說明文字改為整列寬度。 |
 
 發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.33`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.33`，exe 會自動附到該 Release。
+
+## v1.0.35（放大鏡：邊緣平移、放大時可操作電腦，測試版）
+
+- 使用者實測 v1.0.34 正常，並確認全螢幕放大會同時放大兩個螢幕。
+- 只放大單一螢幕：`MagSetFullscreenTransform` 作用於整個桌面，無法限定單一螢幕。改用放大鏡視窗控制項則輸入座標無法對齊（`MagSetInputTransform` 需 UIAccess），因此不做。
+- 邊緣平移：offset 與 target 分開維護。指標的放大位置為 `(c−o)·z`，進入邊距（螢幕寬高的 12%，至少 40px）時移動 target，offset 每 15ms 以 0.22 係數趨近。換螢幕時重設為跟隨 offset。滾輪縮放用 `rezoom_offset` 讓指標位置不動。另有「跟隨」模式（`ZOOM_EDGE_PAN=false`），即 v1.0.34 的行為。
+- **關鍵假設（待實機確認）**：Windows 全螢幕放大會把滑鼠指標畫在放大後的位置，因此 offset 任意時點擊仍對準。若邊緣平移模式下點擊或畫筆位置偏移，表示此假設不成立，請改用「跟隨」模式（設定頁可切換）。
+- 放大時可操作電腦：即時放大不再強制 `click_through=false`。游標工具時輸入穿透到底下的程式；縮放改用 Ctrl＋滾輪，由獨立執行緒的 `WH_MOUSE_LL` 掛鉤攔截。掛鉤常駐，只在 `LIVE_ZOOM` 時吞掉 Ctrl＋滾輪；繪圖工具時 `WM_MOUSEWHEEL` 照舊縮放。凍結模式維持只能檢視。
 
 ## v1.0.34（螢幕放大鏡第二階段：即時放大＋放大時繪圖，測試版）
 

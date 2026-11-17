@@ -1407,8 +1407,8 @@ mod platform {
             }
         }
 
-        // While magnifying: in a live zoom every drawing tool keeps working (DWM just scales the
-        // screen); viewing (pointer tool, or a frozen snapshot) owns the mouse instead.
+        // While magnifying: a live zoom keeps everything working (DWM just scales the screen;
+        // the pointer tool even lets the computer be used); a frozen snapshot owns the mouse.
         if let Some(live) = state.zoom.as_ref().map(|zoom| zoom.live) {
             let view_only = zoom_view_only(state);
             match &command {
@@ -1425,8 +1425,8 @@ mod platform {
                     let _ = reply.send(Err("Leave the magnifier before testing layers".into()));
                     return;
                 }
-                DrawingCommand::SetClickThrough(enabled) => {
-                    // Applied when the zoom ends.
+                DrawingCommand::SetClickThrough(enabled) if !live => {
+                    // A frozen snapshot keeps the mouse; applied when it ends.
                     if let Some(zoom) = state.zoom.as_mut() { zoom.saved_click_through = *enabled; }
                     return;
                 }
@@ -1906,8 +1906,8 @@ mod platform {
             }
         }
         if is_set_tool {
-            // A tool picked during the zoom applies afterwards; keep the mouse on the magnifier.
-            if let Some(zoom) = state.zoom.as_mut() {
+            // A tool picked during a frozen zoom applies afterwards; keep the mouse on the snapshot.
+            if let Some(zoom) = state.zoom.as_mut().filter(|zoom| !zoom.live) {
                 zoom.saved_click_through = state.click_through;
                 if state.click_through {
                     state.click_through = false;
@@ -6162,6 +6162,8 @@ mod platform_stub {
     pub fn zoom_active() -> bool {
         false
     }
+
+    pub fn set_zoom_edge_pan(_edge: bool) {}
 }
 
 #[cfg(not(target_os = "windows"))]

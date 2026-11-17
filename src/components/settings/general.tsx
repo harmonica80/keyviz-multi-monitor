@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { useTranslation } from "@/lib/i18n";
 import { KeyEventState, useKeyEvent } from "@/stores/key_event";
 import { KeyStyleState, useKeyStyle } from "@/stores/key_style";
+import { useDrawingToolbar } from "@/stores/drawing_toolbar";
 import { ArrowHorizontalIcon, ArrowVerticalIcon, FilterHorizontalIcon, FilterIcon, LayerIcon, PaintBoardIcon, ToggleOnIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { CustomFilter } from '../custom-filter';
@@ -39,6 +40,8 @@ export const GeneralSettings = () => {
         drawingZoomShortcut, setDrawingZoomShortcut,
     } = useKeyEvent();
 
+    const zoomPanMode = useDrawingToolbar(state => state.zoomPanMode);
+    const setZoomPanMode = useDrawingToolbar(state => state.setZoomPanMode);
     const direction = useKeyStyle(state => state.appearance.flexDirection);
     const setAppearance = useKeyStyle(state => state.setAppearance);
 
@@ -238,6 +241,25 @@ export const GeneralSettings = () => {
                             invoke("set_drawing_shortcuts", { zoomShortcut: shortcut });
                         }}
                     />
+                    <div className="flex flex-col gap-2 rounded-lg border px-3 py-2">
+                        <span className="text-sm font-medium">{t("Magnifier panning")}</span>
+                        <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm">
+                            {(["edge", "follow"] as const).map((mode) => (
+                                <label key={mode} className="flex cursor-pointer items-center gap-2">
+                                    <input
+                                        type="radio"
+                                        name="zoom-pan-mode"
+                                        checked={zoomPanMode === mode}
+                                        onChange={() => {
+                                            setZoomPanMode(mode);
+                                            invoke("set_zoom_pan_mode", { edge: mode === "edge" }).catch(console.error);
+                                        }}
+                                    />
+                                    {t(mode === "edge" ? "Move only near the edges (steadier)" : "Follow the mouse")}
+                                </label>
+                            ))}
+                        </div>
+                    </div>
                 </div>
             </ItemContent>
         </Item>

@@ -127,6 +127,9 @@ impl AppState {
                 if let Some(json_str) = value.as_str() {
                     if let Ok(parsed) = serde_json::from_str::<DrawingToolbarStore>(json_str) {
                         drawing_toolbar_side = normalize_drawing_toolbar_side(&parsed.state.side);
+                        crate::app::native_drawing::set_zoom_edge_pan(
+                            parsed.state.zoom_pan_mode.as_deref() != Some("follow"),
+                        );
                     }
                 }
             }
@@ -343,6 +346,9 @@ struct DrawingToolbarStore {
 struct DrawingToolbarState {
     #[serde(default = "default_drawing_toolbar_side")]
     side: String,
+    /// Screen magnifier panning: "edge" (default) or "follow".
+    #[serde(default, rename = "zoomPanMode")]
+    zoom_pan_mode: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

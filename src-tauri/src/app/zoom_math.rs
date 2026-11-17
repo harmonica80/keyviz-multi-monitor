@@ -21,6 +21,51 @@ pub fn next_zoom_level(level: f64, steps: i32) -> f64 {
     }
 }
 
+// ---- Live (full-screen magnifier) panning, one axis at a time -------------------------------
+//
+// With level `z` and offset `o`, screen coordinate `q` shows desktop coordinate `o + q / z`
+// (virtual-screen coordinates; the primary monitor's origin is 0). The monitor `[lo, hi)` only
+// shows its own content while `lo*(1-1/z) <= o <= hi*(1-1/z)`. Windows draws the mouse pointer
+// at its magnified position `(c - o) * z`, so input stays aligned for any offset.
+
+/// Offset that keeps the cursor `c` at its own screen position (the "follow" view).
+pub fn follow_offset(cursor: f64, level: f64) -> f64 {
+    cursor * (1.0 - 1.0 / level.max(1.0))
+}
+
+/// Keeps the magnified view inside the monitor `[lo, hi)`.
+pub fn clamp_offset(offset: f64, lo: f64, hi: f64, level: f64) -> f64 {
+    let keep = 1.0 - 1.0 / level.max(1.0);
+    offset.clamp(lo * keep, (hi * keep).max(lo * keep))
+}
+
+/// Edge panning: the view stays put until the magnified pointer comes within `margin` of the
+/// monitor edge, then the target moves just enough to keep it `margin` inside.
+pub fn edge_target(cursor: f64, target: f64, lo: f64, hi: f64, level: f64, margin: f64) -> f64 {
+    let level = level.max(1.0);
+    let shown = (cursor - target) * level;
+    let next = if shown < lo + margin {
+        cursor - (lo + margin) / level
+    } else if shown > hi - margin {
+        cursor - (hi - margin) / level
+    } else {
+        target
+    };
+    clamp_offset(next, lo, hi, level)
+}
+
+/// One smoothing step toward `target`; snaps when close so the view comes to rest.
+pub fn ease_offset(current: f64, target: f64, factor: f64) -> f64 {
+    let next = current + (target - current) * factor;
+    if (target - next).abs() < 0.5 { target } else { next }
+}
+
+/// New offset after a level change that keeps the magnified pointer where it is on screen.
+pub fn rezoom_offset(cursor: f64, offset: f64, old_level: f64, new_level: f64) -> f64 {
+    let shown = (cursor - offset) * old_level.max(1.0);
+    cursor - shown / new_level.max(1.0)
+}
+
 /// Linear blend of two 0x??RRGGBB pixels; `weight` is the share of `q` in 0..=256.
 #[inline]
 fn lerp_pixel(p: u32, q: u32, weight: u32) -> u32 {
@@ -118,6 +163,39 @@ mod tests {
         assert!(dest[99] & 0xff >= 196);
         render_zoom(&source, 100, 1, 0.0, 0.0, 2.0, &mut dest);
         assert_eq!(dest[0] & 0xff, 0);
+    }
+
+    #[test]
+    fn edge_panning_waits_for_the_margin() {
+        // Monitor 0..1000 at 2x, view showing 250..750 (offset 250).
+        let margin = 100.0;
+        // Pointer at 500 is shown at (500-250)*2 = 500: inside, the view stays.
+        assert_eq!(edge_target(500.0, 250.0, 0.0, 1000.0, 2.0, margin), 250.0);
+        // Pointer at 720 is shown at 940 (> 900): pan so it is shown at 900.
+        let target = edge_target(720.0, 250.0, 0.0, 1000.0, 2.0, margin);
+        assert_eq!((720.0 - target) * 2.0, 900.0);
+        // Never past the monitor edge (max offset 500 at 2x).
+        assert_eq!(edge_target(999.0, 250.0, 0.0, 1000.0, 2.0, margin), 500.0);
+        // Second monitor 1000..2000: offsets stay within its own range.
+        assert_eq!(edge_target(1000.0, 0.0, 1000.0, 2000.0, 2.0, margin), 500.0);
+    }
+
+    #[test]
+    fn follow_and_rezoom_keep_the_pointer_in_place() {
+        assert_eq!(follow_offset(800.0, 2.0), 400.0);
+        assert_eq!((800.0 - follow_offset(800.0, 4.0)) * 4.0, 800.0);
+        let offset = rezoom_offset(600.0, 250.0, 2.0, 4.0);
+        assert_eq!((600.0 - offset) * 4.0, (600.0 - 250.0) * 2.0);
+        assert_eq!(clamp_offset(-5.0, 0.0, 1000.0, 2.0), 0.0);
+    }
+
+    #[test]
+    fn easing_converges_and_snaps() {
+        let mut value = 0.0;
+        for _ in 0..40 {
+            value = ease_offset(value, 100.0, 0.25);
+        }
+        assert_eq!(value, 100.0);
     }
 
     #[test]

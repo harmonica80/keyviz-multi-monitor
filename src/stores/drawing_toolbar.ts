@@ -23,6 +23,9 @@ export type DrawingToolbarSide = "left" | "right";
 export type RadialStyle = DrawingThemeId;
 export const normalizeRadialStyle = normalizeDrawingTheme;
 
+export type ZoomPanMode = "edge" | "follow";
+const normalizeZoomPanMode = (value: unknown): ZoomPanMode => (value === "follow" ? "follow" : "edge");
+
 interface DrawingToolbarState {
   radialShortcut: string[];
   /** Folder for saved PNG / JSON files; empty means the Downloads folder. */
@@ -30,6 +33,8 @@ interface DrawingToolbarState {
   radialRightClick: boolean;
   radialStyle: RadialStyle;
   radialColors: [string, string];
+  /** Screen magnifier panning: glide near the edges, or follow the pointer. */
+  zoomPanMode: ZoomPanMode;
   /** The four color swatches on the drawing toolbar. */
   toolbarColors: [string, string, string, string];
   hoverEdit: Partial<Record<DrawingTool, boolean>>;
@@ -44,6 +49,7 @@ interface DrawingToolbarActions {
   setRadialStyle: (style: RadialStyle) => void;
   setRadialColor: (index: 0 | 1, color: string) => void;
   setToolbarColor: (index: 0 | 1 | 2 | 3, color: string) => void;
+  setZoomPanMode: (mode: ZoomPanMode) => void;
   setHoverEdit: (id: DrawingTool, enabled: boolean) => void;
   setItems: (items: DrawingToolbarItem[]) => void;
   setToolVisible: (id: DrawingTool, visible: boolean) => void;
@@ -100,6 +106,8 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     radialStyle: "pearl",
     radialColors: [...DEFAULT_RADIAL_COLORS],
     toolbarColors: [...DEFAULT_TOOLBAR_COLORS],
+    zoomPanMode: "edge",
+    setZoomPanMode: (mode) => set({ zoomPanMode: normalizeZoomPanMode(mode) }),
     setToolbarColor: (index, color) => set((state) => {
       const colors = [...state.toolbarColors];
       colors[index] = color;
@@ -144,7 +152,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 9,
+      version: 10,
       migrate: (persistedState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
@@ -154,6 +162,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           radialStyle: normalizeRadialStyle(state.radialStyle),
           radialColors: normalizeRadialColors(state.radialColors),
           toolbarColors: normalizeToolbarColors(state.toolbarColors),
+          zoomPanMode: normalizeZoomPanMode(state.zoomPanMode),
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
           hoverEdit: state.hoverEdit ?? {},
@@ -169,6 +178,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           radialStyle: normalizeRadialStyle(state.radialStyle),
           radialColors: normalizeRadialColors(state.radialColors),
           toolbarColors: normalizeToolbarColors(state.toolbarColors),
+          zoomPanMode: normalizeZoomPanMode(state.zoomPanMode),
           hoverEdit: state.hoverEdit ?? {},
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),

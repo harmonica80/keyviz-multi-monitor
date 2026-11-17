@@ -258,6 +258,12 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
     Ok(())
 }
 
+/// Settings: magnifier panning, true = glide near the edges, false = follow the pointer.
+#[tauri::command]
+pub fn set_zoom_pan_mode(edge: bool) {
+    crate::app::native_drawing::set_zoom_edge_pan(edge);
+}
+
 /// Toolbar magnifier button: `enabled` None toggles the screen zoom.
 #[tauri::command]
 pub fn drawing_set_zoom(app: tauri::AppHandle, enabled: Option<bool>) -> Result<(), String> {

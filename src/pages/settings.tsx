@@ -65,6 +65,7 @@ const pushSettingsToBackend = () => {
 
     const toolbar = useDrawingToolbar.getState();
     invoke("set_drawing_toolbar_side", { side: toolbar.side }).catch(console.error);
+    invoke("set_zoom_pan_mode", { edge: toolbar.zoomPanMode !== "follow" }).catch(console.error);
     invoke("set_drawing_radial_menu", {
         shortcut: toolbar.radialShortcut,
         rightClick: toolbar.radialRightClick,
