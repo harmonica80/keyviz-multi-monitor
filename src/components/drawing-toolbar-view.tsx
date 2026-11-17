@@ -1,10 +1,10 @@
-import { DRAWING_TOOL_BY_ID, type DrawingTool } from "@/lib/drawing-tools";
+import { TOOLBAR_ITEM_BY_ID, type DrawingTool } from "@/lib/drawing-tools";
 import { drawingThemeVariables } from "@/lib/drawing-themes";
 import { useTranslation } from "@/lib/i18n";
 import type { useOverlayProbe } from "@/lib/overlay-probe";
 import type { DrawingToolbarItem, RadialStyle } from "@/stores/drawing_toolbar";
 import { DEFAULT_TOOLBAR_COLORS } from "@/lib/radial-colors";
-import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, Redo2, Undo2, RefreshCw, Settings, Trash2, X, ZoomIn } from "lucide-react";
+import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, Redo2, Undo2, RefreshCw, Settings, Trash2, X } from "lucide-react";
 import type { CSSProperties, Ref } from "react";
 
 export const DRAWING_TOOLBAR_COLORS: readonly string[] = DEFAULT_TOOLBAR_COLORS;
@@ -67,7 +67,7 @@ export function DrawingToolbarView({
   onSavePng, onSaveJson, onOpenJson,
 }: DrawingToolbarViewProps) {
   const { t } = useTranslation();
-  const toolButtons = toolbarItems.filter((item) => item.visible).map((item) => DRAWING_TOOL_BY_ID[item.id]);
+  const toolButtons = toolbarItems.filter((item) => item.visible).map((item) => TOOLBAR_ITEM_BY_ID[item.id]);
   const COLORS = colors;
   const activeColor = color.toLowerCase();
   return (
@@ -96,7 +96,18 @@ export function DrawingToolbarView({
           <X />
         </button>
       </div>
-      {toolButtons.map(({ id, label, icon: Icon }) => (
+      {toolButtons.map(({ id, label, icon: Icon }) => id === "zoom" ? (
+        <button
+          key={id}
+          className={`drawing-zoom-button ${zoomActive ? "active" : ""}`}
+          aria-pressed={zoomActive}
+          aria-label={t("Screen magnifier")}
+          title={`${t("Screen magnifier")}${zoomShortcutLabel ? ` (${zoomShortcutLabel})` : ""}\n${t("Wheel: zoom in/out · Esc or right-click: leave")}`}
+          onClick={onToggleZoom}
+        >
+          <Icon />
+        </button>
+      ) : (
         <button
           key={id}
           className={tool === id ? "active" : ""}
@@ -106,15 +117,6 @@ export function DrawingToolbarView({
           <Icon />
         </button>
       ))}
-      <button
-        className={`drawing-zoom-button ${zoomActive ? "active" : ""}`}
-        aria-pressed={zoomActive}
-        aria-label={t("Screen magnifier")}
-        title={`${t("Screen magnifier")}${zoomShortcutLabel ? ` (${zoomShortcutLabel})` : ""}\n${t("Wheel: zoom in/out · Esc or right-click: leave")}`}
-        onClick={onToggleZoom}
-      >
-        <ZoomIn />
-      </button>
       {tool === "select" && (
         <button
           className={selectionState.grouped ? "active" : ""}

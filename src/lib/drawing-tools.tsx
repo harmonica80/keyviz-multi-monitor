@@ -10,6 +10,7 @@ import {
   Type,
 } from "lucide-react";
 import type { ComponentType } from "react";
+import { ZoomIn } from "lucide-react";
 
 export type DrawingTool =
   | "pointer"
@@ -85,3 +86,23 @@ export const DRAWING_TOOLS: DrawingToolDefinition[] = [
 export const DRAWING_TOOL_BY_ID = Object.fromEntries(
   DRAWING_TOOLS.map((tool) => [tool.id, tool]),
 ) as Record<DrawingTool, DrawingToolDefinition>;
+
+/** Toolbar rows: every drawing tool plus the screen magnifier button (not a drawing tool). */
+export type ToolbarItemId = DrawingTool | "zoom";
+
+export interface ToolbarItemDefinition {
+  id: ToolbarItemId;
+  label: string;
+  icon: ComponentType;
+  canHide: boolean;
+}
+
+export const TOOLBAR_ITEM_BY_ID = {
+  ...DRAWING_TOOL_BY_ID,
+  zoom: { id: "zoom", label: "Screen magnifier", icon: ZoomIn, canHide: true },
+} as Record<ToolbarItemId, ToolbarItemDefinition>;
+
+export const TOOLBAR_ITEM_IDS: ToolbarItemId[] = [...DRAWING_TOOLS.map(({ id }) => id), "zoom"];
+
+/** Toolbar items that are drawing tools (for the circular menu and tool switching). */
+export const isDrawingToolItem = (id: ToolbarItemId): id is DrawingTool => id !== "zoom";

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { AboutPage, AppearanceSettings, DrawingToolbarSettings, GeneralSettings, KeycapSettings, MouseSettings } from "@/components/settings";
 import { useDrawingToolbar } from "@/stores/drawing_toolbar";
+import { isDrawingToolItem } from "@/lib/drawing-tools";
 import { useKeyEvent } from "@/stores/key_event";
 import { useKeyStyle } from "@/stores/key_style";
 import { ThemeModeToggle } from "@/components/theme-mode-toggle";
@@ -71,7 +72,7 @@ const pushSettingsToBackend = () => {
         rightClick: toolbar.radialRightClick,
         style: toolbar.radialStyle,
         colors: toolbar.radialColors,
-        tools: toolbar.items.filter((item) => item.visible).map((item) => item.id),
+        tools: toolbar.items.filter((item) => item.visible && isDrawingToolItem(item.id)).map((item) => item.id),
     }).catch(console.error);
 
     const mouse = useKeyStyle.getState().mouse;

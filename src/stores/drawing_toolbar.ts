@@ -1,6 +1,7 @@
 import {
-  DRAWING_TOOLS,
+  TOOLBAR_ITEM_IDS,
   type DrawingTool,
+  type ToolbarItemId,
 } from "@/lib/drawing-tools";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -14,7 +15,7 @@ import { DEFAULT_RADIAL_COLORS, DEFAULT_TOOLBAR_COLORS, normalizeRadialColors, n
 export const DRAWING_TOOLBAR_STORE = "drawing_toolbar_store";
 
 export interface DrawingToolbarItem {
-  id: DrawingTool;
+  id: ToolbarItemId;
   visible: boolean;
 }
 
@@ -52,25 +53,26 @@ interface DrawingToolbarActions {
   setZoomPanMode: (mode: ZoomPanMode) => void;
   setHoverEdit: (id: DrawingTool, enabled: boolean) => void;
   setItems: (items: DrawingToolbarItem[]) => void;
-  setToolVisible: (id: DrawingTool, visible: boolean) => void;
+  setToolVisible: (id: ToolbarItemId, visible: boolean) => void;
   setSide: (side: DrawingToolbarSide) => void;
   resetToolbar: () => void;
 }
 
 export type DrawingToolbarStore = DrawingToolbarState & DrawingToolbarActions;
 
-export const DEFAULT_DRAWING_TOOLBAR_ITEMS: DrawingToolbarItem[] = DRAWING_TOOLS.map(
-  ({ id }) => ({ id, visible: true }),
+// Older settings without the magnifier get it appended (its original place, after the tools).
+export const DEFAULT_DRAWING_TOOLBAR_ITEMS: DrawingToolbarItem[] = TOOLBAR_ITEM_IDS.map(
+  (id) => ({ id, visible: true }),
 );
 export const DEFAULT_DRAWING_TOOLBAR_SIDE: DrawingToolbarSide = "right";
 
-const validToolIds = new Set<DrawingTool>(DRAWING_TOOLS.map(({ id }) => id));
+const validToolIds = new Set<ToolbarItemId>(TOOLBAR_ITEM_IDS);
 
 export const normalizeDrawingToolbarItems = (
   items: DrawingToolbarItem[] | undefined,
 ): DrawingToolbarItem[] => {
   const normalized: DrawingToolbarItem[] = [];
-  const seen = new Set<DrawingTool>();
+  const seen = new Set<ToolbarItemId>();
 
   for (const item of items ?? []) {
     if (!validToolIds.has(item.id) || seen.has(item.id)) continue;

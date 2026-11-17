@@ -1,6 +1,8 @@
 import {
   DRAWING_TOOL_BY_ID,
   type DrawingTool,
+  type ToolbarItemId,
+  TOOLBAR_ITEM_BY_ID,
 } from "@/lib/drawing-tools";
 import { useTranslation } from "@/lib/i18n";
 import {
@@ -10,6 +12,7 @@ import {
 import { DRAWING_THEMES, drawingThemeVariables } from "@/lib/drawing-themes";
 import { Button } from "@/components/ui/button";
 import { DrawingToolbarView } from "@/components/drawing-toolbar-view";
+import { PresetColorPicker } from "@/components/settings/preset-color-picker";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
@@ -29,16 +32,14 @@ import { useEffect, useRef, useState } from "react";
 
 interface ToolbarDragSession {
   pointerId: number;
-  sourceId: DrawingTool;
-  targetId: DrawingTool;
+  sourceId: ToolbarItemId;
+  targetId: ToolbarItemId;
 }
 
 export const DrawingToolbarSettings = () => {
   const { t } = useTranslation();
   const items = useDrawingToolbar((state) => state.items);
   const side = useDrawingToolbar((state) => state.side);
-  const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
-  const setHoverEdit = useDrawingToolbar((state) => state.setHoverEdit);
   const setItems = useDrawingToolbar((state) => state.setItems);
   const setToolVisible = useDrawingToolbar((state) => state.setToolVisible);
   const setSide = useDrawingToolbar((state) => state.setSide);
@@ -54,8 +55,8 @@ export const DrawingToolbarSettings = () => {
   const toolbarColors = useDrawingToolbar((state) => state.toolbarColors);
   const setToolbarColor = useDrawingToolbar((state) => state.setToolbarColor);
   const setRadialColor = useDrawingToolbar((state) => state.setRadialColor);
-  const [draggedTool, setDraggedTool] = useState<DrawingTool | null>(null);
-  const [dropTarget, setDropTarget] = useState<DrawingTool | null>(null);
+  const [draggedTool, setDraggedTool] = useState<ToolbarItemId | null>(null);
+  const [dropTarget, setDropTarget] = useState<ToolbarItemId | null>(null);
   const dragSession = useRef<ToolbarDragSession | null>(null);
 
   useEffect(() => {
@@ -83,7 +84,7 @@ export const DrawingToolbarSettings = () => {
     }
   };
 
-  const reorder = (sourceId: DrawingTool, targetId: DrawingTool) => {
+  const reorder = (sourceId: ToolbarItemId, targetId: ToolbarItemId) => {
     if (sourceId === targetId) return;
     const next = items.map((item) => ({ ...item }));
     const sourceIndex = next.findIndex((item) => item.id === sourceId);
@@ -96,7 +97,7 @@ export const DrawingToolbarSettings = () => {
     setItems(next);
   };
 
-  const moveBy = (id: DrawingTool, offset: number) => {
+  const moveBy = (id: ToolbarItemId, offset: number) => {
     const index = items.findIndex((item) => item.id === id);
     const targetIndex = index + offset;
     if (index < 0 || targetIndex < 0 || targetIndex >= items.length) return;
@@ -140,16 +141,14 @@ export const DrawingToolbarSettings = () => {
           <ItemDescription>{t("Choose the four colors shown on the drawing toolbar.")}</ItemDescription>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
             {([0, 1, 2, 3] as const).map((index) => (
-              <label key={index} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5">
+              <div key={index} className="flex items-center justify-between gap-2 rounded-lg border px-3 py-1.5">
                 <span>{t("Color")} {index + 1}</span>
-                <input
-                  type="color"
+                <PresetColorPicker
                   value={toolbarColors[index]}
-                  onChange={(event) => setToolbarColor(index, event.currentTarget.value)}
-                  aria-label={`${t("Toolbar Colors")} ${index + 1}`}
-                  className="h-7 w-12 cursor-pointer rounded border"
+                  onChange={(color) => setToolbarColor(index, color)}
+                  label={`${t("Toolbar Colors")} ${index + 1}`}
                 />
-              </label>
+              </div>
             ))}
           </div>
         </ItemContent>
@@ -181,16 +180,14 @@ export const DrawingToolbarSettings = () => {
           <ItemDescription>{t("Choose the two quick colors shown in the circular menu. These colors do not change the toolbar palette.")}</ItemDescription>
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
             {([0, 1] as const).map((index) => (
-              <label key={index} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-1.5">
+              <div key={index} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-1.5">
                 <span>{t(index === 0 ? "Quick Color 1" : "Quick Color 2")}</span>
-                <input
-                  type="color"
+                <PresetColorPicker
                   value={radialColors[index]}
-                  onChange={(event) => setRadialColor(index, event.currentTarget.value)}
-                  aria-label={t(index === 0 ? "Quick Color 1" : "Quick Color 2")}
-                  className="h-7 w-12 cursor-pointer rounded border"
+                  onChange={(color) => setRadialColor(index, color)}
+                  label={t(index === 0 ? "Quick Color 1" : "Quick Color 2")}
                 />
-              </label>
+              </div>
             ))}
           </div>
           <ItemDescription>{t("Click the blank center to dismiss the circular menu.")}</ItemDescription>
@@ -261,21 +258,6 @@ export const DrawingToolbarSettings = () => {
 
       <Item variant="muted">
         <ItemContent>
-          <ItemTitle>{t("Hover to Edit Objects")}</ItemTitle>
-          <ItemDescription>{t("Tap Alt to enable or disable hover editing for this drawing session. Sessions start with hover editing off. Enabled object types can be moved or resized with the wheel. Pointer mode never intercepts Alt; the selection tool still supports manual selection.")}</ItemDescription>
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {(["number", "check-mark", "cross-mark", "text", "ellipse", "rectangle", "line", "arrow", "pen"] as DrawingTool[]).map((id) => (
-              <label key={id} className="flex items-center justify-between gap-3 rounded-lg border p-3">
-                <span>{t(DRAWING_TOOL_BY_ID[id].label)}</span>
-                <Switch checked={hoverEdit[id] !== false} onCheckedChange={(enabled) => setHoverEdit(id, enabled)} aria-label={`${t("Hover to Edit Objects")}: ${t(DRAWING_TOOL_BY_ID[id].label)}`} />
-              </label>
-            ))}
-          </div>
-        </ItemContent>
-      </Item>
-
-      <Item variant="muted">
-        <ItemContent>
           <ItemTitle>{t("Customize Drawing Tools")}</ItemTitle>
           <ItemDescription>
             {t("Drag the rows or use the arrow buttons to change their order.")}
@@ -286,7 +268,7 @@ export const DrawingToolbarSettings = () => {
       <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_13rem]">
         <div className="flex flex-col gap-2">
           {items.map((item, index) => {
-            const definition = DRAWING_TOOL_BY_ID[item.id];
+            const definition = TOOLBAR_ITEM_BY_ID[item.id];
             const Icon = definition.icon;
             return (
               <div
@@ -322,8 +304,8 @@ export const DrawingToolbarSettings = () => {
                     const target = document
                       .elementFromPoint(event.clientX, event.clientY)
                       ?.closest<HTMLElement>("[data-toolbar-tool]");
-                    const targetId = target?.dataset.toolbarTool as DrawingTool | undefined;
-                    if (!targetId || !DRAWING_TOOL_BY_ID[targetId]) return;
+                    const targetId = target?.dataset.toolbarTool as ToolbarItemId | undefined;
+                    if (!targetId || !TOOLBAR_ITEM_BY_ID[targetId]) return;
                     session.targetId = targetId;
                     setDropTarget(targetId);
                   }}

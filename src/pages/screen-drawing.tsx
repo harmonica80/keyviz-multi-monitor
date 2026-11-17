@@ -6,6 +6,7 @@ import { radialToolbarKeyAction } from "@/lib/radial-shortcut";
 import { drawingThemeVariables } from "@/lib/drawing-themes";
 import {
   DRAWING_TOOL_BY_ID,
+  isDrawingToolItem,
   type DrawingTool,
 } from "@/lib/drawing-tools";
 import {
@@ -262,7 +263,7 @@ export default function ScreenDrawing() {
       rightClick: radialRightClick,
       style: radialStyle,
       colors: radialColors,
-      tools: toolbarItems.filter((item) => item.visible).map((item) => item.id),
+      tools: toolbarItems.filter((item) => item.visible && isDrawingToolItem(item.id)).map((item) => item.id),
     }).catch(console.error);
   }, [isToolbar, radialShortcut, radialRightClick, radialStyle, radialColors, toolbarItems]);
   useEffect(() => {
