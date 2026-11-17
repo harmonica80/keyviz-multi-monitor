@@ -148,11 +148,12 @@ unsafe fn capture_screen(state: &OverlayState, rect: RECT, all_own_windows: bool
             targets.push((HWND(hwnd), false));
         }
     }
-    if all_own_windows {
-        for hwnd in own_top_level_windows() {
-            if !targets.iter().any(|(target, _)| *target == hwnd) {
-                targets.push((hwnd, false));
-            }
+    // The mouse highlight circle follows the pointer and must never end up in a saved image.
+    for hwnd in own_top_level_windows() {
+        if (all_own_windows || is_cursor_highlight_window(hwnd))
+            && !targets.iter().any(|(target, _)| *target == hwnd)
+        {
+            targets.push((hwnd, false));
         }
     }
     // WDA_EXCLUDEFROMCAPTURE hides our windows from the capture only; they stay visible on screen.

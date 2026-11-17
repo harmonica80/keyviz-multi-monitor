@@ -469,6 +469,14 @@ fn render_zoom_surface(state: &OverlayState, bounds: &RECT, pixels: &mut [u32], 
     true
 }
 
+/// The mouse highlight circle window (see native_cursor.rs).
+unsafe fn is_cursor_highlight_window(hwnd: HWND) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetClassNameW;
+    let mut buffer = [0u16; 64];
+    let length = GetClassNameW(hwnd, &mut buffer).max(0) as usize;
+    String::from_utf16_lossy(&buffer[..length]) == "KeyvizNativeCursorOverlay"
+}
+
 /// Visible top-level windows of this process (key display, cursor highlight, Tauri windows...).
 unsafe fn own_top_level_windows() -> Vec<HWND> {
     use windows::Win32::Foundation::{BOOL, LPARAM as EnumParam};
