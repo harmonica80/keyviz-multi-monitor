@@ -280,61 +280,78 @@ unsafe fn render_drawings_layer(state: &OverlayState, rect: RECT) -> Result<DibS
     Ok(layer)
 }
 
-unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<&str>) -> Result<crate::app::export_io::ExportResult, String> {
+/// Monitors (virtual-screen rectangles) that show at least one drawn object.
+fn monitors_with_drawings(state: &OverlayState) -> Vec<RECT> {
+    let (dx, dy) = (state.bounds.left, state.bounds.top);
+    let items: Vec<RECT> = state.drawings.iter()
+        .filter(|item| !matches!(item, DrawingItem::Stroke { erase: true, .. }))
+        .map(|item| {
+            let r = drawing_bounds(item);
+            RECT { left: r.left + dx, top: r.top + dy, right: r.right + dx, bottom: r.bottom + dy }
+        })
+        .collect();
+    state.surfaces.iter().map(|surface| surface.bounds)
+        .filter(|monitor| items.iter().any(|r| r.left < monitor.right && r.right > monitor.left
+            && r.top < monitor.bottom && r.bottom > monitor.top))
+        .collect()
+}
+
+/// Monitor the drawing toolbar is on (the save buttons were pressed there), else the pointer's.
+unsafe fn toolbar_monitor(state: &OverlayState) -> Option<RECT> {
+    let toolbar = state.app.get_webview_window("drawing-toolbar").and_then(|window| {
+        let position = window.outer_position().ok()?;
+        let size = window.outer_size().ok()?;
+        Some(WinPoint { x: position.x + size.width as i32 / 2, y: position.y + size.height as i32 / 2 })
+    });
+    if let Some(center) = toolbar {
+        if let Some(surface) = state.surfaces.iter().find(|s| {
+            center.x >= s.bounds.left && center.x < s.bounds.right
+                && center.y >= s.bounds.top && center.y < s.bounds.bottom
+        }) {
+            return Some(surface.bounds);
+        }
+    }
+    target_surface(state).map(|index| state.surfaces[index].bounds)
+}
+
+/// How many monitors would be saved by "capture every screen with drawings" (the toolbar asks
+/// first when this is 2 or more). An opened JSON always saves back to its own single screen.
+fn export_monitor_count(state: &OverlayState) -> usize {
+    if state.opened_json.is_some() { 1 } else { monitors_with_drawings(state).len() }
+}
+
+/// Screens to save: an opened JSON's own screen; otherwise the one screen with drawings, every
+/// screen with drawings when `all_drawn`, or the toolbar's screen.
+unsafe fn export_targets(state: &OverlayState, all_drawn: bool) -> Result<Vec<RECT>, String> {
+    if state.opened_json.is_some() {
+        if let Some(background) = &state.background {
+            return Ok(vec![background.rect]);
+        }
+    }
+    let drawn = monitors_with_drawings(state);
+    if drawn.len() == 1 || (all_drawn && drawn.len() > 1) {
+        return Ok(drawn);
+    }
+    toolbar_monitor(state).map(|rect| vec![rect]).ok_or_else(|| "No drawing surface is available".into())
+}
+
+unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<&str>, all_drawn: bool) -> Result<crate::app::export_io::ExportResult, String> {
     if !state.visible {
         return Err("Open the drawing mode before saving".into());
     }
     commit_text_editor(state);
     finish_gesture_history(state);
-    let index = target_surface(state).ok_or("No drawing surface is available")?;
-    let rect = state.surfaces[index].bounds;
-    let width = (rect.right - rect.left).max(1);
-    let height = (rect.bottom - rect.top).max(1);
-
-    // Under an opened JSON the frozen image is the "screen"; otherwise grab the real one.
-    let base: Vec<u32> = match &state.background {
-        Some(background) if same_rect(&background.rect, &rect) => background.pixels.clone(),
-        _ => capture_screen(state, rect, false)?,
-    };
-    let to_rgba = |pixels: &[u32]| -> Vec<u8> {
-        pixels.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 255]).collect()
-    };
+    let targets = export_targets(state, all_drawn)?;
     let directory = crate::app::export_io::export_directory(&state.app, dir);
     let date = today_stamp();
     let mut closed = false;
-    let path = match kind {
-        ExportKind::Png => {
-            let layer = render_drawings_layer(state, rect)?;
-            let mut composed = base;
-            for (target, source) in composed.iter_mut().zip(layer.pixels().iter()) {
-                *target = blend_layer_pixel(*target, *source);
-            }
-            layer.free();
-            let png = crate::app::export_io::encode_png(width as u32, height as u32, &to_rgba(&composed))?;
-            crate::app::export_io::write_numbered(&directory, &date, "png", &png)?
-        }
-        ExportKind::Json => {
-            let png = crate::app::export_io::encode_png(width as u32, height as u32, &to_rgba(&base))?;
-            let document = serde_json::json!({
-                "format": crate::app::export_io::JSON_FORMAT,
-                "version": crate::app::export_io::JSON_VERSION,
-                "monitor": { "width": width, "height": height },
-                "image": { "format": "png", "data": crate::app::export_io::png_to_base64(&png) },
-                "drawings": drawings_to_json(&state.drawings, state.bounds.left - rect.left, state.bounds.top - rect.top),
-            });
-            let text = serde_json::to_vec_pretty(&document).map_err(|e| e.to_string())?;
-            match state.opened_json.clone() {
-                // Editing an opened file: overwrite it under its own name, then close it.
-                Some(original) => {
-                    std::fs::write(&original, &text).map_err(|e| format!("Cannot write {original}: {e}"))?;
-                    closed = true;
-                    std::path::PathBuf::from(original)
-                }
-                None => crate::app::export_io::write_numbered(&directory, &date, "json", &text)?,
-            }
-        }
-    };
-    record_event(format!("Saved screen to {}", path.display()));
+    let mut paths = Vec::new();
+    for rect in targets {
+        let (path, overwrote) = export_monitor(state, kind, rect, &directory, &date)?;
+        closed |= overwrote;
+        record_event(format!("Saved screen to {}", path.display()));
+        paths.push(path.to_string_lossy().into_owned());
+    }
     if closed {
         // Back to the normal desktop: drop the frozen screenshot and all drawings.
         state.drawings.clear();
@@ -347,7 +364,59 @@ unsafe fn export_screen(state: &mut OverlayState, kind: ExportKind, dir: Option<
         state.history = DrawingHistory::default();
         refresh_overlay(state);
     }
-    Ok(crate::app::export_io::ExportResult { path: path.to_string_lossy().into_owned(), closed })
+    Ok(crate::app::export_io::ExportResult { path: paths.first().cloned().unwrap_or_default(), paths, closed })
+}
+
+/// Saves one monitor; returns the file and whether an opened JSON was overwritten.
+unsafe fn export_monitor(state: &OverlayState, kind: ExportKind, rect: RECT, directory: &std::path::Path, date: &str) -> Result<(std::path::PathBuf, bool), String> {
+    let width = (rect.right - rect.left).max(1);
+    let height = (rect.bottom - rect.top).max(1);
+
+    // Under an opened JSON the frozen image is the "screen"; otherwise grab the real one.
+    let base: Vec<u32> = match &state.background {
+        Some(background) if same_rect(&background.rect, &rect) => background.pixels.clone(),
+        _ => capture_screen(state, rect, false)?,
+    };
+    let to_rgba = |pixels: &[u32]| -> Vec<u8> {
+        pixels.iter().flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, 255]).collect()
+    };
+    match kind {
+        ExportKind::Png => {
+            let layer = render_drawings_layer(state, rect)?;
+            let mut composed = base;
+            for (target, source) in composed.iter_mut().zip(layer.pixels().iter()) {
+                *target = blend_layer_pixel(*target, *source);
+            }
+            layer.free();
+            let png = crate::app::export_io::encode_png(width as u32, height as u32, &to_rgba(&composed))?;
+            Ok((crate::app::export_io::write_numbered(directory, date, "png", &png)?, false))
+        }
+        ExportKind::Json => {
+            let png = crate::app::export_io::encode_png(width as u32, height as u32, &to_rgba(&base))?;
+            // Only the objects shown on this monitor (each file reopens on one screen).
+            let (dx, dy) = (state.bounds.left, state.bounds.top);
+            let drawings: Vec<DrawingItem> = state.drawings.iter().filter(|item| {
+                let r = drawing_bounds(item);
+                r.left + dx < rect.right && r.right + dx > rect.left && r.top + dy < rect.bottom && r.bottom + dy > rect.top
+            }).cloned().collect();
+            let document = serde_json::json!({
+                "format": crate::app::export_io::JSON_FORMAT,
+                "version": crate::app::export_io::JSON_VERSION,
+                "monitor": { "width": width, "height": height },
+                "image": { "format": "png", "data": crate::app::export_io::png_to_base64(&png) },
+                "drawings": drawings_to_json(&drawings, state.bounds.left - rect.left, state.bounds.top - rect.top),
+            });
+            let text = serde_json::to_vec_pretty(&document).map_err(|e| e.to_string())?;
+            match state.opened_json.clone() {
+                // Editing an opened file: overwrite it under its own name, then close it.
+                Some(original) => {
+                    std::fs::write(&original, &text).map_err(|e| format!("Cannot write {original}: {e}"))?;
+                    Ok((std::path::PathBuf::from(original), true))
+                }
+                None => Ok((crate::app::export_io::write_numbered(directory, date, "json", &text)?, false)),
+            }
+        }
+    }
 }
 
 unsafe fn import_json(state: &mut OverlayState, path: &str) -> Result<String, String> {

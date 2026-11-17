@@ -334,14 +334,27 @@ pub fn drawing_recover(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn drawing_export(app: tauri::AppHandle, kind: String, dir: Option<String>) -> Result<crate::app::export_io::ExportResult, String> {
+pub async fn drawing_export(app: tauri::AppHandle, kind: String, dir: Option<String>, all_drawn: Option<bool>) -> Result<crate::app::export_io::ExportResult, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let overlay = {
             let state = app.state::<Mutex<AppState>>();
             let state = state.lock().map_err(|e| e.to_string())?;
             state.drawing_overlay.clone()
         };
-        overlay.export_screen(&kind, dir)
+        overlay.export_screen(&kind, dir, all_drawn.unwrap_or(false))
+    }).await.map_err(|e| e.to_string())?
+}
+
+/// Number of screens with drawings; the toolbar asks whether to save all of them when 2+.
+#[tauri::command]
+pub async fn drawing_export_monitor_count(app: tauri::AppHandle) -> Result<usize, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let overlay = {
+            let state = app.state::<Mutex<AppState>>();
+            let state = state.lock().map_err(|e| e.to_string())?;
+            state.drawing_overlay.clone()
+        };
+        overlay.export_monitor_count()
     }).await.map_err(|e| e.to_string())?
 }
 

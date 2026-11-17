@@ -268,7 +268,8 @@ mod platform {
         ToggleHoverEdit { epoch: u64 },
         ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String, colors: [String; 2] },
         SetToolbarHidden(bool),
-        Export { kind: ExportKind, dir: Option<String>, reply: Sender<Result<crate::app::export_io::ExportResult, String>> },
+        Export { kind: ExportKind, dir: Option<String>, all_drawn: bool, reply: Sender<Result<crate::app::export_io::ExportResult, String>> },
+        ExportMonitorCount { reply: Sender<usize> },
         Import { path: String, reply: Sender<Result<String, String>> },
         /// Screen magnifier: `enable` None toggles. `close_on_exit`: started from the desktop.
         Zoom { enable: Option<bool>, close_on_exit: bool },
@@ -887,7 +888,15 @@ mod platform {
         }
 
         /// Saves the monitor under the pointer; `kind` is "png" or "json". Returns the file path.
-        pub fn export_screen(&self, kind: &str, dir: Option<String>) -> Result<crate::app::export_io::ExportResult, String> {
+        /// How many screens currently show drawings (the toolbar asks before saving 2+).
+        pub fn export_monitor_count(&self) -> Result<usize, String> {
+            let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
+            let (reply, receiver) = mpsc::channel();
+            sender.send(DrawingCommand::ExportMonitorCount { reply }).map_err(|e| e.to_string())?;
+            receiver.recv_timeout(Duration::from_secs(5)).map_err(|_| "Timed out".to_string())
+        }
+
+        pub fn export_screen(&self, kind: &str, dir: Option<String>, all_drawn: bool) -> Result<crate::app::export_io::ExportResult, String> {
             let kind = match kind {
                 "png" => ExportKind::Png,
                 "json" => ExportKind::Json,
@@ -895,7 +904,7 @@ mod platform {
             };
             let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
             let (reply, receiver) = mpsc::channel();
-            sender.send(DrawingCommand::Export { kind, dir, reply }).map_err(|e| e.to_string())?;
+            sender.send(DrawingCommand::Export { kind, dir, all_drawn, reply }).map_err(|e| e.to_string())?;
             receiver.recv_timeout(Duration::from_secs(30)).map_err(|_| "Saving timed out".to_string())?
         }
 
@@ -1754,8 +1763,11 @@ mod platform {
                     clear_drawings(state);
                 }
             }
-            DrawingCommand::Export { kind, dir, reply } => {
-                let _ = reply.send(export_screen(state, kind, dir.as_deref()));
+            DrawingCommand::Export { kind, dir, all_drawn, reply } => {
+                let _ = reply.send(export_screen(state, kind, dir.as_deref(), all_drawn));
+            }
+            DrawingCommand::ExportMonitorCount { reply } => {
+                let _ = reply.send(export_monitor_count(state));
             }
             DrawingCommand::Import { path, reply } => {
                 let _ = reply.send(import_json(state, &path));
@@ -5258,6 +5270,12 @@ mod platform {
     }
 
     unsafe fn destroy_retired_cursors(state: &mut OverlayState) {
+        // The Windows full-screen magnifier keeps drawing an enlarged copy of the pointer image;
+        // destroying a cursor it may still use can leave a striped garbage block next to the
+        // pointer. Keep replaced cursors alive until the live zoom ends.
+        if live_zoom_running(state) {
+            return;
+        }
         for cursor in state.retired_cursors.drain(..) {
             if cursor.0 != 0 && cursor != state.cursor {
                 let _ = DestroyCursor(cursor);
@@ -6129,7 +6147,8 @@ mod platform_stub {
         pub fn redo(&self) {}
         pub fn recover(&self) {}
         pub fn set_zoom(&self, _enable: Option<bool>, _close_on_exit: bool) {}
-        pub fn export_screen(&self, _kind: &str, _dir: Option<String>) -> Result<crate::app::export_io::ExportResult, String> {
+        pub fn export_monitor_count(&self) -> Result<usize, String> { Ok(0) }
+        pub fn export_screen(&self, _kind: &str, _dir: Option<String>, _all_drawn: bool) -> Result<crate::app::export_io::ExportResult, String> {
             Err("Saving is available on Windows only".into())
         }
         pub fn import_json(&self, _path: &str) -> Result<String, String> {

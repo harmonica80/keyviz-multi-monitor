@@ -519,14 +519,21 @@ export default function ScreenDrawing() {
   const saveScreen = async (kind: "png" | "json") => {
     try {
       const dir = useDrawingToolbar.getState().saveDir || null;
-      const result = await invoke<{ path: string; closed: boolean }>("drawing_export", { kind, dir });
-      const { dir: folder, name } = splitPath(result.path);
+      // Saves the screen that has drawings; with drawings on several screens, ask first.
+      const drawnScreens = await invoke<number>("drawing_export_monitor_count").catch(() => 0);
+      const allDrawn = drawnScreens >= 2 && await ask(
+        t("Drawings are on {count} screens. Capture all of them? Each screen is saved as its own file.").replace("{count}", String(drawnScreens)),
+        { title: t("Save screen"), kind: "info", okLabel: t("Capture all screens"), cancelLabel: t("Only the toolbar's screen") },
+      );
+      const result = await invoke<{ path: string; paths?: string[]; closed: boolean }>("drawing_export", { kind, dir, allDrawn });
+      const paths = result.paths?.length ? result.paths : [result.path];
+      const { dir: folder } = splitPath(paths[0]);
       if (result.closed) {
         // The opened JSON was overwritten and closed: back to normal desktop use.
         setTool("pointer");
         void invoke("drawing_set_tool", { tool: "pointer" });
       }
-      const lines = [`${t("Folder")}: ${folder}`, `${t("File")}: ${name}`];
+      const lines = [`${t("Folder")}: ${folder}`, ...paths.map((path) => `${t("File")}: ${splitPath(path).name}`)];
       if (result.closed) lines.push("", t("The original file was overwritten and closed. You are back to normal desktop use."));
       const openFolder = await ask(lines.join("\n"), {
         title: t("Saved successfully"),
@@ -534,7 +541,7 @@ export default function ScreenDrawing() {
         okLabel: t("Open Folder"),
         cancelLabel: t("Close"),
       });
-      if (openFolder) await invoke("reveal_in_explorer", { path: result.path });
+      if (openFolder) await invoke("reveal_in_explorer", { path: paths[0] });
     } catch (error) {
       console.error(error);
       setOperationHint({ text: t(String(error)) });

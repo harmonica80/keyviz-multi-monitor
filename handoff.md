@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -79,6 +79,12 @@
 | `src/components/settings/general.tsx` | `ShortcutRow` 說明文字改為整列寬度。 |
 
 發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.33`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.33`，exe 會自動附到該 Release。
+
+## v1.0.36（存檔自動選螢幕、放大時條紋色塊，測試版）
+
+- 使用者實測 v1.0.35：邊緣平移與放大時操作電腦都正常，代表「Windows 會把指標畫在放大後的位置」這個假設成立。
+- 條紋色塊：出現在放大後指標的右下方。推測與放大時的指標圖有關，於是在即時放大期間延後 `destroy_retired_cursors`，離開放大時再銷毀。**未重現、未確認**；若仍出現，請蒐集當時的工具、底下的程式與 log。
+- 存檔：`export_targets` 的規則依序為：開啟中的 JSON 用其背景螢幕；只有一個螢幕有繪圖時用該螢幕；`all_drawn` 時用所有有繪圖的螢幕；其餘情況用工具列所在螢幕（`toolbar_monitor` 取工具列視窗中心點）。是否有繪圖以 `drawing_bounds` 與螢幕相交判斷，橡皮擦筆跡不算。多螢幕時每個螢幕各存一個檔案，JSON 只含與該螢幕相交的物件。前端先呼叫 `drawing_export_monitor_count`，數量大於等於 2 時用 `ask` 詢問。
 
 ## v1.0.35（放大鏡：邊緣平移、放大時可操作電腦，測試版）
 

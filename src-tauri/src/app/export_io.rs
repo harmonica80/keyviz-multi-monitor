@@ -17,11 +17,12 @@ pub fn export_directory(app: &AppHandle, configured: Option<&str>) -> PathBuf {
     }
 }
 
-/// Result of saving the screen: the written file, and whether an opened JSON was
-/// overwritten and closed (the overlay returns to normal desktop use).
+/// Result of saving the screen: the written file(s) (one per captured monitor; `path` is the
+/// first), and whether an opened JSON was overwritten and closed (back to normal desktop use).
 #[derive(serde::Serialize)]
 pub struct ExportResult {
     pub path: String,
+    pub paths: Vec<String>,
     pub closed: bool,
 }
 
