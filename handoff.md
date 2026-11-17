@@ -78,9 +78,9 @@
 | `src/pages/screen-drawing.tsx`、`lib/i18n.ts` | 開啟 JSON 成功後切到框選物件工具；說明改為三點條列。 |
 | `src/components/settings/general.tsx` | `ShortcutRow` 說明文字改為整列寬度。 |
 
-發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.33`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.33`，exe 會自動附到該 Release。
+發佈流程備註：Claude 的雲端環境無法推送標籤或建立 Release。流程為：在 GitHub 網頁建立 Release／標籤 `v1.0.36`（目標 `main`），再到 Actions 手動執行 `Build portable exe`，`release_tag` 填 `v1.0.36`，exe 會自動附到該 Release。
 
-## v1.0.36（存檔自動選擇有繪圖的螢幕，測試版）
+## v1.0.36（正式版：存檔自動選擇有繪圖的螢幕、設定頁調整、JSON 修正；含 v1.0.34／v1.0.35）
 
 - 使用者實測 v1.0.35：邊緣平移與放大時操作電腦都正常，代表「Windows 會把指標畫在放大後的位置」這個假設成立。
 - 條紋色塊：放大時指標右下方出現過彩色條紋。使用者表示可能是同時執行的其他螢幕擷取工具造成，暫不處理。若之後確認是 Keyviz 造成，可先懷疑放大時銷毀舊的自訂指標（`destroy_retired_cursors`）。

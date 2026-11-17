@@ -4,11 +4,17 @@
 
 This is a customized Windows build based on [mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for tutorials, presentations, screen recording, and live teaching workflows, with multi-monitor support, Traditional Chinese UI, cursor highlighting, and on-screen drawing tools.
 
-## 下載最新正式版（v1.0.33）
+## 下載最新正式版（v1.0.36）
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-目前最新正式版為 **v1.0.33**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+目前最新正式版為 **v1.0.36**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+
+**v1.0.36** 更新內容（含 v1.0.34、v1.0.35）：
+- 螢幕放大鏡改為**即時放大**：影片會繼續播放；放大時可以直接用繪圖工具標註，游標工具時可以照常操作電腦（Ctrl+滾輪縮放）。畫面預設在滑鼠靠近邊緣時才平滑移動，可在設定中改為隨滑鼠移動。
+- 存成 PNG／JSON 時，自動擷取有繪圖的螢幕；多個螢幕都有繪圖時，會詢問是否全部擷取（每個螢幕各存一個檔案）。存檔時不再擷取滑鼠的圓形外框。
+- 設定頁：點色塊會先出現 12 種預設顏色，「自訂…」才開啟完整選色器；放大鏡加入「自訂繪圖工具」清單，可排序或隱藏；移除「滑鼠移入編輯物件」區塊。
+- 修正：開啟 JSON 時，工具列周圍露出即時桌布；開啟 JSON 後按還原，會還原到開檔前的物件。
 
 **v1.0.33** 更新內容：
 - 新增**螢幕放大鏡**（類似 ZoomIt）：按 **F6** 或工具列的放大鏡按鈕，以滑鼠位置為中心放大；滾輪往前放大、往後縮小（1～8 倍），移動滑鼠查看其他位置；再按 F6、Esc 或右鍵離開。不必先開繪圖工具列也能使用，快速鍵可在設定中更改。
@@ -34,14 +40,14 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 **v1.0.27** 重點（穩定性與多螢幕）：低階鍵鼠 Hook 回呼瘦身、移除 40ms 快捷鍵輪詢並統一單一路徑、Esc 關閉繪圖只在繪圖中或 Keyviz 自己為前景時生效、置頂看門狗改為「被降級才重排」、支援螢幕接上／拔除時就地重建覆蓋層、設定以前端為單一真相來源、原生執行緒改事件驅動，並新增 `keyviz.log` 診斷記錄。
 
-- [v1.0.33 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.33)
-- [v1.0.33 更新說明檔](release-notes-v1.0.33.md)、[v1.0.32](release-notes-v1.0.32.md)、[v1.0.31](release-notes-v1.0.31.md)、[v1.0.30](release-notes-v1.0.30.md)、[v1.0.29](release-notes-v1.0.29.md)、[v1.0.28](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
+- [v1.0.36 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.36)
+- [v1.0.36 更新說明檔](release-notes-v1.0.36.md)、[v1.0.35](release-notes-v1.0.35.md)、[v1.0.34](release-notes-v1.0.34.md)、[v1.0.33](release-notes-v1.0.33.md)、[v1.0.32](release-notes-v1.0.32.md)、[v1.0.31](release-notes-v1.0.31.md)、[v1.0.30](release-notes-v1.0.30.md)、[v1.0.29](release-notes-v1.0.29.md)、[v1.0.28](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
 - [修正檔案與交接說明（handoff.md）](handoff.md)
-- [v1.0.33 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.33)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.33`。
+- [v1.0.36 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.36)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.36`。
 - 發生異常時，診斷記錄位於應用程式日誌資料夾下的 `keyviz.log`，回報問題時請一併附上。
 
-The latest stable release is **v1.0.33**; the direct EXE download above needs no GitHub sign-in. v1.0.33 adds a ZoomIt-style screen magnifier (F6 or the toolbar button; wheel to zoom, move the mouse to pan, F6/Esc/right-click to leave), four configurable toolbar colors, and a toolbar check mark that follows the selected object's color. v1.0.32 fixed Ctrl+Z undo / Ctrl+Shift+Z redo sometimes not responding while drawing. v1.0.29–v1.0.31 added saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit) and right Alt + right-click for the radial menu. Exit the old version before running the new EXE and confirm `v1.0.33` in the title bar. See [release-notes-v1.0.33.md](release-notes-v1.0.33.md) and [handoff.md](handoff.md).
+The latest stable release is **v1.0.36**; the direct EXE download above needs no GitHub sign-in. v1.0.36 makes the magnifier live (videos keep playing; draw while zoomed; with the pointer tool the computer stays usable, Ctrl+wheel zooms; the view glides only near the edges), saves the screen(s) that have drawings (asking when several do), never captures the mouse highlight circle, and adds a 12-color preset picker in settings. v1.0.33 added a ZoomIt-style screen magnifier (F6 or the toolbar button; wheel to zoom, move the mouse to pan, F6/Esc/right-click to leave), four configurable toolbar colors, and a toolbar check mark that follows the selected object's color. v1.0.32 fixed Ctrl+Z undo / Ctrl+Shift+Z redo sometimes not responding while drawing. v1.0.29–v1.0.31 added saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit) and right Alt + right-click for the radial menu. Exit the old version before running the new EXE and confirm `v1.0.36` in the title bar. See [release-notes-v1.0.36.md](release-notes-v1.0.36.md) and [handoff.md](handoff.md).
 
 ## v1.0.26：一致預覽與自訂圓形選單顏色
 
