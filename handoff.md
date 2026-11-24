@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -136,3 +136,11 @@
 - 不要把 hook 回呼改回在回呼內鎖 `AppState` 或呼叫 Tauri/視窗 API（會觸發 hook timeout 與死結）。
 - 往 `native_*` 執行緒送命令請用 `WakingSender::send`，直接用裸 `mpsc::Sender` 會讓執行緒睡到 1 秒安全逾時才處理。
 - 在持有 `OVERLAY_STATE` 鎖期間呼叫會同步派發訊息的 Win32 API 是已知重入來源，處理函式請一律用 `lock_overlay_state()`。
+
+## v1.0.37（測試版：繪圖輸入自我修復）
+- 問題：偶爾選了繪圖工具卻畫不出物件，圓圈與滑鼠正常，需 Esc + F8 重開。keyviz.log 無原生層錯誤（無 `lost TOPMOST`、無 UpdateLayeredWindow／GetDC 失敗），所以不是 surface 被隔離或降級。
+- 靜態檢視排除：舊版 webview 畫布頁（`set_drawing_click_through(true)` 那條）不再被建立；放大鏡退出只在凍結模式還原 `click_through`，且 `SetTool` 之後會重設。
+- 修改：`native_drawing.rs` 新增 `repair_input_state(state)`，由既有 1 秒看門狗（`RaiseIfDemoted`）先呼叫。檢查：(1) 非 Pointer 工具卻 `click_through == true`；(2) 輸入視窗不可見；(3) `WindowFromPoint(游標)` 的頂層視窗不屬於本程式 → `apply_command_inner_raise`（每 5 秒最多一次）。放大鏡、probe、Pointer 工具時不檢查。每次修復寫入 `record_event("Drawing input repaired: ...")`。
+- 此程式碼在 Windows 專用區塊，host 上的 `cargo check` 不會編譯到，需由 CI 驗證。
+- 若仍復發：請使用者提供 keyviz.log，依 `Drawing input repaired` 的原因再處理；若日誌沒有該行但問題仍在，下一個懷疑對象是 Alt 觸發的「移入編輯」(`hover_edit_active`) 殘留選取，以及 `radial`／`edit` 狀態卡住。
+

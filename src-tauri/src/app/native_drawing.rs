@@ -1876,6 +1876,8 @@ mod platform {
                 if !state.visible {
                     return;
                 }
+                // Self-check first: a drawing tool must always have a live, unobstructed input window.
+                repair_input_state(state);
                 let mut demoted = false;
                 for surface in &state.surfaces {
                     if !surface.display_ready { continue; }
@@ -1928,6 +1930,67 @@ mod platform {
             }
         }
         sync_radial_gate(state);
+    }
+
+    /// Once-a-second self-check (run by the session watchdog) for the failure where a drawing
+    /// tool is selected and the cursor circle still follows the mouse, but clicks reach the
+    /// desktop instead of the drawing surface. It repairs the cause and records it in the log.
+    unsafe fn repair_input_state(state: &mut OverlayState) {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use windows::Win32::System::Threading::GetCurrentProcessId;
+        use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowThreadProcessId, WindowFromPoint};
+        static LAST_RAISE: AtomicU64 = AtomicU64::new(0);
+        if !state.visible || state.probe.is_some() || state.zoom.is_some()
+            || matches!(state.tool, NativeTool::Pointer) {
+            return;
+        }
+        if state.click_through {
+            // Drawing tool selected but the surface lets every click through.
+            record_event(format!("Drawing input repaired: click-through was on while tool {} was selected",
+                state.tool.as_str()));
+            state.click_through = false;
+            sync_input_surface_visibility(state);
+            raise_toolbar(&state.app);
+            refresh_overlay(state);
+            return;
+        }
+        let mut hidden = false;
+        for surface in &state.surfaces {
+            if surface.display_ready && !IsWindowVisible(surface.input_hwnd).as_bool() { hidden = true; }
+        }
+        if hidden {
+            record_event("Drawing input repaired: an input window was hidden while drawing");
+            sync_input_surface_visibility(state);
+            apply_command_inner_raise(state);
+            return;
+        }
+        // Another always-on-top window above ours (it keeps our TOPMOST flag intact) takes the clicks.
+        if GetAsyncKeyState(1) < 0 { return; }
+        let mut cursor = WinPoint::default();
+        if !GetCursorPos(&mut cursor).as_bool() { return; }
+        if is_toolbar_passthrough_point(state, Point { x: cursor.x, y: cursor.y }, true) { return; }
+        let on_surface = state.surfaces.iter().any(|surface| {
+            cursor.x >= surface.bounds.left && cursor.x < surface.bounds.right
+                && cursor.y >= surface.bounds.top && cursor.y < surface.bounds.bottom
+        });
+        if !on_surface { return; }
+        let hit = WindowFromPoint(cursor);
+        if hit.0 == 0 { return; }
+        let root = GetAncestor(hit, GA_ROOT);
+        let root = if root.0 == 0 { hit } else { root };
+        if state.surfaces.iter().any(|surface| surface.input_hwnd == root || surface.display_hwnd == root) {
+            return;
+        }
+        let mut process_id = 0u32;
+        GetWindowThreadProcessId(root, Some(&mut process_id));
+        if process_id == GetCurrentProcessId() { return; }
+        // Do not fight another tool: at most one re-raise every five seconds.
+        let now = radial_clock();
+        let last = LAST_RAISE.load(Ordering::Relaxed);
+        if last != 0 && now.saturating_sub(last) < 5000 { return; }
+        LAST_RAISE.store(now.max(1), Ordering::Relaxed);
+        record_event(format!("Drawing input repaired: window {:?} (process {process_id}) was above the drawing surface; re-raising", root));
+        apply_command_inner_raise(state);
     }
 
     unsafe fn window_is_topmost(hwnd: HWND) -> bool {
