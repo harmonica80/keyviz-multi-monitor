@@ -772,6 +772,30 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
 }
 
 
+/// Scissors with a pin, the same idea as the toolbar's screenshot button.
+unsafe fn draw_radial_snip_icon(dc: HDC, center: Point, scale: f64, color: COLORREF) {
+    let point = |x: f64, y: f64| Point {
+        x: (x * 10.0).round() as i32,
+        y: (y * 10.0).round() as i32,
+    };
+    with_icon_transform(center, scale, || {
+        for (a, b) in [((-11.0, -1.0), (-5.0, 5.0)), ((-11.0, 7.0), (-5.0, 13.0))] {
+            draw_antialiased_shape(dc, &NativeTool::Ellipse, point(a.0, a.1), point(b.0, b.1),
+                color, 20, 0.0);
+        }
+        for (a, b) in [
+            ((-5.5, 4.0), (8.0, 12.0)), ((-5.5, 8.0), (8.0, 0.0)),
+            ((4.0, -12.0), (10.0, -12.0)), ((4.0, -12.0), (4.0, -8.0)),
+            ((10.0, -12.0), (10.0, -8.0)), ((4.0, -8.0), (2.0, -4.0)),
+            ((10.0, -8.0), (12.0, -4.0)), ((2.0, -4.0), (12.0, -4.0)),
+            ((7.0, -4.0), (7.0, 2.0)),
+        ] {
+            draw_antialiased_shape(dc, &NativeTool::Line, point(a.0, a.1), point(b.0, b.1),
+                color, 20, 0.0);
+        }
+    });
+}
+
 unsafe fn draw_radial_clear_icon(dc: HDC, center: Point, scale: f64, color: COLORREF) {
     let point = |x: f64, y: f64| Point {
         x: (x * 10.0).round() as i32,
