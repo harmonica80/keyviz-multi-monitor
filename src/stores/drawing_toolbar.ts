@@ -27,6 +27,12 @@ export const normalizeRadialStyle = normalizeDrawingTheme;
 export type ZoomPanMode = "edge" | "follow";
 const normalizeZoomPanMode = (value: unknown): ZoomPanMode => (value === "follow" ? "follow" : "edge");
 
+/** Size of the single-icon toolbar buttons: full, two thirds, or one half. */
+export type ToolbarIconSize = "full" | "twoThirds" | "half";
+export const TOOLBAR_ICON_SCALE: Record<ToolbarIconSize, number> = { full: 1, twoThirds: 2 / 3, half: 1 / 2 };
+export const normalizeIconSize = (value: unknown): ToolbarIconSize =>
+  value === "twoThirds" || value === "half" ? value : "full";
+
 interface DrawingToolbarState {
   radialShortcut: string[];
   /** Folder for saved PNG / JSON files; empty means the Downloads folder. */
@@ -36,6 +42,8 @@ interface DrawingToolbarState {
   radialColors: [string, string];
   /** Screen magnifier panning: glide near the edges, or follow the pointer. */
   zoomPanMode: ZoomPanMode;
+  /** Size of the single-icon buttons (tools, group, clear); grouped small icons never shrink. */
+  iconSize: ToolbarIconSize;
   /** The four color swatches on the drawing toolbar. */
   toolbarColors: [string, string, string, string];
   hoverEdit: Partial<Record<DrawingTool, boolean>>;
@@ -51,6 +59,7 @@ interface DrawingToolbarActions {
   setRadialColor: (index: 0 | 1, color: string) => void;
   setToolbarColor: (index: 0 | 1 | 2 | 3, color: string) => void;
   setZoomPanMode: (mode: ZoomPanMode) => void;
+  setIconSize: (size: ToolbarIconSize) => void;
   setHoverEdit: (id: DrawingTool, enabled: boolean) => void;
   setItems: (items: DrawingToolbarItem[]) => void;
   setToolVisible: (id: ToolbarItemId, visible: boolean) => void;
@@ -110,6 +119,8 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     toolbarColors: [...DEFAULT_TOOLBAR_COLORS],
     zoomPanMode: "edge",
     setZoomPanMode: (mode) => set({ zoomPanMode: normalizeZoomPanMode(mode) }),
+    iconSize: "full",
+    setIconSize: (size) => set({ iconSize: normalizeIconSize(size) }),
     setToolbarColor: (index, color) => set((state) => {
       const colors = [...state.toolbarColors];
       colors[index] = color;
@@ -145,6 +156,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
         radialStyle: "pearl",
         radialColors: [...DEFAULT_RADIAL_COLORS],
         toolbarColors: [...DEFAULT_TOOLBAR_COLORS],
+        iconSize: "full",
         hoverEdit: {},
         items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
         side: DEFAULT_DRAWING_TOOLBAR_SIDE,
@@ -154,7 +166,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 10,
+      version: 11,
       migrate: (persistedState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
@@ -165,6 +177,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           radialColors: normalizeRadialColors(state.radialColors),
           toolbarColors: normalizeToolbarColors(state.toolbarColors),
           zoomPanMode: normalizeZoomPanMode(state.zoomPanMode),
+          iconSize: normalizeIconSize(state.iconSize),
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
           hoverEdit: state.hoverEdit ?? {},
@@ -181,6 +194,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           radialColors: normalizeRadialColors(state.radialColors),
           toolbarColors: normalizeToolbarColors(state.toolbarColors),
           zoomPanMode: normalizeZoomPanMode(state.zoomPanMode),
+          iconSize: normalizeIconSize(state.iconSize),
           hoverEdit: state.hoverEdit ?? {},
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),

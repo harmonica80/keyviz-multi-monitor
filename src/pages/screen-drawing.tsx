@@ -1,5 +1,5 @@
 import { useTranslation } from "@/lib/i18n";
-import { DrawingToolbarView, DRAWING_TOOLBAR_COLORS } from "@/components/drawing-toolbar-view";
+import { DrawingToolbarView, DRAWING_TOOLBAR_COLORS, type PanelSide, type ToolbarOrientation } from "@/components/drawing-toolbar-view";
 import { useOverlayProbe } from "@/lib/overlay-probe";
 import { keymaps } from "@/lib/keymaps";
 import { radialToolbarKeyAction } from "@/lib/radial-shortcut";
@@ -11,6 +11,7 @@ import {
 } from "@/lib/drawing-tools";
 import {
   DRAWING_TOOLBAR_STORE,
+  TOOLBAR_ICON_SCALE,
   type DrawingToolbarStore,
   useDrawingToolbar,
 } from "@/stores/drawing_toolbar";
@@ -19,7 +20,8 @@ import { listenForUpdates } from "@/stores/sync";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { ask, message, open as openFileDialog } from "@tauri-apps/plugin-dialog";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { availableMonitors, currentMonitor, cursorPosition, getCurrentWindow } from "@tauri-apps/api/window";
+import { toolbarLimit } from "@/lib/toolbar-layout";
 import {
   KeyboardEvent as ReactKeyboardEvent,
   PointerEvent,
@@ -212,6 +214,24 @@ export default function ScreenDrawing() {
   const mode = new URLSearchParams(window.location.search).get("mode");
   const isToolbar = mode === "drawing-toolbar";
   const toolbarRef = useRef<HTMLElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const [orientation, setOrientation] = useState<ToolbarOrientation>("vertical");
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [panelSide, setPanelSide] = useState<PanelSide>("right");
+  const [monitorLogical, setMonitorLogical] = useState<{ width: number; height: number } | null>(null);
+  const panelSideRef = useRef<PanelSide>("right");
+  panelSideRef.current = panelSide;
+  const orientationRef = useRef<ToolbarOrientation>("vertical");
+  orientationRef.current = orientation;
+  // After switching orientation the toolbar snaps to the screen edge it was dropped on.
+  const snapRef = useRef<{
+    until: number;
+    edge: "top" | "bottom" | "left" | "right";
+    monitor: { x: number; y: number; width: number; height: number; scale: number };
+    cursorX: number;
+    cursorY: number;
+  } | null>(null);
+  const forceResizeRef = useRef<() => void>(() => undefined);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingsRef = useRef<Drawing[]>([]);
   const activeRef = useRef<Drawing | null>(null);
@@ -241,6 +261,7 @@ export default function ScreenDrawing() {
   });
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const toolbarItems = useDrawingToolbar((state) => state.items);
+  const iconSize = useDrawingToolbar((state) => state.iconSize);
   const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
   const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
   const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
@@ -390,23 +411,137 @@ export default function ScreenDrawing() {
     };
   }, [isToolbar]);
 
+  const refreshMonitor = useCallback(async () => {
+    try {
+      const monitor = await currentMonitor();
+      if (monitor) {
+        setMonitorLogical({
+          width: monitor.size.width / monitor.scaleFactor,
+          height: monitor.size.height / monitor.scaleFactor,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to read the toolbar monitor:", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isToolbar) void refreshMonitor();
+  }, [isToolbar, refreshMonitor]);
+
+  // Orientation, icon size or the open "…" panel change the toolbar size: re-measure.
+  useEffect(() => {
+    if (!isToolbar) return;
+    const frame = window.requestAnimationFrame(() => window.requestAnimationFrame(() => forceResizeRef.current()));
+    return () => window.cancelAnimationFrame(frame);
+  }, [isToolbar, orientation, moreOpen, panelSide, iconSize, monitorLogical]);
+
+  /** Dragging ends: near the top/bottom edge of a screen the toolbar becomes horizontal. */
+  const handleToolbarDrag = useCallback(async () => {
+    await invoke("start_drawing_toolbar_drag").catch(console.error);
+    try {
+      const [cursor, monitors] = await Promise.all([cursorPosition(), availableMonitors()]);
+      const monitor = monitors.find((item) =>
+        cursor.x >= item.position.x && cursor.x < item.position.x + item.size.width &&
+        cursor.y >= item.position.y && cursor.y < item.position.y + item.size.height);
+      if (!monitor) return;
+      void refreshMonitor();
+      const threshold = 60 * monitor.scaleFactor;
+      const nearTop = cursor.y - monitor.position.y < threshold;
+      const nearBottom = monitor.position.y + monitor.size.height - cursor.y < threshold;
+      const target: ToolbarOrientation = nearTop || nearBottom ? "horizontal" : "vertical";
+      if (target === orientationRef.current && target === "vertical") return;
+      const centerX = monitor.position.x + monitor.size.width / 2;
+      const edge = target === "horizontal" ? (nearTop ? "top" : "bottom")
+        : cursor.x < centerX ? "left" : "right";
+      if (target === orientationRef.current && target === "horizontal") return;
+      snapRef.current = {
+        until: Date.now() + 1500,
+        edge,
+        monitor: {
+          x: monitor.position.x,
+          y: monitor.position.y,
+          width: monitor.size.width,
+          height: monitor.size.height,
+          scale: monitor.scaleFactor,
+        },
+        cursorX: cursor.x,
+        cursorY: cursor.y,
+      };
+      setMoreOpen(false);
+      setOrientation(target);
+    } catch (error) {
+      console.error("Failed to decide the toolbar orientation:", error);
+    }
+  }, [refreshMonitor]);
+
+  /** Opens/closes the "…" panel on the side of the toolbar that has room on screen. */
+  const toggleMore = useCallback(async () => {
+    if (moreOpen) {
+      setMoreOpen(false);
+      return;
+    }
+    try {
+      const win = getCurrentWindow();
+      const [monitor, position, size] = await Promise.all([currentMonitor(), win.outerPosition(), win.outerSize()]);
+      if (monitor) {
+        const centerX = position.x + size.width / 2 - (monitor.position.x + monitor.size.width / 2);
+        const centerY = position.y + size.height / 2 - (monitor.position.y + monitor.size.height / 2);
+        setPanelSide(orientationRef.current === "vertical"
+          ? (centerX < 0 ? "right" : "left")
+          : (centerY < 0 ? "bottom" : "top"));
+      }
+    } catch (error) {
+      console.error("Failed to decide the panel side:", error);
+    }
+    setMoreOpen(true);
+  }, [moreOpen]);
+
   useEffect(() => {
     if (isToolbar) {
-      let lastHeight = 0;
-      const resizeToolbar = (force = false) => {
-        const toolbar = toolbarRef.current;
-        if (!toolbar) return;
-        const height = Math.ceil(Math.max(
-          toolbar.getBoundingClientRect().height,
-          toolbar.scrollHeight,
-          toolbar.offsetHeight,
-        ));
-        if (height <= 0 || (!force && height === lastHeight)) return;
-        lastHeight = height;
-        void invoke("resize_drawing_toolbar", { height });
+      let lastKey = "";
+      const applySnap = async () => {
+        const snap = snapRef.current;
+        const shell = shellRef.current;
+        if (!snap || !shell) return;
+        if (Date.now() > snap.until) {
+          snapRef.current = null;
+          return;
+        }
+        const rect = shell.getBoundingClientRect();
+        const w = Math.ceil(rect.width * snap.monitor.scale);
+        const h = Math.ceil(rect.height * snap.monitor.scale);
+        const margin = Math.round(8 * snap.monitor.scale);
+        const { x, y, width, height } = snap.monitor;
+        const clampX = (value: number) => Math.min(Math.max(value, x + margin), Math.max(x + margin, x + width - w - margin));
+        const clampY = (value: number) => Math.min(Math.max(value, y + margin), Math.max(y + margin, y + height - h - margin));
+        let targetX = clampX(snap.cursorX - Math.round(w / 2));
+        let targetY = y + margin;
+        if (snap.edge === "bottom") targetY = y + height - h - margin;
+        else if (snap.edge === "left") targetX = x + margin;
+        else if (snap.edge === "right") targetX = x + width - w - margin;
+        if (snap.edge === "left" || snap.edge === "right") targetY = clampY(y + margin);
+        await invoke("place_drawing_toolbar", { x: targetX, y: targetY }).catch(console.error);
       };
+      const resizeToolbar = (force = false) => {
+        const shell = shellRef.current;
+        if (!shell) return;
+        const rect = shell.getBoundingClientRect();
+        const width = Math.ceil(Math.max(rect.width, shell.scrollWidth, shell.offsetWidth));
+        const height = Math.ceil(Math.max(rect.height, shell.scrollHeight, shell.offsetHeight));
+        const key = `${width}x${height}`;
+        if (width <= 0 || height <= 0 || (!force && key === lastKey)) return;
+        lastKey = key;
+        void invoke("resize_drawing_toolbar", {
+          width,
+          height,
+          anchorRight: panelSideRef.current === "left",
+          anchorBottom: panelSideRef.current === "top",
+        }).then(() => applySnap()).catch(console.error);
+      };
+      forceResizeRef.current = () => resizeToolbar(true);
       const observer = new ResizeObserver(() => resizeToolbar());
-      if (toolbarRef.current) observer.observe(toolbarRef.current);
+      if (shellRef.current) observer.observe(shellRef.current);
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => resizeToolbar()));
       [50, 200, 600, 1200].forEach((delay) =>
         window.setTimeout(() => resizeToolbar(), delay),
@@ -414,8 +549,16 @@ export default function ScreenDrawing() {
       const resizeRequestListener = listen("drawing-toolbar-resize-request", () => {
         resizeToolbar(true);
       });
+      const resetOrientationListener = listen("drawing-toolbar-reset-orientation", () => {
+        snapRef.current = null;
+        setOrientation("vertical");
+        setMoreOpen(false);
+      });
       const scaleListener = getCurrentWindow().onScaleChanged(() => {
-        window.requestAnimationFrame(() => resizeToolbar(true));
+        window.requestAnimationFrame(() => {
+          void refreshMonitor();
+          resizeToolbar(true);
+        });
       });
       const historyListener = listen<{ canUndo: boolean; canRedo: boolean }>("drawing-history", (event) => {
         setCanUndo(event.payload.canUndo);
@@ -451,6 +594,7 @@ export default function ScreenDrawing() {
       return () => {
         observer.disconnect();
         void resizeRequestListener.then((unlisten) => unlisten());
+        void resetOrientationListener.then((unlisten) => unlisten());
         void scaleListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
         void hintListener.then((unlisten) => unlisten());
@@ -753,6 +897,13 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
   return (
     <DrawingToolbarView
       toolbarRef={toolbarRef}
+      shellRef={shellRef}
+      orientation={orientation}
+      iconScale={TOOLBAR_ICON_SCALE[iconSize]}
+      maxMain={monitorLogical ? toolbarLimit(orientation === "horizontal" ? monitorLogical.width : monitorLogical.height) : 0}
+      morePanel={{ open: moreOpen, side: panelSide }}
+      onToggleMore={() => void toggleMore()}
+      onOverflowChange={(overflow) => { if (!overflow) setMoreOpen(false); }}
       toolbarItems={toolbarItems}
       radialStyle={radialStyle}
       tool={tool}
@@ -776,7 +927,7 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       onSnip={startSnip}
       sendCommand={sendCommand}
       setProbeMenu={setProbeMenu}
-      onDrag={() => void invoke("start_drawing_toolbar_drag")}
+      onDrag={() => void handleToolbarDrag()}
       onHide={() => void invoke("hide_drawing_toolbar").catch(console.error)}
       onClose={() => void invoke("close_screen_drawing")}
       onToggleKeyDisplay={() => {

@@ -559,6 +559,137 @@ html.drawing-toolbar-page #root {
   height: 18px;
 }
 
+/* ---- Adaptive toolbar: orientation, icon scale, "…" panel ---- */
+html.drawing-toolbar-page,
+html.drawing-toolbar-page body {
+  overflow: hidden;
+}
+
+.drawing-shell {
+  position: relative;
+  display: flex;
+  width: max-content;
+  align-items: flex-start;
+  gap: 0;
+  --tb-scale: 1;
+}
+
+.drawing-shell.panel-right { flex-direction: row; }
+.drawing-shell.panel-left { flex-direction: row-reverse; }
+.drawing-shell.panel-bottom { flex-direction: column; }
+.drawing-shell.panel-top { flex-direction: column-reverse; }
+
+.drawing-shell > .drawing-toolbar.vertical { width: 48px; flex: none; }
+
+.drawing-toolbar.horizontal {
+  width: max-content;
+  height: 48px;
+  padding: 3px 8px;
+  flex-direction: row;
+  align-items: center;
+  border-radius: 24px;
+}
+
+.drawing-unit {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+}
+
+.drawing-toolbar.vertical .drawing-unit { width: 100%; }
+.drawing-toolbar.horizontal .drawing-unit { height: 100%; }
+
+.drawing-unit > .drawing-window-actions,
+.drawing-unit > .drawing-history-actions,
+.drawing-unit > .drawing-file-actions,
+.drawing-unit > .drawing-footer-actions {
+  width: 42px;
+}
+
+.drawing-toolbar .drawing-single {
+  width: calc(42px * var(--tb-scale, 1));
+  min-height: calc(38px * var(--tb-scale, 1));
+  height: calc(38px * var(--tb-scale, 1));
+}
+
+.drawing-toolbar .drawing-single svg {
+  width: calc(26px * var(--tb-scale, 1));
+  height: calc(26px * var(--tb-scale, 1));
+}
+
+.drawing-toolbar .drawing-drag-handle {
+  width: calc(42px * var(--tb-scale, 1));
+  min-height: calc(24px * var(--tb-scale, 1));
+  height: calc(24px * var(--tb-scale, 1));
+}
+
+.drawing-toolbar .drawing-drag-handle svg {
+  width: calc(20px * var(--tb-scale, 1));
+  height: calc(20px * var(--tb-scale, 1));
+}
+
+.drawing-toolbar.horizontal .drawing-drag-handle { cursor: move; }
+
+.drawing-toolbar.horizontal .drawing-divider {
+  width: 1px;
+  height: 34px;
+  margin: 0 3px;
+}
+
+.drawing-toolbar.horizontal .drawing-colors {
+  grid-template-columns: none;
+  grid-template-rows: repeat(2, 22px);
+  grid-auto-flow: column;
+  grid-auto-columns: 22px;
+}
+
+.drawing-toolbar.horizontal .drawing-width-slider { width: 96px; }
+
+.drawing-toolbar.horizontal .drawing-operation-hint {
+  top: auto;
+  bottom: -18px;
+  left: 50%;
+  width: max-content;
+  max-width: 260px;
+  transform: translateX(-50%);
+  border-radius: 8px;
+}
+
+.drawing-panel {
+  flex: none;
+  flex-wrap: wrap;
+  padding: 6px 3px;
+  box-shadow:
+    inset 0 0 0 1px var(--tool-divider),
+    0 4px 10px rgb(0 0 0 / 22%);
+}
+
+.drawing-panel.vertical {
+  width: 48px;
+  max-height: var(--tb-max, none);
+}
+
+.drawing-panel.horizontal {
+  max-width: var(--tb-max, none);
+  height: auto;
+  min-height: 48px;
+  padding: 3px 8px;
+}
+
+.drawing-measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: -1;
+  height: auto;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.drawing-measure.vertical { width: 48px; }
+.drawing-measure.horizontal { width: max-content; height: 48px; }
+
 html,
 body,
 #root {

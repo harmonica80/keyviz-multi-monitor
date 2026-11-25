@@ -709,6 +709,8 @@ fn set_drawing_toolbar_side(app: AppHandle, side: String) -> Result<(), String> 
             drawing_toolbar_open_position(&app, &normalized_side)?;
         create_drawing_toolbar(&app, toolbar_x, toolbar_y, toolbar_height, true)?;
         keep_drawing_toolbar_above_canvas(&app)?;
+        // A toolbar moved to the screen top/bottom is horizontal; the side setting puts it back.
+        let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-reset-orientation", ());
     }
 
     Ok(())
@@ -829,8 +831,17 @@ fn start_drawing_toolbar_drag(app: AppHandle) -> Result<(), String> {
     window.start_dragging().map_err(|error| error.to_string())
 }
 
+/// Resize the toolbar window to `width` x `height` (logical px). The edge on the side of the
+/// "…" panel stays where it is: `anchor_right` / `anchor_bottom` keep the right / bottom edge
+/// fixed (panel opens to the left / above), otherwise the left / top edge stays.
 #[tauri::command]
-fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
+fn resize_drawing_toolbar(
+    app: AppHandle,
+    width: Option<f64>,
+    height: f64,
+    anchor_right: Option<bool>,
+    anchor_bottom: Option<bool>,
+) -> Result<(), String> {
     if !drawing_toolbar_visible(&app)? {
         return Ok(());
     }
@@ -838,39 +849,52 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
     let window = app
         .get_webview_window("drawing-toolbar")
         .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
-    // Fit the whole toolbar: allow up to the height of the monitor it is on (logical px).
-    // A fixed 820px cap cut off the bottom buttons once the magnifier button was added.
-    let max_height = window
+    // Fit the whole toolbar: allow up to the size of the monitor it is on (logical px).
+    let (max_width, max_height) = window
         .current_monitor()
         .ok()
         .flatten()
-        .map(|monitor| f64::from(monitor.size().height) / monitor.scale_factor() - 8.0)
-        .unwrap_or(820.0)
-        .max(320.0);
-    let height = height.clamp(32.0, max_height);
+        .map(|monitor| {
+            let scale = monitor.scale_factor();
+            (
+                f64::from(monitor.size().width) / scale - 8.0,
+                f64::from(monitor.size().height) / scale - 8.0,
+            )
+        })
+        .unwrap_or((1200.0, 820.0));
+    let width = width.unwrap_or(48.0).clamp(32.0, max_width.max(320.0));
+    let height = height.clamp(32.0, max_height.max(320.0));
+    let anchor_right = anchor_right.unwrap_or(false);
+    let anchor_bottom = anchor_bottom.unwrap_or(false);
 
     #[cfg(target_os = "windows")]
     {
-        use windows::Win32::Foundation::HWND;
+        use windows::Win32::Foundation::{HWND, RECT};
         use windows::Win32::UI::WindowsAndMessaging::{
-            GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOMOVE,
+            GetAncestor, GetWindowRect, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_NOACTIVATE,
         };
 
         let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
         let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
         let target = if root.0 == 0 { hwnd } else { root };
         let scale = window.scale_factor().unwrap_or(1.0);
-        let physical_width = (48.0 * scale).round().max(1.0) as i32;
+        let physical_width = (width * scale).round().max(1.0) as i32;
         let physical_height = (height * scale).ceil().max(1.0) as i32;
+        let mut rect = RECT::default();
+        unsafe {
+            let _ = GetWindowRect(target, &mut rect);
+        }
+        let new_x = if anchor_right { rect.right - physical_width } else { rect.left };
+        let new_y = if anchor_bottom { rect.bottom - physical_height } else { rect.top };
         let result = unsafe {
             SetWindowPos(
                 target,
                 HWND_TOPMOST,
-                0,
-                0,
+                new_x,
+                new_y,
                 physical_width,
                 physical_height,
-                SWP_NOACTIVATE | SWP_NOMOVE,
+                SWP_NOACTIVATE,
             )
         };
         if !result.as_bool() {
@@ -879,12 +903,12 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
     }
 
     #[cfg(not(target_os = "windows"))]
-    window
-        .set_size(tauri::LogicalSize {
-            width: 48.0,
-            height,
-        })
-        .map_err(|error| error.to_string())?;
+    {
+        let _ = (anchor_right, anchor_bottom);
+        window
+            .set_size(tauri::LogicalSize { width, height })
+            .map_err(|error| error.to_string())?;
+    }
 
     #[cfg(target_os = "windows")]
     {
@@ -918,6 +942,41 @@ fn resize_drawing_toolbar(app: AppHandle, height: f64) -> Result<(), String> {
             }
         }
     }
+
+    keep_drawing_toolbar_above_canvas(&app)?;
+    sync_drawing_toolbar_passthrough(&app)
+}
+
+/// Move the toolbar window to a physical-pixel position (used to snap it to a screen edge
+/// after it switched between the vertical and horizontal layout).
+#[tauri::command]
+fn place_drawing_toolbar(app: AppHandle, x: i32, y: i32) -> Result<(), String> {
+    let window = app
+        .get_webview_window("drawing-toolbar")
+        .ok_or_else(|| "Drawing toolbar is unavailable".to_string())?;
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, SetWindowPos, GA_ROOT, HWND_TOPMOST, SWP_NOACTIVATE, SWP_NOSIZE,
+        };
+
+        let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
+        let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
+        let target = if root.0 == 0 { hwnd } else { root };
+        let result = unsafe {
+            SetWindowPos(target, HWND_TOPMOST, x, y, 0, 0, SWP_NOACTIVATE | SWP_NOSIZE)
+        };
+        if !result.as_bool() {
+            return Err(std::io::Error::last_os_error().to_string());
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    window
+        .set_position(tauri::PhysicalPosition { x, y })
+        .map_err(|error| error.to_string())?;
 
     keep_drawing_toolbar_above_canvas(&app)?;
     sync_drawing_toolbar_passthrough(&app)
@@ -1303,6 +1362,7 @@ pub fn run() {
             activate_drawing_canvas,
             start_drawing_toolbar_drag,
             resize_drawing_toolbar,
+            place_drawing_toolbar,
             resize_drawing_window,
             drawing_set_tool,
             drawing_set_color,

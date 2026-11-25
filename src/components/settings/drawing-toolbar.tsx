@@ -43,6 +43,8 @@ export const DrawingToolbarSettings = () => {
   const setItems = useDrawingToolbar((state) => state.setItems);
   const setToolVisible = useDrawingToolbar((state) => state.setToolVisible);
   const setSide = useDrawingToolbar((state) => state.setSide);
+  const iconSize = useDrawingToolbar((state) => state.iconSize);
+  const setIconSize = useDrawingToolbar((state) => state.setIconSize);
   const resetToolbar = useDrawingToolbar((state) => state.resetToolbar);
   const saveDir = useDrawingToolbar((state) => state.saveDir);
   const setSaveDir = useDrawingToolbar((state) => state.setSaveDir);
@@ -252,6 +254,28 @@ export const DrawingToolbarSettings = () => {
               <PanelRight />
               {t("Right Side")}
             </ToggleGroupItem>
+          </ToggleGroup>
+        </ItemActions>
+      </Item>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Toolbar Icon Size")}</ItemTitle>
+          <ItemDescription>
+            {t("Make the single-icon toolbar buttons smaller to fit small screens or large Windows text scaling. Small grouped icons keep their size. Drag the toolbar near the top or bottom edge of the screen to make it horizontal.")}
+          </ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={iconSize}
+            onValueChange={(value) => value && setIconSize(value as "full" | "twoThirds" | "half")}
+          >
+            <ToggleGroupItem value="full" aria-label={t("Normal size")}>{t("Normal size")}</ToggleGroupItem>
+            <ToggleGroupItem value="twoThirds" aria-label="2/3">2/3</ToggleGroupItem>
+            <ToggleGroupItem value="half" aria-label="1/2">1/2</ToggleGroupItem>
           </ToggleGroup>
         </ItemActions>
       </Item>
