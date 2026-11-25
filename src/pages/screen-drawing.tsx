@@ -541,9 +541,11 @@ export default function ScreenDrawing() {
       const resizeToolbar = (force = false) => {
         const shell = shellRef.current;
         if (!shell) return;
+        // Not scrollHeight/scrollWidth: they would include the hidden measuring copy of
+        // every tool, which is taller than the visible toolbar and left a blank strip.
         const rect = shell.getBoundingClientRect();
-        const width = Math.ceil(Math.max(rect.width, shell.scrollWidth, shell.offsetWidth));
-        const height = Math.ceil(Math.max(rect.height, shell.scrollHeight, shell.offsetHeight));
+        const width = Math.ceil(rect.width);
+        const height = Math.ceil(rect.height);
         const key = `${width}x${height}`;
         if (width <= 0 || height <= 0 || (!force && key === lastKey)) return;
         lastKey = key;
