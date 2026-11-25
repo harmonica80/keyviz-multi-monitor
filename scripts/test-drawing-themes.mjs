@@ -44,7 +44,7 @@ assert.equal(themes[4].fill, "#fce4ec");
 let storeSource = read("src/stores/drawing_toolbar.ts").replace(/^import[\s\S]*?;\r?\n/gm, "");
 storeSource = `
 const DRAWING_TOOLS = [{id: "pointer"}, {id: "pen"}, {id: "text"}];
-const TOOLBAR_ITEM_IDS = [...DRAWING_TOOLS.map(({id}) => id), "zoom"];
+const TOOLBAR_ITEM_IDS = [...DRAWING_TOOLS.map(({id}) => id), "zoom", "snip"];
 const normalizeDrawingTheme = ${normalizeDrawingTheme.toString()};
 const DEFAULT_RADIAL_COLORS = ${JSON.stringify(DEFAULT_RADIAL_COLORS)};
 const normalizeRadialColors = ${normalizeRadialColors.toString()};
@@ -88,7 +88,8 @@ assert.deepEqual(migrated.radialColors, DEFAULT_RADIAL_COLORS);
 assert.equal(migrated.items[0].id, "pen");
 assert.equal(migrated.items[0].visible, false);
 // Settings saved before the magnifier was configurable get it appended after the tools.
-assert.equal(migrated.items.at(-1).id, "zoom");
+assert.equal(migrated.items.at(-2).id, "zoom");
+assert.equal(migrated.items.at(-1).id, "snip");
 assert.equal(migrated.items.at(-1).visible, true);
 assert.equal(migrated.side, "left");
 assert.deepEqual(migrated.radialShortcut, []); // Q circular-menu shortcut was removed (v1.0.29)

@@ -6,7 +6,9 @@
     "main",
     "settings",
     "drawing",
-    "drawing-toolbar"
+    "drawing-toolbar",
+    "snip",
+    "pin-*"
   ],
   "permissions": [
     "core:default",

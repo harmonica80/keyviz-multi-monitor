@@ -75,6 +75,7 @@ fn radial_clock() -> u64 {
 
 pub fn radial_consumes_close() -> bool {
     RADIAL_OPEN.load(Ordering::Relaxed)
+        || crate::app::snip::snip_active()
         || radial_clock() < RADIAL_ESCAPE_UNTIL.load(Ordering::Relaxed)
 }
 

@@ -39,6 +39,7 @@ interface DrawingToolbarViewProps {
   zoomActive?: boolean;
   zoomShortcutLabel?: string;
   onToggleZoom?: () => void;
+  onSnip?: () => void;
   sendCommand?: (command: ToolbarCommand) => void;
   setProbeMenu?: (open: boolean) => void;
   onDrag?: () => void;
@@ -61,7 +62,7 @@ export function DrawingToolbarView({
   closeShortcutLabel = "", undoShortcutLabel = "",
   selectionState = { count: 0, grouped: false }, operationHint = null,
   probeMenu = false, probe = { busy: false, result: null, run: async () => {} },
-  keyDisplayEnabled = true, zoomActive = false, zoomShortcutLabel = "", onToggleZoom,
+  keyDisplayEnabled = true, zoomActive = false, zoomShortcutLabel = "", onToggleZoom, onSnip,
   sendCommand = noop, setProbeMenu = noop,
   onDrag, onHide, onClose, onToggleKeyDisplay, onSettings, onRecover,
   onSavePng, onSaveJson, onOpenJson,
@@ -104,6 +105,16 @@ export function DrawingToolbarView({
           aria-label={t("Screen magnifier")}
           title={`${t("Screen magnifier")}${zoomShortcutLabel ? ` (${zoomShortcutLabel})` : ""}\n${t("Wheel: zoom in/out · Esc or right-click: leave")}`}
           onClick={onToggleZoom}
+        >
+          <Icon />
+        </button>
+      ) : id === "snip" ? (
+        <button
+          key={id}
+          className="drawing-snip-button"
+          aria-label={t("Screenshot and pin")}
+          title={`${t("Screenshot and pin")}\n${t("Drag to select an area, then pin it as a sticky note, save, or copy it")}`}
+          onClick={onSnip}
         >
           <Icon />
         </button>

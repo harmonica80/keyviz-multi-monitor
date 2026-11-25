@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -143,4 +143,13 @@
 - 修改：`native_drawing.rs` 新增 `repair_input_state(state)`，由既有 1 秒看門狗（`RaiseIfDemoted`）先呼叫。檢查：(1) 非 Pointer 工具卻 `click_through == true`；(2) 輸入視窗不可見；(3) `WindowFromPoint(游標)` 的頂層視窗不屬於本程式 → `apply_command_inner_raise`（每 5 秒最多一次）。放大鏡、probe、Pointer 工具時不檢查。每次修復寫入 `record_event("Drawing input repaired: ...")`。
 - 此程式碼在 Windows 專用區塊，host 上的 `cargo check` 不會編譯到，需由 CI 驗證。
 - 若仍復發：請使用者提供 keyviz.log，依 `Drawing input repaired` 的原因再處理；若日誌沒有該行但問題仍在，下一個懷疑對象是 Alt 觸發的「移入編輯」(`hover_edit_active`) 殘留選取，以及 `radial`／`edit` 狀態卡住。
+
+## v1.0.38（測試版：截取螢幕畫面＋便利貼釘選）
+- 需求：工具列新增「剪刀＋圖釘」按鈕。框選（可調整）→ 取消／釘選／儲存影像／儲存 JSON／複製影像；便利貼可滾輪縮放、拖曳、上方出現 取消釘選／儲存／複製。
+- 流程：`snip_start`（前端，帶存檔資料夾）→ overlay 執行緒 `DrawingCommand::SnipCapture` → `drawing_snip.rs::snip_capture` 擷取工具列所在螢幕（`capture_screen` 排除自己的視窗；有開啟 JSON 時用其背景圖），疊上繪圖層得到 composite，另存 raw（無繪圖）與每個物件的 JSON/範圍 → `snip::set_session`。再開 `snip` 視窗（無邊框、置頂、覆蓋該螢幕，實體像素定位）。
+- `snip.rs`：`snip_get_image`（PNG bytes，`tauri::ipc::Response`）、`snip_action(kind, x,y,w,h)`（影像像素座標，`png|json|copy|pin`）、`snip_cancel`；便利貼 `pin-{id}` 視窗與 `snip_note_*` 命令（拖曳用 `start_dragging`、縮放用 `snip_note_zoom`，以滑鼠位置為不動點，寬度 64px～原圖 4 倍）。
+- Esc：`snip_active()`（開啟中＋關閉後 500ms 寬限）併入 `radial_consumes_close()`，避免 Esc 同時關閉繪圖模式。`close_screen_drawing_impl` 會呼叫 `snip::close_selection`（便利貼不受影響）。
+- JSON：新增 `image.region`；`import_json` 把裁切圖放到該區域，其餘填灰（0x404040）。
+- 剪貼簿：`arboard`（image-data）。`capabilities/default.json` 的 windows 加入 `snip`、`pin-*`。
+- 驗證：host 上 `cargo test --lib`（含 snip 單元測試）、`tsc`、node 測試、vite build 通過；Windows 專用程式碼（`drawing_snip.rs`、`raise_topmost`）由 CI 編譯。實機待測：多螢幕／高 DPI 下視窗定位、便利貼滾輪與拖曳手感、複製到剪貼簿。
 

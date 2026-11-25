@@ -582,6 +582,13 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
     });
   };
 
+  const startSnip = () => {
+    void invoke("snip_start", { dir: useDrawingToolbar.getState().saveDir || null }).catch((error) => {
+      console.error(error);
+      setOperationHint({ text: t(String(error)) });
+    });
+  };
+
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {
       // Live zoom keeps every tool usable; the native side leaves a frozen-snapshot zoom itself.
@@ -766,6 +773,7 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       zoomActive={zoomActive}
       zoomShortcutLabel={zoomShortcutLabel}
       onToggleZoom={toggleZoom}
+      onSnip={startSnip}
       sendCommand={sendCommand}
       setProbeMenu={setProbeMenu}
       onDrag={() => void invoke("start_drawing_toolbar_drag")}

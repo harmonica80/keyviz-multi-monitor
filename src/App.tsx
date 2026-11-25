@@ -10,6 +10,8 @@ const Visualization = lazy(() =>
   import("./pages/visualization").then((module) => ({ default: module.Visualization })),
 );
 const Settings = lazy(() => import("./pages/settings"));
+const SnipPage = lazy(() => import("./pages/snip"));
+const PinNotePage = lazy(() => import("./pages/pin-note"));
 
 class AppErrorBoundary extends Component<
   { children: ReactNode },
@@ -40,6 +42,13 @@ class AppErrorBoundary extends Component<
 
 function App() {
   const mode = new URLSearchParams(window.location.search).get("mode");
+  if (mode === "snip" || mode === "pin") {
+    return (
+      <AppErrorBoundary>
+        <Suspense fallback={null}>{mode === "snip" ? <SnipPage /> : <PinNotePage />}</Suspense>
+      </AppErrorBoundary>
+    );
+  }
   if (mode?.startsWith("drawing")) {
     return (
       <AppErrorBoundary>

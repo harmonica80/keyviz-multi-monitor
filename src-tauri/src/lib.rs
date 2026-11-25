@@ -728,6 +728,7 @@ pub(crate) fn close_screen_drawing_impl(app: AppHandle) -> Result<(), String> {
     app_state.drawing_last_move = None;
     app_state.drawing_overlay.hide();
     drop(app_state);
+    app::snip::close_selection(&app);
 
     if let Some(settings) = app.get_webview_window("settings") {
         let _ = settings.set_always_on_top(false);
@@ -1269,6 +1270,16 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             log,
+            app::snip::snip_start,
+            app::snip::snip_get_image,
+            app::snip::snip_cancel,
+            app::snip::snip_action,
+            app::snip::snip_note_image,
+            app::snip::snip_note_close,
+            app::snip::snip_note_copy,
+            app::snip::snip_note_save,
+            app::snip::snip_note_drag,
+            app::snip::snip_note_zoom,
             set_toggle_shortcut,
             set_drawing_shortcuts,
             set_main_window_monitor,

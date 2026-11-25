@@ -69,6 +69,7 @@ mod platform {
     include!("drawing_radial_render.rs");
     include!("drawing_export.rs");
     include!("drawing_zoom.rs");
+    include!("drawing_snip.rs");
 
     #[repr(C)]
     struct GdiplusStartupInput {
@@ -268,6 +269,7 @@ mod platform {
         ToggleHoverEdit { epoch: u64 },
         ConfigureRadial { shortcut: RadialShortcut, tools: Vec<NativeTool>, right_click: bool, style: String, colors: [String; 2] },
         SetToolbarHidden(bool),
+        SnipCapture { reply: Sender<Result<(i32, i32, u32, u32), String>> },
         Export { kind: ExportKind, dir: Option<String>, all_drawn: bool, reply: Sender<Result<crate::app::export_io::ExportResult, String>> },
         ExportMonitorCount { reply: Sender<usize> },
         Import { path: String, reply: Sender<Result<String, String>> },
@@ -894,6 +896,15 @@ mod platform {
             let (reply, receiver) = mpsc::channel();
             sender.send(DrawingCommand::ExportMonitorCount { reply }).map_err(|e| e.to_string())?;
             receiver.recv_timeout(Duration::from_secs(5)).map_err(|_| "Timed out".to_string())
+        }
+
+        /// Freezes the screen under the toolbar for the snipping tool; returns its rectangle
+        /// (left, top, width, height) in screen pixels. The pixels go to `snip::set_session`.
+        pub fn snip_capture(&self) -> Result<(i32, i32, u32, u32), String> {
+            let sender = self.sender.as_ref().ok_or("Drawing overlay is not initialized")?;
+            let (reply, receiver) = mpsc::channel();
+            sender.send(DrawingCommand::SnipCapture { reply }).map_err(|e| e.to_string())?;
+            receiver.recv_timeout(Duration::from_secs(10)).map_err(|_| "Capturing the screen timed out".to_string())?
         }
 
         pub fn export_screen(&self, kind: &str, dir: Option<String>, all_drawn: bool) -> Result<crate::app::export_io::ExportResult, String> {
@@ -1765,6 +1776,9 @@ mod platform {
             }
             DrawingCommand::Export { kind, dir, all_drawn, reply } => {
                 let _ = reply.send(export_screen(state, kind, dir.as_deref(), all_drawn));
+            }
+            DrawingCommand::SnipCapture { reply } => {
+                let _ = reply.send(snip_capture(state));
             }
             DrawingCommand::ExportMonitorCount { reply } => {
                 let _ = reply.send(export_monitor_count(state));
@@ -6207,6 +6221,7 @@ mod platform_stub {
         pub fn recover(&self) {}
         pub fn set_zoom(&self, _enable: Option<bool>, _close_on_exit: bool) {}
         pub fn export_monitor_count(&self) -> Result<usize, String> { Ok(0) }
+        pub fn snip_capture(&self) -> Result<(i32, i32, u32, u32), String> { Err("Screenshots are available on Windows only".into()) }
         pub fn export_screen(&self, _kind: &str, _dir: Option<String>, _all_drawn: bool) -> Result<crate::app::export_io::ExportResult, String> {
             Err("Saving is available on Windows only".into())
         }
@@ -6242,6 +6257,8 @@ mod platform_stub {
     }
 
     pub fn set_zoom_edge_pan(_edge: bool) {}
+
+    pub fn snip_date() -> String { "snip".to_string() }
 }
 
 #[cfg(not(target_os = "windows"))]

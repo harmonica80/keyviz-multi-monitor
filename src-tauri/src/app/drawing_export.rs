@@ -451,11 +451,30 @@ unsafe fn import_json(state: &mut OverlayState, path: &str) -> Result<String, St
         Some(data) => {
             let bytes = crate::app::export_io::base64_to_bytes(data)?;
             let (image_width, image_height, rgba) = crate::app::export_io::decode_png(&bytes)?;
+            // A snipped region (see snip.rs) covers only part of the monitor: the rest is shown
+            // as a neutral grey so the cut-out stands out and the drawings keep their place.
+            let region = &document["image"]["region"];
+            let (rx0, ry0, rx1, ry1) = if region.is_object() {
+                let value = |key: &str| region[key].as_f64().unwrap_or(0.0);
+                (
+                    (value("x") * sx).round() as i64,
+                    (value("y") * sy).round() as i64,
+                    ((value("x") + value("width")) * sx).round() as i64,
+                    ((value("y") + value("height")) * sy).round() as i64,
+                )
+            } else {
+                (0, 0, i64::from(width), i64::from(height))
+            };
+            let (region_w, region_h) = ((rx1 - rx0).max(1), (ry1 - ry0).max(1));
             let mut pixels = Vec::with_capacity(width as usize * height as usize);
-            for y in 0..height as usize {
-                let source_y = (y * image_height as usize / height as usize).min(image_height as usize - 1);
-                for x in 0..width as usize {
-                    let source_x = (x * image_width as usize / width as usize).min(image_width as usize - 1);
+            for y in 0..i64::from(height) {
+                for x in 0..i64::from(width) {
+                    if x < rx0 || x >= rx1 || y < ry0 || y >= ry1 {
+                        pixels.push(opaque_visible(0x0040_4040));
+                        continue;
+                    }
+                    let source_y = ((y - ry0) * image_height as i64 / region_h).clamp(0, image_height as i64 - 1) as usize;
+                    let source_x = ((x - rx0) * image_width as i64 / region_w).clamp(0, image_width as i64 - 1) as usize;
                     let p = (source_y * image_width as usize + source_x) * 4;
                     let value = (u32::from(rgba[p]) << 16) | (u32::from(rgba[p + 1]) << 8) | u32::from(rgba[p + 2]);
                     pixels.push(opaque_visible(value));
