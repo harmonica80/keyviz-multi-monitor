@@ -841,6 +841,7 @@ fn resize_drawing_toolbar(
     height: f64,
     anchor_right: Option<bool>,
     anchor_bottom: Option<bool>,
+    device_pixel_ratio: Option<f64>,
 ) -> Result<(), String> {
     if !drawing_toolbar_visible(&app)? {
         return Ok(());
@@ -880,9 +881,14 @@ fn resize_drawing_toolbar(
         // Ask Windows for the DPI of the window right now. The cached scale factor can lag
         // behind while the toolbar is dragged between monitors with different scaling, which
         // left a blank strip below the toolbar.
-        let scale = {
-            let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(target) };
-            if dpi >= 96 { f64::from(dpi) / 96.0 } else { window.scale_factor().unwrap_or(1.0) }
+        // Prefer the scale the webview itself renders with (its devicePixelRatio): it is what
+        // decides how many CSS px fit in the window, so sizing by it cannot leave a gap.
+        let scale = match device_pixel_ratio {
+            Some(ratio) if (0.5..=8.0).contains(&ratio) => ratio,
+            _ => {
+                let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(target) };
+                if dpi >= 96 { f64::from(dpi) / 96.0 } else { window.scale_factor().unwrap_or(1.0) }
+            }
         };
         let physical_width = (width * scale).round().max(1.0) as i32;
         let physical_height = (height * scale).ceil().max(1.0) as i32;
@@ -910,7 +916,7 @@ fn resize_drawing_toolbar(
 
     #[cfg(not(target_os = "windows"))]
     {
-        let _ = (anchor_right, anchor_bottom);
+        let _ = (anchor_right, anchor_bottom, device_pixel_ratio);
         window
             .set_size(tauri::LogicalSize { width, height })
             .map_err(|error| error.to_string())?;
@@ -927,7 +933,11 @@ fn resize_drawing_toolbar(
         let target = if root.0 == 0 { hwnd } else { root };
         let size = window.inner_size().map_err(|error| error.to_string())?;
         let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(target) };
-        let scale = if dpi >= 96 { f64::from(dpi) / 96.0 } else { window.scale_factor().unwrap_or(1.0) };
+        let scale = match device_pixel_ratio {
+            Some(ratio) if (0.5..=8.0).contains(&ratio) => ratio,
+            _ if dpi >= 96 => f64::from(dpi) / 96.0,
+            _ => window.scale_factor().unwrap_or(1.0),
+        };
         let diameter = (48.0 * scale).round() as i32;
         unsafe {
             // Clip the opaque WebView window, without enabling layered transparency.

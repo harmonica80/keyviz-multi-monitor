@@ -233,6 +233,7 @@ export default function ScreenDrawing() {
   } | null>(null);
   const forceResizeRef = useRef<() => void>(() => undefined);
   const startSnipRef = useRef<() => void>(() => undefined);
+  const verifyBurstRef = useRef<() => void>(() => undefined);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingsRef = useRef<Drawing[]>([]);
   const activeRef = useRef<Drawing | null>(null);
@@ -440,6 +441,7 @@ export default function ScreenDrawing() {
   /** Dragging ends: near the top/bottom edge of a screen the toolbar becomes horizontal. */
   const handleToolbarDrag = useCallback(async () => {
     await invoke("start_drawing_toolbar_drag").catch(console.error);
+    verifyBurstRef.current();
     try {
       const [cursor, monitors] = await Promise.all([cursorPosition(), availableMonitors()]);
       const monitor = monitors.find((item) =>
@@ -447,17 +449,27 @@ export default function ScreenDrawing() {
         cursor.y >= item.position.y && cursor.y < item.position.y + item.size.height);
       if (!monitor) return;
       void refreshMonitor();
-      const threshold = 130 * monitor.scaleFactor;
-      // Use the work area (screen minus taskbar) so "near the bottom" means above the taskbar.
+      // Sensing zones (fractions of the screen): left/right strips -> vertical, top/bottom
+      // strips -> horizontal, the middle keeps whatever the toolbar is and lets it float.
+      const { x: mx, y: my } = monitor.position;
+      const { width: mw, height: mh } = monitor.size;
+      const inLeft = cursor.x - mx < mw * 0.09;
+      const inRight = mx + mw - cursor.x < mw * 0.085;
+      const inTop = cursor.y - my < mh * 0.06;
+      const inBottom = my + mh - cursor.y < mh * 0.095;
       const area = monitor.workArea ?? { position: monitor.position, size: monitor.size };
-      const nearTop = cursor.y - area.position.y < threshold;
-      const nearBottom = area.position.y + area.size.height - cursor.y < threshold;
-      const target: ToolbarOrientation = nearTop || nearBottom ? "horizontal" : "vertical";
-      if (target === orientationRef.current && target === "vertical") return;
-      const centerX = monitor.position.x + monitor.size.width / 2;
-      const edge = target === "horizontal" ? (nearTop ? "top" : "bottom")
-        : cursor.x < centerX ? "left" : "right";
-      if (target === orientationRef.current && target === "horizontal") return;
+      let target = orientationRef.current;
+      let edge: "top" | "bottom" | "left" | "right" = "top";
+      if (inLeft || inRight) {
+        target = "vertical";
+        edge = inLeft ? "left" : "right";
+      } else if (inTop || inBottom) {
+        target = "horizontal";
+        edge = inTop ? "top" : "bottom";
+      } else {
+        return;
+      }
+      if (target === orientationRef.current) return;
       snapRef.current = {
         until: Date.now() + 1500,
         edge,
@@ -540,13 +552,14 @@ export default function ScreenDrawing() {
           height,
           anchorRight: panelSideRef.current === "left",
           anchorBottom: panelSideRef.current === "top",
+          devicePixelRatio: window.devicePixelRatio,
         }).then(() => applySnap()).catch(console.error);
       };
       forceResizeRef.current = () => resizeToolbar(true);
       // When the window ends up with a different size than the content (e.g. after a DPI
       // change between monitors), measure again. Bounded so it can never loop.
       let fixes = 0;
-      const verifyFit = () => {
+      const verifyFit = (limited: boolean) => {
         const shell = shellRef.current;
         if (!shell) return;
         const rect = shell.getBoundingClientRect();
@@ -555,15 +568,20 @@ export default function ScreenDrawing() {
           fixes = 0;
           return;
         }
-        if (fixes < 5) {
+        if (!limited || fixes < 5) {
           fixes += 1;
           resizeToolbar(true);
         }
       };
+      // After a drag or a DPI change the webview can report its new scale a moment late:
+      // keep checking for a few seconds so the window always ends up the size of its content.
+      verifyBurstRef.current = () => {
+        [100, 300, 700, 1200, 2000, 3500].forEach((delay) => window.setTimeout(() => verifyFit(false), delay));
+      };
       let verifyTimer = 0;
       const onWindowResize = () => {
         window.clearTimeout(verifyTimer);
-        verifyTimer = window.setTimeout(verifyFit, 150);
+        verifyTimer = window.setTimeout(() => verifyFit(true), 150);
       };
       window.addEventListener("resize", onWindowResize);
       const observer = new ResizeObserver(() => resizeToolbar());
@@ -585,6 +603,7 @@ export default function ScreenDrawing() {
         window.requestAnimationFrame(() => {
           void refreshMonitor();
           [0, 150, 500].forEach((delay) => window.setTimeout(() => resizeToolbar(true), delay));
+          verifyBurstRef.current();
         });
       });
       const historyListener = listen<{ canUndo: boolean; canRedo: boolean }>("drawing-history", (event) => {
