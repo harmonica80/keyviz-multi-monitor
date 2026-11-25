@@ -10,7 +10,12 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 目前最新正式版為 **v1.0.42**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
 
-**v1.0.42** 更新內容（含 v1.0.34、v1.0.35）：
+**v1.0.42** 更新內容（含 v1.0.37～v1.0.41）：
+- 新增**截圖並釘選**（工具列剪刀＋圖釘，圓形選單也有）：框選螢幕範圍後可釘選成便利貼（滾輪縮放、拖曳移動）、儲存影像、複製影像，或存成 JSON。
+- 工具列可適應小螢幕與大字體：拖到螢幕上下緣變**橫式**、左右緣變直式、中間自由擺放；設定可將單一圖示縮成 2/3 或 1/2；長度超過螢幕 3/4 時，多出的工具收進「…」。
+- 修正偶爾無法加入繪圖物件（自我修復）、直式工具列下方空白。
+
+**v1.0.36** 更新內容（含 v1.0.34、v1.0.35）：
 - 螢幕放大鏡改為**即時放大**：影片會繼續播放；放大時可以直接用繪圖工具標註，游標工具時可以照常操作電腦（Ctrl+滾輪縮放）。畫面預設在滑鼠靠近邊緣時才平滑移動，可在設定中改為隨滑鼠移動。
 - 存成 PNG／JSON 時，自動擷取有繪圖的螢幕；多個螢幕都有繪圖時，會詢問是否全部擷取（每個螢幕各存一個檔案）。存檔時不再擷取滑鼠的圓形外框。
 - 設定頁：點色塊會先出現 12 種預設顏色，「自訂…」才開啟完整選色器；放大鏡加入「自訂繪圖工具」清單，可排序或隱藏；移除「滑鼠移入編輯物件」區塊。
@@ -47,7 +52,7 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 - 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.42`。
 - 發生異常時，診斷記錄位於應用程式日誌資料夾下的 `keyviz.log`，回報問題時請一併附上。
 
-The latest stable release is **v1.0.42**; the direct EXE download above needs no GitHub sign-in. v1.0.42 makes the magnifier live (videos keep playing; draw while zoomed; with the pointer tool the computer stays usable, Ctrl+wheel zooms; the view glides only near the edges), saves the screen(s) that have drawings (asking when several do), never captures the mouse highlight circle, and adds a 12-color preset picker in settings. v1.0.33 added a ZoomIt-style screen magnifier (F6 or the toolbar button; wheel to zoom, move the mouse to pan, F6/Esc/right-click to leave), four configurable toolbar colors, and a toolbar check mark that follows the selected object's color. v1.0.32 fixed Ctrl+Z undo / Ctrl+Shift+Z redo sometimes not responding while drawing. v1.0.29–v1.0.31 added saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit) and right Alt + right-click for the radial menu. Exit the old version before running the new EXE and confirm `v1.0.42` in the title bar. See [release-notes-v1.0.42.md](release-notes-v1.0.42.md) and [handoff.md](handoff.md).
+The latest stable release is **v1.0.42**; the direct EXE download above needs no GitHub sign-in. v1.0.42 adds screenshot-and-pin sticky notes (toolbar button and radial menu) and a toolbar that adapts to small screens and large system fonts (horizontal near the top/bottom edge, icon size 2/3 or 1/2, overflow "…" panel at 3/4 of the screen), and fixes the blank strip under the vertical toolbar and the occasional "cannot add objects" state. v1.0.36 made the magnifier live (videos keep playing; draw while zoomed; with the pointer tool the computer stays usable, Ctrl+wheel zooms; the view glides only near the edges), saves the screen(s) that have drawings (asking when several do), never captures the mouse highlight circle, and adds a 12-color preset picker in settings. v1.0.33 added a ZoomIt-style screen magnifier (F6 or the toolbar button; wheel to zoom, move the mouse to pan, F6/Esc/right-click to leave), four configurable toolbar colors, and a toolbar check mark that follows the selected object's color. v1.0.32 fixed Ctrl+Z undo / Ctrl+Shift+Z redo sometimes not responding while drawing. v1.0.29–v1.0.31 added saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit) and right Alt + right-click for the radial menu. Exit the old version before running the new EXE and confirm `v1.0.42` in the title bar. See [release-notes-v1.0.42.md](release-notes-v1.0.42.md) and [handoff.md](handoff.md).
 
 ## v1.0.26：一致預覽與自訂圓形選單顏色
 
