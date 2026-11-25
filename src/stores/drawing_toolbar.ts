@@ -19,7 +19,12 @@ export interface DrawingToolbarItem {
   visible: boolean;
 }
 
-export type DrawingToolbarSide = "left" | "right";
+export type DrawingToolbarSide = "left" | "right" | "top" | "bottom";
+
+/** Look of the number marker: a circle or a rounded rectangle. */
+export type NumberStyle = "circle" | "rounded";
+export const normalizeNumberStyle = (value: unknown): NumberStyle =>
+  value === "rounded" ? "rounded" : "circle";
 // Keep the persisted field and native command name compatible with older builds.
 export type RadialStyle = DrawingThemeId;
 export const normalizeRadialStyle = normalizeDrawingTheme;
@@ -49,6 +54,7 @@ interface DrawingToolbarState {
   hoverEdit: Partial<Record<DrawingTool, boolean>>;
   items: DrawingToolbarItem[];
   side: DrawingToolbarSide;
+  numberStyle: NumberStyle;
 }
 
 interface DrawingToolbarActions {
@@ -64,6 +70,7 @@ interface DrawingToolbarActions {
   setItems: (items: DrawingToolbarItem[]) => void;
   setToolVisible: (id: ToolbarItemId, visible: boolean) => void;
   setSide: (side: DrawingToolbarSide) => void;
+  setNumberStyle: (style: NumberStyle) => void;
   resetToolbar: () => void;
 }
 
@@ -100,7 +107,7 @@ export const normalizeDrawingToolbarItems = (
 };
 
 const normalizeDrawingToolbarSide = (side: unknown): DrawingToolbarSide =>
-  side === "left" ? "left" : DEFAULT_DRAWING_TOOLBAR_SIDE;
+  side === "left" || side === "top" || side === "bottom" ? side : DEFAULT_DRAWING_TOOLBAR_SIDE;
 
 // The Q circular-menu shortcut was removed; the field stays only for old settings files.
 const normalizeRadialShortcut = (_value?: unknown): string[] => [];
@@ -139,6 +146,8 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     setHoverEdit: (id, enabled) => set((state) => ({ hoverEdit: { ...state.hoverEdit, [id]: enabled } })),
     items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
     side: DEFAULT_DRAWING_TOOLBAR_SIDE,
+    numberStyle: "circle",
+    setNumberStyle: (style) => set({ numberStyle: normalizeNumberStyle(style) }),
     setItems: (items) => set({ items: normalizeDrawingToolbarItems(items) }),
     setToolVisible: (id, visible) =>
       set((state) => ({
@@ -166,7 +175,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 11,
+      version: 12,
       migrate: (persistedState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
@@ -180,6 +189,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           iconSize: normalizeIconSize(state.iconSize),
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
+          numberStyle: normalizeNumberStyle(state.numberStyle),
           hoverEdit: state.hoverEdit ?? {},
         };
       },
@@ -198,6 +208,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           hoverEdit: state.hoverEdit ?? {},
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
+          numberStyle: normalizeNumberStyle(state.numberStyle),
         };
       },
     }),

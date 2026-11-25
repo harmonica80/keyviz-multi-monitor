@@ -9,7 +9,7 @@ use tauri::{
 
 mod app;
 use app::commands::{
-    drawing_clear, drawing_redo, drawing_recover, drawing_set_zoom, set_zoom_pan_mode, drawing_export_monitor_count, drawing_export, drawing_import, drawing_export_dir, reveal_in_explorer, drawing_probe_layer, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_toggle_group,
+    drawing_clear, drawing_redo, drawing_recover, drawing_set_zoom, set_zoom_pan_mode, drawing_export_monitor_count, drawing_export, drawing_import, drawing_export_dir, reveal_in_explorer, drawing_probe_layer, drawing_set_color, drawing_set_tool, drawing_set_width, drawing_set_number_style, drawing_toggle_group,
     drawing_undo, get_cursor_settings, hide_native_key_overlay, log, set_cursor_settings,
     set_drawing_shortcuts, set_main_window_monitor, set_toggle_shortcut, set_tray_locale,
     update_native_key_overlay,
@@ -530,6 +530,8 @@ fn initialize_drawing_session(app: &AppHandle, hidden_pointer: bool) -> Result<(
         drawing_toolbar_open_position(app, &drawing_toolbar_side)?;
 
     create_drawing_toolbar(app, toolbar_x, toolbar_y, toolbar_height, false)?;
+    // The toolbar page re-applies the layout of the chosen side (horizontal for top/bottom).
+    let _ = app.emit_to("drawing-toolbar", "drawing-toolbar-reset-orientation", ());
     let state = app.state::<Mutex<AppState>>();
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     if app_state.settings_opening { return Err("Wait for settings to finish opening".into()); }
@@ -696,7 +698,15 @@ fn drawing_radial_menu_action(app: AppHandle, window: tauri::WebviewWindow, canc
 
 #[tauri::command]
 fn set_drawing_toolbar_side(app: AppHandle, side: String) -> Result<(), String> {
-    let normalized_side = if side == "left" { "left" } else { "right" }.to_string();
+    // "top" / "bottom" open on the right first; the toolbar page then turns horizontal and
+    // snaps to that screen edge itself (it knows its own measured size).
+    let normalized_side = match side.as_str() {
+        "left" => "left",
+        "top" => "top",
+        "bottom" => "bottom",
+        _ => "right",
+    }
+    .to_string();
     let drawing_visible = {
         let state = app.state::<Mutex<AppState>>();
         let mut app_state = state.lock().map_err(|error| error.to_string())?;
@@ -1385,6 +1395,7 @@ pub fn run() {
             drawing_set_tool,
             drawing_set_color,
             drawing_set_width,
+            drawing_set_number_style,
             drawing_clear,
             drawing_redo,
             drawing_recover,

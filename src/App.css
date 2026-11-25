@@ -677,6 +677,37 @@ html.drawing-toolbar-page body {
   padding: 3px 8px;
 }
 
+.drawing-unit > .drawing-number-style {
+  display: grid;
+  width: 42px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1px;
+}
+
+.drawing-number-style button {
+  display: flex;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  color: var(--tool-ink, currentColor);
+}
+
+.drawing-number-style button svg {
+  width: 17px;
+  height: 17px;
+  opacity: 0.55;
+}
+
+.drawing-number-style button.active {
+  color: var(--tool-selected-ink);
+  background: var(--tool-accent);
+}
+
+.drawing-number-style button.active svg {
+  opacity: 1;
+}
+
 .drawing-measure {
   position: absolute;
   top: 0;
@@ -698,3 +729,6 @@ body,
   height: max-content;
   min-height: 0;
 }
+
+.drawing-number-style .drawing-number-digit { fill: var(--tool-fill, #fff); }
+.drawing-number-style button.active .drawing-number-digit { fill: var(--tool-accent); }

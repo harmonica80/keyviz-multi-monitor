@@ -283,6 +283,7 @@ mod platform {
         CancelRadial,
         SetColor(String),
         SetWidth(i32),
+        SetNumberStyle(bool),
         Clear,
         Undo,
         Redo,
@@ -356,6 +357,8 @@ mod platform {
             width: i32,
             rotation: f64,
             group: Option<u64>,
+            /// Rounded-rectangle badge instead of a circle.
+            rounded: bool,
         },
     }
 
@@ -489,6 +492,7 @@ mod platform {
         selection: Option<SelectionSession>,
         next_group_id: u64,
         next_number: u32,
+        number_rounded: bool,
         cursor: HCURSOR,
         cursor_owned: bool,
         retired_cursors: Vec<HCURSOR>,
@@ -854,6 +858,13 @@ mod platform {
             let _ = sender.send(DrawingCommand::SetWidth(width));
         }
 
+        pub fn set_number_rounded(&self, rounded: bool) {
+            let Some(sender) = &self.sender else {
+                return;
+            };
+            let _ = sender.send(DrawingCommand::SetNumberStyle(rounded));
+        }
+
         pub fn clear(&self) {
             let Some(sender) = &self.sender else {
                 return;
@@ -1065,7 +1076,7 @@ mod platform {
             }
 
             let default_color = parse_color("#ef2b2d");
-            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color);
+            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color, false);
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
@@ -1108,6 +1119,7 @@ mod platform {
                     selection: None,
                     next_group_id: 1,
                     next_number: 1,
+                    number_rounded: false,
                     cursor,
                     cursor_owned,
                     retired_cursors: Vec::new(),
@@ -1748,6 +1760,13 @@ mod platform {
                 }
                 refresh_overlay(state);
             }
+            DrawingCommand::SetNumberStyle(rounded) => {
+                state.number_rounded = rounded;
+                if matches!(state.tool, NativeTool::Number) {
+                    replace_tool_cursor(state, false);
+                }
+                refresh_overlay(state);
+            }
             DrawingCommand::SetWidth(width) => {
                 let width = clamp_tool_width(state.tool, state.edit.is_some(), width);
                 state.width = width;
@@ -2303,6 +2322,7 @@ mod platform {
                     width: state.width.max(1),
                     rotation: 0.0,
                     group: None,
+                    rounded: state.number_rounded,
                 });
                 replace_tool_cursor(state, false);
                 finish_gesture_history(state);
@@ -4308,8 +4328,9 @@ mod platform {
                 color,
                 width,
                 rotation,
+                rounded,
                 ..
-            } => draw_number_marker(dc, *center, *value, *color, *width, *rotation),
+            } => draw_number_marker(dc, *center, *value, *color, *width, *rotation, *rounded),
         }
     }
 
@@ -4982,6 +5003,26 @@ mod platform {
         }
     }
 
+    /// Outline of the rounded-rectangle number badge (same bounds as the circle).
+    fn rounded_square_points(center: Point, radius: i32) -> Vec<WinPoint> {
+        let corner = (radius as f64 * 0.42).max(3.0);
+        let inner = radius as f64 - corner;
+        let steps = 10;
+        let mut points = Vec::with_capacity(steps * 4 + 4);
+        // Corner centres, walking clockwise from the top-right one.
+        for (index, (sx, sy)) in [(1.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0)].into_iter().enumerate() {
+            let base = (index as f64 - 1.0) * std::f64::consts::FRAC_PI_2;
+            for step in 0..=steps {
+                let angle = base + std::f64::consts::FRAC_PI_2 * step as f64 / steps as f64;
+                points.push(WinPoint {
+                    x: (center.x as f64 + sx * inner + corner * angle.cos()).round() as i32,
+                    y: (center.y as f64 + sy * inner + corner * angle.sin()).round() as i32,
+                });
+            }
+        }
+        points
+    }
+
     unsafe fn draw_number_marker(
         dc: HDC,
         center: Point,
@@ -4989,21 +5030,26 @@ mod platform {
         color: COLORREF,
         width: i32,
         rotation: f64,
+        rounded: bool,
     ) {
         let radius = number_radius(width);
+        let badge = if rounded { Some(rounded_square_points(center, radius)) } else { None };
         let smooth_circle = with_gdiplus_graphics(dc, false, |graphics| {
             let mut brush = std::ptr::null_mut();
             if GdipCreateSolidFill(argb_from_color(color), &mut brush) != 0 || brush.is_null() {
                 return false;
             }
-            let status = GdipFillEllipseI(
-                graphics,
-                brush,
-                center.x - radius,
-                center.y - radius,
-                radius * 2,
-                radius * 2,
-            );
+            let status = match &badge {
+                Some(points) => GdipFillPolygonI(graphics, brush, points.as_ptr(), points.len() as i32, 0),
+                None => GdipFillEllipseI(
+                    graphics,
+                    brush,
+                    center.x - radius,
+                    center.y - radius,
+                    radius * 2,
+                    radius * 2,
+                ),
+            };
             GdipDeleteBrush(brush);
             status == 0
         })
@@ -5012,13 +5058,20 @@ mod platform {
             let brush = CreateSolidBrush(color);
             let old_brush = SelectObject(dc, brush);
             let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
-            Ellipse(
-                dc,
-                center.x - radius,
-                center.y - radius,
-                center.x + radius,
-                center.y + radius,
-            );
+            match &badge {
+                Some(points) => {
+                    let _ = Polygon(dc, points);
+                }
+                None => {
+                    Ellipse(
+                        dc,
+                        center.x - radius,
+                        center.y - radius,
+                        center.x + radius,
+                        center.y + radius,
+                    );
+                }
+            }
             SelectObject(dc, old_pen);
             SelectObject(dc, old_brush);
             DeleteObject(brush);
@@ -5295,11 +5348,12 @@ mod platform {
         width: i32,
         next_number: u32,
         color: COLORREF,
+        rounded: bool,
     ) -> (HCURSOR, bool) {
         let custom = match tool {
             NativeTool::Pen => create_pen_cursor(),
             NativeTool::Eraser => create_eraser_cursor(width),
-            NativeTool::Number => create_number_cursor(next_number, color, width),
+            NativeTool::Number => create_number_cursor(next_number, color, width, rounded),
             NativeTool::CheckMark | NativeTool::CrossMark => {
                 create_stamp_cursor(tool, color, width)
             }
@@ -5319,7 +5373,7 @@ mod platform {
 
     unsafe fn replace_tool_cursor(state: &mut OverlayState, apply_now: bool) {
         let (cursor, owned) =
-            create_tool_cursor(state.tool, state.width, state.next_number, state.color);
+            create_tool_cursor(state.tool, state.width, state.next_number, state.color, state.number_rounded);
         if cursor.0 == 0 {
             return;
         }
@@ -5466,7 +5520,7 @@ mod platform {
         })
     }
 
-    unsafe fn create_number_cursor(value: u32, color: COLORREF, width: i32) -> Option<HCURSOR> {
+    unsafe fn create_number_cursor(value: u32, color: COLORREF, width: i32, rounded: bool) -> Option<HCURSOR> {
         let radius = number_radius(width).clamp(16, 44);
         let cursor_size = radius * 2 + 8;
         let center = cursor_size / 2;
@@ -5482,13 +5536,18 @@ mod platform {
             let brush = CreateSolidBrush(fill_color);
             let old_brush = SelectObject(dc, brush);
             let old_pen = SelectObject(dc, GetStockObject(NULL_PEN));
-            Ellipse(
-                dc,
-                center - radius,
-                center - radius,
-                center + radius,
-                center + radius,
-            );
+            if rounded {
+                let points = rounded_square_points(Point { x: center, y: center }, radius);
+                let _ = Polygon(dc, &points);
+            } else {
+                Ellipse(
+                    dc,
+                    center - radius,
+                    center - radius,
+                    center + radius,
+                    center + radius,
+                );
+            }
             SelectObject(dc, old_pen);
             SelectObject(dc, old_brush);
             DeleteObject(brush);
@@ -5964,7 +6023,7 @@ mod platform {
         }
 
         fn history_marker(value: u32) -> DrawingItem {
-            DrawingItem::Number { center: Point { x: 50, y: 50 }, value, color: COLORREF(0), width: 5, rotation: 0.0, group: None }
+            DrawingItem::Number { center: Point { x: 50, y: 50 }, value, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false }
         }
 
         #[test]
@@ -6083,7 +6142,7 @@ mod platform {
         #[test]
         fn preferences_default_on_and_are_independent() {
             let mut preferences = std::collections::HashMap::new();
-            let marker = DrawingItem::Number { center: Point { x: 10, y: 20 }, value: 1, color: COLORREF(0), width: 5, rotation: 0.0, group: None };
+            let marker = DrawingItem::Number { center: Point { x: 10, y: 20 }, value: 1, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false };
             let text = DrawingItem::Text { start: Point { x: 10, y: 20 }, text: "test".into(), color: COLORREF(0), width: 5, rotation: 0.0, group: None };
             assert!(hover_edit_enabled(&preferences, &marker));
             preferences.insert("number".into(), false);
@@ -6214,6 +6273,7 @@ mod platform_stub {
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}
+        pub fn set_number_rounded(&self, _rounded: bool) {}
         pub fn clear(&self) {}
         pub fn undo(&self) {}
         pub fn history_shortcut(&self, _redo: bool) {}

@@ -6,6 +6,7 @@ import {
 } from "@/lib/drawing-tools";
 import { useTranslation } from "@/lib/i18n";
 import {
+  type DrawingToolbarSide,
   type RadialStyle,
   useDrawingToolbar,
 } from "@/stores/drawing_toolbar";
@@ -24,8 +25,10 @@ import {
   ChevronUp,
   FolderOpen,
   GripVertical,
+  PanelBottom,
   PanelLeft,
   PanelRight,
+  PanelTop,
   RotateCcw,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -150,7 +153,7 @@ export const DrawingToolbarSettings = () => {
             variant="outline"
             size="sm"
             value={side}
-            onValueChange={(value) => setSide(value as "left" | "right")}
+            onValueChange={(value) => value && setSide(value as DrawingToolbarSide)}
           >
             <ToggleGroupItem value="left" aria-label={t("Left Side")} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">
               <PanelLeft />
@@ -159,6 +162,14 @@ export const DrawingToolbarSettings = () => {
             <ToggleGroupItem value="right" aria-label={t("Right Side")} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">
               <PanelRight />
               {t("Right Side")}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="top" aria-label={t("Top Side")} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">
+              <PanelTop />
+              {t("Top Side")}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="bottom" aria-label={t("Bottom Side")} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">
+              <PanelBottom />
+              {t("Bottom Side")}
             </ToggleGroupItem>
           </ToggleGroup>
         </ItemActions>

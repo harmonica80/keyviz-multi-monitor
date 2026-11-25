@@ -264,6 +264,9 @@ export default function ScreenDrawing() {
   const [textEditor, setTextEditor] = useState<TextEditor | null>(null);
   const toolbarItems = useDrawingToolbar((state) => state.items);
   const iconSize = useDrawingToolbar((state) => state.iconSize);
+  const side = useDrawingToolbar((state) => state.side);
+  const numberStyle = useDrawingToolbar((state) => state.numberStyle);
+  const setNumberStyle = useDrawingToolbar((state) => state.setNumberStyle);
   const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
   const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
   const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
@@ -438,6 +441,58 @@ export default function ScreenDrawing() {
     return () => window.cancelAnimationFrame(frame);
   }, [isToolbar, orientation, moreOpen, panelSide, iconSize, monitorLogical]);
 
+  /** Puts the toolbar in the layout of the chosen opening side (top/bottom = horizontal). */
+  const applySideLayout = useCallback(async (target: string) => {
+    setMoreOpen(false);
+    if (target !== "top" && target !== "bottom") {
+      snapRef.current = null;
+      setOrientation("vertical");
+      return;
+    }
+    try {
+      const monitor = await currentMonitor();
+      if (monitor) {
+        const area = monitor.workArea ?? { position: monitor.position, size: monitor.size };
+        snapRef.current = {
+          until: Date.now() + 3000,
+          edge: target,
+          monitor: {
+            x: area.position.x,
+            y: area.position.y,
+            width: area.size.width,
+            height: area.size.height,
+            scale: monitor.scaleFactor,
+          },
+          cursorX: area.position.x + area.size.width / 2,
+          cursorY: area.position.y,
+        };
+      }
+    } catch (error) {
+      console.error("Failed to prepare the toolbar side layout:", error);
+    }
+    setOrientation("horizontal");
+    // Already horizontal: the size does not change, so ask for a measure to trigger the snap.
+    [80, 400].forEach((delay) => window.setTimeout(() => forceResizeRef.current(), delay));
+  }, []);
+
+  useEffect(() => {
+    if (isToolbar) void applySideLayout(side);
+  }, [isToolbar, side, applySideLayout]);
+
+  useEffect(() => {
+    if (!isToolbar) return;
+    const unlisten = listen("drawing-toolbar-reset-orientation", () => {
+      void applySideLayout(useDrawingToolbar.getState().side);
+    });
+    return () => void unlisten.then((fn) => fn());
+  }, [isToolbar, applySideLayout]);
+
+  // Keep the native overlay's number marker style in sync with the saved choice.
+  useEffect(() => {
+    if (!isToolbar) return;
+    void invoke("drawing_set_number_style", { rounded: numberStyle === "rounded" }).catch(console.error);
+  }, [isToolbar, numberStyle]);
+
   /** Dragging ends: near the top/bottom edge of a screen the toolbar becomes horizontal. */
   const handleToolbarDrag = useCallback(async () => {
     await invoke("start_drawing_toolbar_drag").catch(console.error);
@@ -596,11 +651,6 @@ export default function ScreenDrawing() {
         resizeToolbar(true);
       });
       const radialSnipListener = listen("drawing-radial-snip", () => startSnipRef.current());
-      const resetOrientationListener = listen("drawing-toolbar-reset-orientation", () => {
-        snapRef.current = null;
-        setOrientation("vertical");
-        setMoreOpen(false);
-      });
       const scaleListener = getCurrentWindow().onScaleChanged(() => {
         window.requestAnimationFrame(() => {
           void refreshMonitor();
@@ -644,7 +694,6 @@ export default function ScreenDrawing() {
         window.removeEventListener("resize", onWindowResize);
         window.clearTimeout(verifyTimer);
         void resizeRequestListener.then((unlisten) => unlisten());
-        void resetOrientationListener.then((unlisten) => unlisten());
         void radialSnipListener.then((unlisten) => unlisten());
         void scaleListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
@@ -955,6 +1004,8 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       iconScale={TOOLBAR_ICON_SCALE[iconSize]}
       maxMain={monitorLogical ? toolbarLimit(orientation === "horizontal" ? monitorLogical.width : monitorLogical.height) : 0}
       morePanel={{ open: moreOpen, side: panelSide }}
+      numberStyle={numberStyle}
+      onNumberStyle={setNumberStyle}
       onToggleMore={() => void toggleMore()}
       onOverflowChange={(overflow) => { if (!overflow) setMoreOpen(false); }}
       toolbarItems={toolbarItems}

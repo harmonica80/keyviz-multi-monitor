@@ -2092,7 +2092,7 @@ dependencies = [
 
 [[package]]
 name = "keyviz"
-version = "1.0.42"
+version = "1.0.43"
 dependencies = [
  "arboard",
  "base64 0.22.1",

@@ -293,6 +293,14 @@ pub fn drawing_set_width(app: tauri::AppHandle, width: i32) -> Result<(), String
 }
 
 #[tauri::command]
+pub fn drawing_set_number_style(app: tauri::AppHandle, rounded: bool) -> Result<(), String> {
+    let state = app.state::<Mutex<AppState>>();
+    let app_state = state.lock().map_err(|error| error.to_string())?;
+    app_state.drawing_overlay.set_number_rounded(rounded);
+    Ok(())
+}
+
+#[tauri::command]
 pub fn drawing_clear(app: tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<Mutex<AppState>>();
     let app_state = state.lock().map_err(|error| error.to_string())?;

@@ -5,6 +5,7 @@ import type { useOverlayProbe } from "@/lib/overlay-probe";
 import type { DrawingToolbarItem, RadialStyle } from "@/stores/drawing_toolbar";
 import { DEFAULT_TOOLBAR_COLORS } from "@/lib/radial-colors";
 import { visibleUnitCount } from "@/lib/toolbar-layout";
+import type { NumberStyle } from "@/stores/drawing_toolbar";
 import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, MoreHorizontal, Redo2, Undo2, RefreshCw, Settings, Trash2, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, Ref } from "react";
@@ -32,6 +33,9 @@ interface DrawingToolbarViewProps {
   /** Open "…" panel and the side of the toolbar it extends to. */
   morePanel?: { open: boolean; side: PanelSide };
   onToggleMore?: () => void;
+  /** Number marker look; the switcher appears while the number tool is active. */
+  numberStyle?: NumberStyle;
+  onNumberStyle?: (style: NumberStyle) => void;
   /** Reports whether some tools are collapsed into the "…" panel. */
   onOverflowChange?: (overflow: boolean) => void;
   toolbarItems: DrawingToolbarItem[];
@@ -74,7 +78,7 @@ const noop = () => {};
 
 export function DrawingToolbarView({
   toolbarRef, shellRef, orientation = "vertical", iconScale = 1, maxMain = 0,
-  morePanel = { open: false, side: "right" }, onToggleMore, onOverflowChange,
+  morePanel = { open: false, side: "right" }, onToggleMore, numberStyle = "circle", onNumberStyle, onOverflowChange,
   toolbarItems, radialStyle, colors = DRAWING_TOOLBAR_COLORS, preview = false,
   tool = "pen", color = DRAWING_TOOLBAR_COLORS[0], width = 5,
   minWidth = 1, maxWidth = 15, canUndo = false, canRedo = false,
@@ -175,6 +179,39 @@ export function DrawingToolbarView({
         >
           <Group />
         </button>
+      ),
+    });
+  }
+  if (tool === "number") {
+    units.push({
+      key: "number-style",
+      node: (
+        <div className="drawing-number-style" role="group" aria-label={t("Number style")}>
+          <button
+            className={numberStyle === "circle" ? "active" : ""}
+            aria-pressed={numberStyle === "circle"}
+            title={t("Circle number")}
+            aria-label={t("Circle number")}
+            onClick={() => onNumberStyle?.("circle")}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <circle cx="10" cy="10" r="8" fill="currentColor" />
+              <text x="10" y="14" textAnchor="middle" fontSize="11" fontWeight="600" className="drawing-number-digit">1</text>
+            </svg>
+          </button>
+          <button
+            className={numberStyle === "rounded" ? "active" : ""}
+            aria-pressed={numberStyle === "rounded"}
+            title={t("Rounded rectangle number")}
+            aria-label={t("Rounded rectangle number")}
+            onClick={() => onNumberStyle?.("rounded")}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <rect x="2" y="2" width="16" height="16" rx="5" fill="currentColor" />
+              <text x="10" y="14" textAnchor="middle" fontSize="11" fontWeight="600" className="drawing-number-digit">1</text>
+            </svg>
+          </button>
+        </div>
       ),
     });
   }
