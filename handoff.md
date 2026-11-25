@@ -167,3 +167,6 @@
 
 ## v1.0.42（測試版）：直式下方空白根因修正
 - 見 `release-notes-v1.0.42.md`。`screen-drawing.tsx` 的 `resizeToolbar` 不再使用 `scrollWidth/scrollHeight`（會包含隱藏的量測容器）。分支 `claude-fix-1.0.42`。
+
+## v1.0.42 正式版
+- 使用者實機確認 v1.0.37～v1.0.42 正常後，將 `claude-fix-1.0.42` 快轉合併進 `main`，標記 tag `v1.0.42` 發行；README 更新為 v1.0.42，`release-notes-v1.0.42.md` 改寫為含 v1.0.37～v1.0.41 的正式版說明。
