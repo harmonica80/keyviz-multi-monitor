@@ -303,7 +303,7 @@ mod radial_styled_renderer {
             } else {
                 None
             };
-            for index in 0..=RADIAL_CLEAR_SLOT {
+            for index in radial_slots() {
                 let points = sector_points_f(menu, index);
                 let hovered = menu.hovered == Some(index) && radial_action(index, tools).is_some();
                 fill(graphics, &points, sector_fill(colors, index, hovered));
@@ -344,7 +344,7 @@ mod radial_styled_renderer {
                 GdipDeletePen(pen);
             }
         });
-        for index in 0..=RADIAL_CLEAR_SLOT {
+        for index in radial_slots() {
             let Some(action) = radial_action(index, tools) else {
                 continue;
             };
@@ -367,6 +367,12 @@ mod radial_styled_renderer {
                     colorref(icon_ink(colors, menu.hovered == Some(index), true)),
                 ),
                 RadialAction::Clear => draw_radial_clear_icon(
+                    dc,
+                    center,
+                    menu.radius / 156.0,
+                    colorref(icon_ink(colors, menu.hovered == Some(index), true)),
+                ),
+                RadialAction::Snip => draw_radial_snip_icon(
                     dc,
                     center,
                     menu.radius / 156.0,
@@ -697,7 +703,7 @@ mod radial_styled_renderer {
                 for other in &styles[index + 1..] {
                     assert_ne!(colors, palette(other));
                 }
-                for slot in 0..=RADIAL_CLEAR_SLOT {
+                for slot in radial_slots() {
                     assert_eq!(sector_fill(colors, slot, true), colors.accent);
                     assert_eq!(sector_fill(colors, slot, false), colors.fill);
                 }
@@ -713,7 +719,7 @@ mod radial_styled_renderer {
                     hovered: None,
                     panel: [RECT::default(); 7],
                 };
-                for index in 0..=RADIAL_CLEAR_SLOT {
+                for index in radial_slots() {
                     let (start, sweep) = radial_sector(index);
                     let position = point(
                         &menu,

@@ -139,6 +139,55 @@ export const DrawingToolbarSettings = () => {
 
       <Item variant="muted">
         <ItemContent>
+          <ItemTitle>{t("Toolbar Opening Side")}</ItemTitle>
+          <ItemDescription>
+            {t("Choose which side of the primary display the drawing toolbar opens on.")}
+          </ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={side}
+            onValueChange={(value) => setSide(value as "left" | "right")}
+          >
+            <ToggleGroupItem value="left" aria-label={t("Left Side")} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">
+              <PanelLeft />
+              {t("Left Side")}
+            </ToggleGroupItem>
+            <ToggleGroupItem value="right" aria-label={t("Right Side")} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">
+              <PanelRight />
+              {t("Right Side")}
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </ItemActions>
+      </Item>
+
+      <Item variant="muted">
+        <ItemContent>
+          <ItemTitle>{t("Toolbar Icon Size")}</ItemTitle>
+          <ItemDescription>
+            {t("Make the single-icon toolbar buttons smaller to fit small screens or large Windows text scaling. Small grouped icons keep their size. Drag the toolbar near the top or bottom edge of the screen to make it horizontal.")}
+          </ItemDescription>
+        </ItemContent>
+        <ItemActions>
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={iconSize}
+            onValueChange={(value) => value && setIconSize(value as "full" | "twoThirds" | "half")}
+          >
+            <ToggleGroupItem value="full" aria-label={t("Normal size")} className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">{t("Normal size")}</ToggleGroupItem>
+            <ToggleGroupItem value="twoThirds" aria-label="2/3" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">2/3</ToggleGroupItem>
+            <ToggleGroupItem value="half" aria-label="1/2" className="data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90">1/2</ToggleGroupItem>
+          </ToggleGroup>
+        </ItemActions>
+      </Item>
+
+      <Item variant="muted">
+        <ItemContent>
           <ItemTitle>{t("Toolbar Colors")}</ItemTitle>
           <ItemDescription>{t("Choose the four colors shown on the drawing toolbar.")}</ItemDescription>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -229,55 +278,6 @@ export const DrawingToolbarSettings = () => {
             ))}
           </div>
         </ItemContent>
-      </Item>
-
-      <Item variant="muted">
-        <ItemContent>
-          <ItemTitle>{t("Toolbar Opening Side")}</ItemTitle>
-          <ItemDescription>
-            {t("Choose which side of the primary display the drawing toolbar opens on.")}
-          </ItemDescription>
-        </ItemContent>
-        <ItemActions>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={side}
-            onValueChange={(value) => setSide(value as "left" | "right")}
-          >
-            <ToggleGroupItem value="left" aria-label={t("Left Side")}>
-              <PanelLeft />
-              {t("Left Side")}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="right" aria-label={t("Right Side")}>
-              <PanelRight />
-              {t("Right Side")}
-            </ToggleGroupItem>
-          </ToggleGroup>
-        </ItemActions>
-      </Item>
-
-      <Item variant="muted">
-        <ItemContent>
-          <ItemTitle>{t("Toolbar Icon Size")}</ItemTitle>
-          <ItemDescription>
-            {t("Make the single-icon toolbar buttons smaller to fit small screens or large Windows text scaling. Small grouped icons keep their size. Drag the toolbar near the top or bottom edge of the screen to make it horizontal.")}
-          </ItemDescription>
-        </ItemContent>
-        <ItemActions>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={iconSize}
-            onValueChange={(value) => value && setIconSize(value as "full" | "twoThirds" | "half")}
-          >
-            <ToggleGroupItem value="full" aria-label={t("Normal size")}>{t("Normal size")}</ToggleGroupItem>
-            <ToggleGroupItem value="twoThirds" aria-label="2/3">2/3</ToggleGroupItem>
-            <ToggleGroupItem value="half" aria-label="1/2">1/2</ToggleGroupItem>
-          </ToggleGroup>
-        </ItemActions>
       </Item>
 
       <Item variant="muted">

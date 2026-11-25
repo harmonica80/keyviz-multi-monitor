@@ -20,6 +20,13 @@ const RADIAL_TOOLS: [NativeTool; 12] = [
 ];
 const RADIAL_RADIUS: f64 = 78.0;
 const RADIAL_CLEAR_SLOT: usize = 12;
+// The Text sector is split in two: Text (upper half) and screenshot/pin (lower half).
+const RADIAL_SNIP_SLOT: usize = 20;
+
+/// Every selectable sector: the 12 tool slots, Clear and Snip.
+fn radial_slots() -> impl Iterator<Item = usize> {
+    (0..=RADIAL_CLEAR_SLOT).chain(std::iter::once(RADIAL_SNIP_SLOT))
+}
 
 fn default_radial_colors() -> [String; 2] {
     ["#ef2b2d".into(), "#2d37d6".into()]
@@ -40,10 +47,12 @@ fn normalize_radial_colors(colors: &[String]) -> [String; 2] {
 enum RadialAction {
     Tool(NativeTool),
     Clear,
+    Snip,
 }
 
 fn radial_action(index: usize, tools: &[NativeTool]) -> Option<RadialAction> {
     if index == RADIAL_CLEAR_SLOT { return Some(RadialAction::Clear); }
+    if index == RADIAL_SNIP_SLOT { return Some(RadialAction::Snip); }
     RADIAL_TOOLS.get(index).copied().filter(|tool| tools.contains(tool)).map(RadialAction::Tool)
 }
 
@@ -51,6 +60,8 @@ fn radial_action(index: usize, tools: &[NativeTool]) -> Option<RadialAction> {
 fn radial_sector(index: usize) -> (f64, f64) {
     let pi = std::f64::consts::PI;
     match index {
+        8 => (0.0, pi / 6.0),
+        RADIAL_SNIP_SLOT => (pi / 6.0, pi / 6.0),
         9 => (pi / 3.0, pi / 6.0),
         RADIAL_CLEAR_SLOT => (pi / 2.0, pi / 6.0),
         _ => ((index % 6) as f64 * pi / 3.0 - pi * 2.0 / 3.0, pi / 3.0),
@@ -458,6 +469,12 @@ impl RadialMenu {
             / (std::f64::consts::PI / 3.0))
             .floor() as usize;
         if r >= 0.61 && sector == 3 && x < 0.0 { return Some(RADIAL_CLEAR_SLOT); }
+        if r >= 0.61 && sector == 2 {
+            // Lower half of the right sector (30..60 degrees) is the screenshot slot.
+            let within = (y.atan2(x) + std::f64::consts::PI * 2.0 / 3.0)
+                .rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI * 2.0 / 3.0;
+            if within >= std::f64::consts::PI / 6.0 { return Some(RADIAL_SNIP_SLOT); }
+        }
         Some(sector.min(5) + if r < 0.61 { 0 } else { 6 })
     }
 }
@@ -736,6 +753,10 @@ unsafe fn radial_click(state: &mut OverlayState, point: Point) -> bool {
     state.radial_ignore_up = true;
     if action == Some(RadialAction::Clear) {
         clear_drawings(state);
+    }
+    if action == Some(RadialAction::Snip) {
+        // The toolbar page owns the save folder setting, so let it start the screenshot.
+        let _ = state.app.emit_to("drawing-toolbar", "drawing-radial-snip", ());
     }
     if let Some(RadialAction::Tool(tool)) = action {
         let app = state.app.clone();
@@ -1069,7 +1090,7 @@ mod radial_hover_tests {
         };
         assert!(menu.hit(menu.center).is_none());
         assert!(menu.hit(Point { x: 0, y: 0 }).is_none());
-        for index in 0..=RADIAL_CLEAR_SLOT {
+        for index in radial_slots() {
             let (start, sweep) = radial_sector(index);
             let angle = start + sweep / 2.0;
             let r = menu.radius * if index < 6 { 0.415 } else { 0.805 };

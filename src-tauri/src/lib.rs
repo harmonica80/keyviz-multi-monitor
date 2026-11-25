@@ -877,7 +877,13 @@ fn resize_drawing_toolbar(
         let hwnd = HWND(window.hwnd().map_err(|error| error.to_string())?.0 as isize);
         let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
         let target = if root.0 == 0 { hwnd } else { root };
-        let scale = window.scale_factor().unwrap_or(1.0);
+        // Ask Windows for the DPI of the window right now. The cached scale factor can lag
+        // behind while the toolbar is dragged between monitors with different scaling, which
+        // left a blank strip below the toolbar.
+        let scale = {
+            let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(target) };
+            if dpi >= 96 { f64::from(dpi) / 96.0 } else { window.scale_factor().unwrap_or(1.0) }
+        };
         let physical_width = (width * scale).round().max(1.0) as i32;
         let physical_height = (height * scale).ceil().max(1.0) as i32;
         let mut rect = RECT::default();
@@ -920,7 +926,9 @@ fn resize_drawing_toolbar(
         let root = unsafe { GetAncestor(hwnd, GA_ROOT) };
         let target = if root.0 == 0 { hwnd } else { root };
         let size = window.inner_size().map_err(|error| error.to_string())?;
-        let diameter = (48.0 * window.scale_factor().unwrap_or(1.0)).round() as i32;
+        let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(target) };
+        let scale = if dpi >= 96 { f64::from(dpi) / 96.0 } else { window.scale_factor().unwrap_or(1.0) };
+        let diameter = (48.0 * scale).round() as i32;
         unsafe {
             // Clip the opaque WebView window, without enabling layered transparency.
             let region = CreateRoundRectRgn(

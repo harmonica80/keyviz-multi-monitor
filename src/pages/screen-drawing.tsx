@@ -232,6 +232,7 @@ export default function ScreenDrawing() {
     cursorY: number;
   } | null>(null);
   const forceResizeRef = useRef<() => void>(() => undefined);
+  const startSnipRef = useRef<() => void>(() => undefined);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const drawingsRef = useRef<Drawing[]>([]);
   const activeRef = useRef<Drawing | null>(null);
@@ -446,9 +447,11 @@ export default function ScreenDrawing() {
         cursor.y >= item.position.y && cursor.y < item.position.y + item.size.height);
       if (!monitor) return;
       void refreshMonitor();
-      const threshold = 60 * monitor.scaleFactor;
-      const nearTop = cursor.y - monitor.position.y < threshold;
-      const nearBottom = monitor.position.y + monitor.size.height - cursor.y < threshold;
+      const threshold = 130 * monitor.scaleFactor;
+      // Use the work area (screen minus taskbar) so "near the bottom" means above the taskbar.
+      const area = monitor.workArea ?? { position: monitor.position, size: monitor.size };
+      const nearTop = cursor.y - area.position.y < threshold;
+      const nearBottom = area.position.y + area.size.height - cursor.y < threshold;
       const target: ToolbarOrientation = nearTop || nearBottom ? "horizontal" : "vertical";
       if (target === orientationRef.current && target === "vertical") return;
       const centerX = monitor.position.x + monitor.size.width / 2;
@@ -459,10 +462,10 @@ export default function ScreenDrawing() {
         until: Date.now() + 1500,
         edge,
         monitor: {
-          x: monitor.position.x,
-          y: monitor.position.y,
-          width: monitor.size.width,
-          height: monitor.size.height,
+          x: area.position.x,
+          y: area.position.y,
+          width: area.size.width,
+          height: area.size.height,
           scale: monitor.scaleFactor,
         },
         cursorX: cursor.x,
@@ -540,6 +543,29 @@ export default function ScreenDrawing() {
         }).then(() => applySnap()).catch(console.error);
       };
       forceResizeRef.current = () => resizeToolbar(true);
+      // When the window ends up with a different size than the content (e.g. after a DPI
+      // change between monitors), measure again. Bounded so it can never loop.
+      let fixes = 0;
+      const verifyFit = () => {
+        const shell = shellRef.current;
+        if (!shell) return;
+        const rect = shell.getBoundingClientRect();
+        const off = Math.abs(window.innerHeight - rect.height) > 2 || Math.abs(window.innerWidth - rect.width) > 2;
+        if (!off) {
+          fixes = 0;
+          return;
+        }
+        if (fixes < 5) {
+          fixes += 1;
+          resizeToolbar(true);
+        }
+      };
+      let verifyTimer = 0;
+      const onWindowResize = () => {
+        window.clearTimeout(verifyTimer);
+        verifyTimer = window.setTimeout(verifyFit, 150);
+      };
+      window.addEventListener("resize", onWindowResize);
       const observer = new ResizeObserver(() => resizeToolbar());
       if (shellRef.current) observer.observe(shellRef.current);
       window.requestAnimationFrame(() => window.requestAnimationFrame(() => resizeToolbar()));
@@ -549,6 +575,7 @@ export default function ScreenDrawing() {
       const resizeRequestListener = listen("drawing-toolbar-resize-request", () => {
         resizeToolbar(true);
       });
+      const radialSnipListener = listen("drawing-radial-snip", () => startSnipRef.current());
       const resetOrientationListener = listen("drawing-toolbar-reset-orientation", () => {
         snapRef.current = null;
         setOrientation("vertical");
@@ -557,7 +584,7 @@ export default function ScreenDrawing() {
       const scaleListener = getCurrentWindow().onScaleChanged(() => {
         window.requestAnimationFrame(() => {
           void refreshMonitor();
-          resizeToolbar(true);
+          [0, 150, 500].forEach((delay) => window.setTimeout(() => resizeToolbar(true), delay));
         });
       });
       const historyListener = listen<{ canUndo: boolean; canRedo: boolean }>("drawing-history", (event) => {
@@ -593,8 +620,11 @@ export default function ScreenDrawing() {
       );
       return () => {
         observer.disconnect();
+        window.removeEventListener("resize", onWindowResize);
+        window.clearTimeout(verifyTimer);
         void resizeRequestListener.then((unlisten) => unlisten());
         void resetOrientationListener.then((unlisten) => unlisten());
+        void radialSnipListener.then((unlisten) => unlisten());
         void scaleListener.then((unlisten) => unlisten());
         void historyListener.then((unlisten) => unlisten());
         void hintListener.then((unlisten) => unlisten());
@@ -732,6 +762,8 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       setOperationHint({ text: t(String(error)) });
     });
   };
+
+  startSnipRef.current = startSnip;
 
   const sendCommand = async (command: DrawingCommand) => {
     if (command.type === "tool") {

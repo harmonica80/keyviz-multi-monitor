@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -157,3 +157,7 @@
 - 見 `release-notes-v1.0.39.md`。分支 `claude-fix-1.0.39`，README 維持 v1.0.36（尚未正式發行）。
 - 修改：`src/components/drawing-toolbar-view.tsx`（unit 結構、測量容器、「…」面板）、`src/App.css`（`.drawing-shell/.horizontal/.drawing-panel/.drawing-measure/.drawing-single`）、`src/pages/screen-drawing.tsx`（orientation、拖曳結束判斷、面板側、貼邊 snap、shell 尺寸回報）、`src-tauri/src/lib.rs`（`resize_drawing_toolbar` 寬高＋錨點、`place_drawing_toolbar`、side 變更重設橫式）、`src/stores/drawing_toolbar.ts`（`iconSize`，store version 11）、設定頁圖示大小、`src/lib/toolbar-layout.ts` 與測試。
 - 驗證：tsc、vite build、node 測試、`cargo check` 通過；Windows 視窗行為（拖到上下緣切橫式、貼邊位置、面板展開錨點、多螢幕／高 DPI）待實機確認。
+
+## v1.0.40（測試版）：v1.0.39 回饋修正
+- 見 `release-notes-v1.0.40.md`。分支 `claude-fix-1.0.40`。圓形選單新增截圖扇區（slot 20，Text 扇區對半切）、橫式觸發改用工作區 130 px、跨螢幕 DPI 空白修正（`GetDpiForWindow`＋`verifyFit`）、設定頁選中底色與區塊順序。
+- 驗證：tsc、vite、node 測試、`cargo check`（Linux，不含 Windows 專屬程式碼）；Windows 部分待 CI／實機。
