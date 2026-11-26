@@ -49,8 +49,10 @@ const normalizeZoomPanMode = (value: unknown): ZoomPanMode => (value === "follow
 /** Size of the single-icon toolbar buttons: full, two thirds, or one half. */
 export type ToolbarIconSize = "full" | "twoThirds" | "half";
 export const TOOLBAR_ICON_SCALE: Record<ToolbarIconSize, number> = { full: 1, twoThirds: 2 / 3, half: 1 / 2 };
+/** New installs (and a reset toolbar) start with 2/3-size single icons. */
+export const DEFAULT_ICON_SIZE: ToolbarIconSize = "twoThirds";
 export const normalizeIconSize = (value: unknown): ToolbarIconSize =>
-  value === "twoThirds" || value === "half" ? value : "full";
+  value === "full" || value === "half" ? value : DEFAULT_ICON_SIZE;
 
 interface DrawingToolbarState {
   radialShortcut: string[];
@@ -142,7 +144,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     toolbarColors: [...DEFAULT_TOOLBAR_COLORS],
     zoomPanMode: "edge",
     setZoomPanMode: (mode) => set({ zoomPanMode: normalizeZoomPanMode(mode) }),
-    iconSize: "full",
+    iconSize: DEFAULT_ICON_SIZE,
     setIconSize: (size) => set({ iconSize: normalizeIconSize(size) }),
     setToolbarColor: (index, color) => set((state) => {
       const colors = [...state.toolbarColors];
@@ -183,7 +185,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
         radialStyle: "pearl",
         radialColors: [...DEFAULT_RADIAL_COLORS],
         toolbarColors: [...DEFAULT_TOOLBAR_COLORS],
-        iconSize: "full",
+        iconSize: DEFAULT_ICON_SIZE,
         hoverEdit: {},
         items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
         side: DEFAULT_DRAWING_TOOLBAR_SIDE,

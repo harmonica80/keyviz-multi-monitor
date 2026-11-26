@@ -28,6 +28,7 @@ on:
       - claude-fix-1.0.44
       - claude-fix-1.0.45
       - claude-fix-1.0.46
+      - claude-fix-1.0.47
       - claude-fix-1.0.29
       - claude-fix-1.0.30
       - claude-fix-1.0.31
