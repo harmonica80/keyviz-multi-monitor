@@ -47,6 +47,8 @@ pub struct AppState {
     pub drawing_toolbar_hidden: bool,
     pub settings_opening: bool,
     pub drawing_tool: String,
+    /// Last real drawing tool (never pointer/select); restored when F8 re-enters drawing mode.
+    pub last_drawing_tool: String,
     pub drawing_session_id: u64,
     pub drawing_input_passthrough: bool,
     pub drawing_pointer_down: bool,
@@ -192,6 +194,7 @@ impl AppState {
             drawing_toolbar_hidden: false,
             settings_opening: false,
             drawing_tool: "pen".to_string(),
+            last_drawing_tool: "pen".to_string(),
             drawing_session_id: 0,
             drawing_input_passthrough: false,
             drawing_pointer_down: false,

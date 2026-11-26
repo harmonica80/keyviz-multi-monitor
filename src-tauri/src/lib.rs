@@ -16,7 +16,7 @@ use app::commands::{
 };
 use app::diagnostics::{export_diagnostics, record_error};
 use app::event::start_listener;
-use app::native_drawing::NativeTool;
+use app::native_drawing::{parse_tool, NativeTool};
 use app::state::{AppState, TrayMenuItems};
 use app::window::config_window;
 
@@ -536,19 +536,20 @@ fn initialize_drawing_session(app: &AppHandle, hidden_pointer: bool) -> Result<(
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     if app_state.settings_opening { return Err("Wait for settings to finish opening".into()); }
     if hidden_pointer && app_state.drawing_visible { return Ok(()); }
-    let tool = if hidden_pointer { "pointer" } else { "pen" };
+    let tool: String = if hidden_pointer { "pointer".to_string() } else { app_state.last_drawing_tool.clone() };
+    let native_tool = if hidden_pointer { NativeTool::Pointer } else { parse_tool(&tool).unwrap_or(NativeTool::Pen) };
     app_state.pressed_keys.clear();
     app_state.drawing_visible = true;
     app_state.drawing_toolbar_hidden = hidden_pointer;
     app_state.drawing_overlay.set_toolbar_hidden(hidden_pointer);
-    app_state.drawing_tool = tool.to_string();
+    app_state.drawing_tool = tool.clone();
     app_state.drawing_session_id = app_state.drawing_session_id.wrapping_add(1);
     let drawing_session_id = app_state.drawing_session_id;
     app_state.drawing_input_passthrough = hidden_pointer;
     app_state.drawing_pointer_down = false;
     app_state.drawing_last_move = None;
-    // F8 starts with a pen; the global pointer gesture must not capture input.
-    app_state.drawing_overlay.set_tool(if hidden_pointer { NativeTool::Pointer } else { NativeTool::Pen });
+    // F8 restores the last used tool; the global pointer gesture must not capture input.
+    app_state.drawing_overlay.set_tool(native_tool);
     app_state.drawing_overlay.show(drawing_monitors, None);
     app_state.drawing_overlay.set_click_through(hidden_pointer);
     app_state.drawing_overlay.raise();

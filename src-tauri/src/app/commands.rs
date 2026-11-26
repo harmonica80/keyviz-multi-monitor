@@ -243,6 +243,9 @@ pub fn drawing_set_tool(app: tauri::AppHandle, tool: String) -> Result<(), Strin
         return Err("Wait for settings to finish opening".into());
     }
     app_state.drawing_tool = tool.as_str().to_string();
+    if !matches!(tool, NativeTool::Pointer | NativeTool::Select) {
+        app_state.last_drawing_tool = tool.as_str().to_string();
+    }
     app_state.drawing_input_passthrough = passthrough;
     if passthrough {
         app_state.drawing_pointer_down = false;

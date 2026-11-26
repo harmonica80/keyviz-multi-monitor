@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40 → v1.0.41 → v1.0.42 → v1.0.43 → v1.0.44 → v1.0.45 → v1.0.46 → v1.0.47）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40 → v1.0.41 → v1.0.42 → v1.0.43 → v1.0.44 → v1.0.45 → v1.0.46 → v1.0.47 → v1.0.48）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -194,3 +194,10 @@
 
 ## v1.0.47 正式版
 - `claude-fix-1.0.47` 快轉合併進 `main`，以 workflow_dispatch（release_tag=v1.0.47）發行；README 更新為 v1.0.47。
+
+## v1.0.48（測試版）：F8 重新進入時還原上次工具
+
+- 需求：離開繪圖模式（F8）時若在矩形等工具，下次進入應回到該工具而非畫筆。
+- 原因：`src-tauri/src/lib.rs` 的開啟流程固定 `set_tool(Pen)`、`drawing_tool = "pen"`。
+- 修正：`AppState` 新增 `last_drawing_tool`（預設 `"pen"`）；`drawing_set_tool`（commands.rs，工具列與圓形選單都經過此處）在工具不是 pointer/select 時更新它；開啟流程（非 hidden_pointer）改用 `parse_tool(last_drawing_tool)` 並同步發出 `drawing-tool-changed`。
+- 僅記憶體內保存，不寫入設定檔。
