@@ -185,3 +185,6 @@
 
 ## v1.0.46（測試版）：顏色色塊隨圖示大小縮放
 - 見 `release-notes-v1.0.46.md`。分支 `claude-fix-1.0.46`；README 維持 v1.0.45（正式版）。
+
+## v1.0.46 正式版
+- 使用者實機確認後，`claude-fix-1.0.46` 快轉合併進 `main`，以 workflow_dispatch（release_tag=v1.0.46）發行；README 更新為 v1.0.46。
