@@ -26,7 +26,7 @@ export interface TextOutline {
   enabled: boolean;
   color: string;
 }
-export const DEFAULT_TEXT_OUTLINE: TextOutline = { enabled: false, color: "#ffffff" };
+export const DEFAULT_TEXT_OUTLINE: TextOutline = { enabled: false, color: "#000000" };
 export const normalizeTextOutline = (value: unknown): TextOutline => {
   const raw = (value ?? {}) as Partial<TextOutline>;
   const color = typeof raw.color === "string" && /^#[0-9a-fA-F]{6}$/.test(raw.color)

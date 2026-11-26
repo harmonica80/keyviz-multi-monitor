@@ -4880,10 +4880,15 @@ mod platform {
         let wide_text: Vec<u16> = text.encode_utf16().collect();
         if let Some(outline) = outline {
             // Outline: the same text stamped around the glyphs, then the real colour on top.
-            let reach = (text_font_size(width) / 14).max(1);
+            // A thin, even outline: stamp every offset inside a small disc so no gaps remain.
+            let reach = (text_font_size(width) / 30).max(1);
             windows::Win32::Graphics::Gdi::SetTextColor(dc, gdi_visible_color(outline));
-            for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
-                let _ = TextOutW(dc, start.x + dx * reach, start.y + dy * reach, &wide_text);
+            for dy in -reach..=reach {
+                for dx in -reach..=reach {
+                    if (dx != 0 || dy != 0) && dx * dx + dy * dy <= reach * reach + 1 {
+                        let _ = TextOutW(dc, start.x + dx, start.y + dy, &wide_text);
+                    }
+                }
             }
             windows::Win32::Graphics::Gdi::SetTextColor(dc, gdi_visible_color(color));
         }

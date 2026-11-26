@@ -18,7 +18,7 @@ type ToolbarCommand =
   | { type: "width"; value: number }
   | { type: "group" | "undo" | "redo" | "clear" };
 
-const OUTLINE_COLORS = ["#ffffff", "#000000", "#facc15", "#ef2b2d", "#2f3fe0", "#17c13f"];
+const OUTLINE_COLORS = ["#000000", "#ffffff", "#facc15", "#ef2b2d", "#2f3fe0", "#17c13f"];
 
 export type ToolbarOrientation = "vertical" | "horizontal";
 export type PanelSide = "left" | "right" | "top" | "bottom";
@@ -84,7 +84,7 @@ const noop = () => {};
 export function DrawingToolbarView({
   toolbarRef, shellRef, orientation = "vertical", iconScale = 1, maxMain = 0,
   morePanel = { open: false, side: "right" }, onToggleMore, numberStyle = "circle", onNumberStyle,
-  textOutline = { enabled: false, color: "#ffffff" }, onTextOutline, onOverflowChange,
+  textOutline = { enabled: false, color: "#000000" }, onTextOutline, onOverflowChange,
   toolbarItems, radialStyle, colors = DRAWING_TOOLBAR_COLORS, preview = false,
   tool = "pen", color = DRAWING_TOOLBAR_COLORS[0], width = 5,
   minWidth = 1, maxWidth = 15, canUndo = false, canRedo = false,
