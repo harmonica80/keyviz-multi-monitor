@@ -195,9 +195,11 @@
 ## v1.0.47 正式版
 - `claude-fix-1.0.47` 快轉合併進 `main`，以 workflow_dispatch（release_tag=v1.0.47）發行；README 更新為 v1.0.47。
 
-## v1.0.48（測試版）：F8 重新進入時還原上次工具
+## v1.0.48（正式版）：F8 重新進入時還原上次工具
 
 - 需求：離開繪圖模式（F8）時若在矩形等工具，下次進入應回到該工具而非畫筆。
 - 原因：`src-tauri/src/lib.rs` 的開啟流程固定 `set_tool(Pen)`、`drawing_tool = "pen"`。
 - 修正：`AppState` 新增 `last_drawing_tool`（預設 `"pen"`）；`drawing_set_tool`（commands.rs，工具列與圓形選單都經過此處）在工具不是 pointer/select 時更新它；開啟流程（非 hidden_pointer）改用 `parse_tool(last_drawing_tool)` 並同步發出 `drawing-tool-changed`。
 - 僅記憶體內保存，不寫入設定檔。
+
+- 已發佈為正式版 v1.0.48（main fast-forward，workflow_dispatch release_tag=v1.0.48）。
