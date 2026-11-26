@@ -267,6 +267,8 @@ export default function ScreenDrawing() {
   const side = useDrawingToolbar((state) => state.side);
   const numberStyle = useDrawingToolbar((state) => state.numberStyle);
   const setNumberStyle = useDrawingToolbar((state) => state.setNumberStyle);
+  const textOutline = useDrawingToolbar((state) => state.textOutline);
+  const setTextOutline = useDrawingToolbar((state) => state.setTextOutline);
   const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
   const radialShortcut = useDrawingToolbar((state) => state.radialShortcut);
   const radialRightClick = useDrawingToolbar((state) => state.radialRightClick);
@@ -486,6 +488,13 @@ export default function ScreenDrawing() {
     });
     return () => void unlisten.then((fn) => fn());
   }, [isToolbar, applySideLayout]);
+
+  useEffect(() => {
+    if (!isToolbar) return;
+    void invoke("drawing_set_text_outline", {
+      color: textOutline.enabled ? textOutline.color : null,
+    }).catch(console.error);
+  }, [isToolbar, textOutline]);
 
   // Keep the native overlay's number marker style in sync with the saved choice.
   useEffect(() => {
@@ -1006,6 +1015,8 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       morePanel={{ open: moreOpen, side: panelSide }}
       numberStyle={numberStyle}
       onNumberStyle={setNumberStyle}
+      textOutline={textOutline}
+      onTextOutline={setTextOutline}
       onToggleMore={() => void toggleMore()}
       onOverflowChange={(overflow) => { if (!overflow) setMoreOpen(false); }}
       toolbarItems={toolbarItems}

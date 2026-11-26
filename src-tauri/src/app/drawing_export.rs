@@ -213,9 +213,10 @@ fn drawings_to_json(drawings: &[DrawingItem], dx: i32, dy: i32) -> Vec<serde_jso
             "type": "shape", "tool": tool.as_str(), "start": pt(start), "end": pt(end),
             "color": color_hex(*color), "width": width, "rotation": rotation, "group": group,
         }),
-        DrawingItem::Text { start, text, color, width, rotation, group } => json!({
+        DrawingItem::Text { start, text, color, width, rotation, group, outline } => json!({
             "type": "text", "start": pt(start), "text": text,
             "color": color_hex(*color), "width": width, "rotation": rotation, "group": group,
+            "outline": outline.map(color_hex),
         }),
         DrawingItem::Number { center, value, color, width, rotation, group, rounded } => json!({
             "type": "number", "center": pt(center), "value": value,
@@ -255,6 +256,7 @@ fn drawings_from_json(values: &[serde_json::Value], dx: i32, dy: i32, sx: f64, s
         "text" => Some(DrawingItem::Text {
             start: point(&value["start"])?, text: value["text"].as_str()?.to_string(),
             color: color(value), width: width(value), rotation: rotation(value), group: group(value),
+            outline: value["outline"].as_str().map(parse_color),
         }),
         "number" => Some(DrawingItem::Number {
             center: point(&value["center"])?, value: value["value"].as_u64()? as u32,

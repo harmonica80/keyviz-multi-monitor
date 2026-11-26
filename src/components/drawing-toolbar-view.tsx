@@ -5,7 +5,7 @@ import type { useOverlayProbe } from "@/lib/overlay-probe";
 import type { DrawingToolbarItem, RadialStyle } from "@/stores/drawing_toolbar";
 import { DEFAULT_TOOLBAR_COLORS } from "@/lib/radial-colors";
 import { visibleUnitCount } from "@/lib/toolbar-layout";
-import type { NumberStyle } from "@/stores/drawing_toolbar";
+import type { NumberStyle, TextOutline } from "@/stores/drawing_toolbar";
 import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, MoreHorizontal, Redo2, Undo2, RefreshCw, Settings, Trash2, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, Ref } from "react";
@@ -17,6 +17,8 @@ type ToolbarCommand =
   | { type: "color"; value: string }
   | { type: "width"; value: number }
   | { type: "group" | "undo" | "redo" | "clear" };
+
+const OUTLINE_COLORS = ["#ffffff", "#000000", "#facc15", "#ef2b2d", "#2f3fe0", "#17c13f"];
 
 export type ToolbarOrientation = "vertical" | "horizontal";
 export type PanelSide = "left" | "right" | "top" | "bottom";
@@ -36,6 +38,9 @@ interface DrawingToolbarViewProps {
   /** Number marker look; the switcher appears while the number tool is active. */
   numberStyle?: NumberStyle;
   onNumberStyle?: (style: NumberStyle) => void;
+  /** Text outline option, shown while the text tool is active. */
+  textOutline?: TextOutline;
+  onTextOutline?: (outline: TextOutline) => void;
   /** Reports whether some tools are collapsed into the "…" panel. */
   onOverflowChange?: (overflow: boolean) => void;
   toolbarItems: DrawingToolbarItem[];
@@ -78,7 +83,8 @@ const noop = () => {};
 
 export function DrawingToolbarView({
   toolbarRef, shellRef, orientation = "vertical", iconScale = 1, maxMain = 0,
-  morePanel = { open: false, side: "right" }, onToggleMore, numberStyle = "circle", onNumberStyle, onOverflowChange,
+  morePanel = { open: false, side: "right" }, onToggleMore, numberStyle = "circle", onNumberStyle,
+  textOutline = { enabled: false, color: "#ffffff" }, onTextOutline, onOverflowChange,
   toolbarItems, radialStyle, colors = DRAWING_TOOLBAR_COLORS, preview = false,
   tool = "pen", color = DRAWING_TOOLBAR_COLORS[0], width = 5,
   minWidth = 1, maxWidth = 15, canUndo = false, canRedo = false,
@@ -95,6 +101,7 @@ export function DrawingToolbarView({
   const COLORS = colors;
   const activeColor = color.toLowerCase();
   const horizontal = orientation === "horizontal";
+  const [outlinePalette, setOutlinePalette] = useState(false);
 
   // Every part of the toolbar is a "unit" so the last ones can move into the "…" panel.
   const units: { key: string; divider?: boolean; node: ReactNode }[] = [];
@@ -179,6 +186,47 @@ export function DrawingToolbarView({
         >
           <Group />
         </button>
+      ),
+    });
+  }
+  if (tool === "text") {
+    units.push({
+      key: "text-outline",
+      node: (
+        <div className="drawing-text-outline">
+          <label title={t("Text outline")}>
+            <input
+              type="checkbox"
+              checked={textOutline.enabled}
+              onChange={(event) => onTextOutline?.({ ...textOutline, enabled: event.target.checked })}
+            />
+            <span>{t("Outline")}</span>
+          </label>
+          <button
+            className="drawing-outline-swatch"
+            disabled={!textOutline.enabled}
+            title={t("Outline color")}
+            aria-label={t("Outline color")}
+            style={{ "--drawing-color": textOutline.color } as CSSProperties}
+            onClick={() => setOutlinePalette((open) => !open)}
+          />
+          {outlinePalette && textOutline.enabled && (
+            <div className="drawing-outline-palette">
+              {OUTLINE_COLORS.map((value) => (
+                <button
+                  key={value}
+                  className={value === textOutline.color ? "active" : ""}
+                  title={value}
+                  style={{ "--drawing-color": value } as CSSProperties}
+                  onClick={() => {
+                    onTextOutline?.({ ...textOutline, color: value });
+                    setOutlinePalette(false);
+                  }}
+                />
+              ))}
+            </div>
+          )}
+        </div>
       ),
     });
   }

@@ -268,6 +268,8 @@ const zhTW: Record<string, string> = {
   "Top Side": "上方",
   "Bottom Side": "下方",
   "Number style": "序號標記樣式",
+  "Text outline": "文字外框",
+  "Outline color": "外框顏色",
   "Circle number": "圓形序號",
   "Rounded rectangle number": "圓角矩形序號",
   "Customize Drawing Tools": "自訂繪圖工具",

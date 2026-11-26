@@ -21,6 +21,20 @@ export interface DrawingToolbarItem {
 
 export type DrawingToolbarSide = "left" | "right" | "top" | "bottom";
 
+/** Outline drawn around the glyphs of new text; white by default once enabled. */
+export interface TextOutline {
+  enabled: boolean;
+  color: string;
+}
+export const DEFAULT_TEXT_OUTLINE: TextOutline = { enabled: false, color: "#ffffff" };
+export const normalizeTextOutline = (value: unknown): TextOutline => {
+  const raw = (value ?? {}) as Partial<TextOutline>;
+  const color = typeof raw.color === "string" && /^#[0-9a-fA-F]{6}$/.test(raw.color)
+    ? raw.color.toLowerCase()
+    : DEFAULT_TEXT_OUTLINE.color;
+  return { enabled: raw.enabled === true, color };
+};
+
 /** Look of the number marker: a circle or a rounded rectangle. */
 export type NumberStyle = "circle" | "rounded";
 export const normalizeNumberStyle = (value: unknown): NumberStyle =>
@@ -55,6 +69,7 @@ interface DrawingToolbarState {
   items: DrawingToolbarItem[];
   side: DrawingToolbarSide;
   numberStyle: NumberStyle;
+  textOutline: TextOutline;
 }
 
 interface DrawingToolbarActions {
@@ -71,6 +86,7 @@ interface DrawingToolbarActions {
   setToolVisible: (id: ToolbarItemId, visible: boolean) => void;
   setSide: (side: DrawingToolbarSide) => void;
   setNumberStyle: (style: NumberStyle) => void;
+  setTextOutline: (outline: TextOutline) => void;
   resetToolbar: () => void;
 }
 
@@ -147,6 +163,8 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
     side: DEFAULT_DRAWING_TOOLBAR_SIDE,
     numberStyle: "circle",
+    textOutline: { ...DEFAULT_TEXT_OUTLINE },
+    setTextOutline: (outline) => set({ textOutline: normalizeTextOutline(outline) }),
     setNumberStyle: (style) => set({ numberStyle: normalizeNumberStyle(style) }),
     setItems: (items) => set({ items: normalizeDrawingToolbarItems(items) }),
     setToolVisible: (id, visible) =>
@@ -175,7 +193,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 12,
+      version: 13,
       migrate: (persistedState) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
@@ -190,6 +208,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
           numberStyle: normalizeNumberStyle(state.numberStyle),
+          textOutline: normalizeTextOutline(state.textOutline),
           hoverEdit: state.hoverEdit ?? {},
         };
       },
@@ -209,6 +228,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
           numberStyle: normalizeNumberStyle(state.numberStyle),
+          textOutline: normalizeTextOutline(state.textOutline),
         };
       },
     }),

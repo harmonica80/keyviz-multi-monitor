@@ -284,6 +284,7 @@ mod platform {
         SetColor(String),
         SetWidth(i32),
         SetNumberStyle(bool),
+        SetTextOutline(Option<String>),
         Clear,
         Undo,
         Redo,
@@ -349,6 +350,8 @@ mod platform {
             width: i32,
             rotation: f64,
             group: Option<u64>,
+            /// Colour of the outline drawn around the glyphs (None = no outline).
+            outline: Option<COLORREF>,
         },
         Number {
             center: Point,
@@ -389,6 +392,7 @@ mod platform {
         text: String,
         color: COLORREF,
         width: i32,
+        outline: Option<COLORREF>,
     }
 
     enum SelectionAction {
@@ -493,6 +497,7 @@ mod platform {
         next_group_id: u64,
         next_number: u32,
         number_rounded: bool,
+        text_outline: Option<COLORREF>,
         cursor: HCURSOR,
         cursor_owned: bool,
         retired_cursors: Vec<HCURSOR>,
@@ -858,6 +863,13 @@ mod platform {
             let _ = sender.send(DrawingCommand::SetWidth(width));
         }
 
+        pub fn set_text_outline(&self, color: Option<String>) {
+            let Some(sender) = &self.sender else {
+                return;
+            };
+            let _ = sender.send(DrawingCommand::SetTextOutline(color));
+        }
+
         pub fn set_number_rounded(&self, rounded: bool) {
             let Some(sender) = &self.sender else {
                 return;
@@ -1120,6 +1132,7 @@ mod platform {
                     next_group_id: 1,
                     next_number: 1,
                     number_rounded: false,
+                    text_outline: None,
                     cursor,
                     cursor_owned,
                     retired_cursors: Vec::new(),
@@ -1758,6 +1771,11 @@ mod platform {
                 ) {
                     replace_tool_cursor(state, false);
                 }
+                refresh_overlay(state);
+            }
+            DrawingCommand::SetTextOutline(color) => {
+                state.text_outline = color.as_deref().map(parse_color);
+                if let Some(edit) = state.edit.as_mut() { edit.outline = state.text_outline; }
                 refresh_overlay(state);
             }
             DrawingCommand::SetNumberStyle(rounded) => {
@@ -2952,6 +2970,7 @@ mod platform {
                 edit.color,
                 edit.width,
                 edit.rotation,
+                edit.outline,
             );
         }
         if let Some(menu) = &state.radial {
@@ -4320,8 +4339,9 @@ mod platform {
                 color,
                 width,
                 rotation,
+                outline,
                 ..
-            } => draw_text(dc, *start, text, *color, *width, *rotation),
+            } => draw_text(dc, *start, text, *color, *width, *rotation, *outline),
             DrawingItem::Number {
                 center,
                 value,
@@ -4832,6 +4852,7 @@ mod platform {
         color: COLORREF,
         width: i32,
         rotation: f64,
+        outline: Option<COLORREF>,
     ) {
         let height = -text_font_size(width);
         // GDI font escapement uses the opposite rotation direction from our
@@ -4857,6 +4878,15 @@ mod platform {
         SetBkMode(dc, TRANSPARENT);
         let old_color = windows::Win32::Graphics::Gdi::SetTextColor(dc, gdi_visible_color(color));
         let wide_text: Vec<u16> = text.encode_utf16().collect();
+        if let Some(outline) = outline {
+            // Outline: the same text stamped around the glyphs, then the real colour on top.
+            let reach = (text_font_size(width) / 14).max(1);
+            windows::Win32::Graphics::Gdi::SetTextColor(dc, gdi_visible_color(outline));
+            for (dx, dy) in [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)] {
+                let _ = TextOutW(dc, start.x + dx * reach, start.y + dy * reach, &wide_text);
+            }
+            windows::Win32::Graphics::Gdi::SetTextColor(dc, gdi_visible_color(color));
+        }
         let _ = TextOutW(dc, start.x, start.y, &wide_text);
         windows::Win32::Graphics::Gdi::SetTextColor(dc, old_color);
         SelectObject(dc, old_font);
@@ -4979,11 +5009,11 @@ mod platform {
     }
 
     fn existing_text_session(index: usize, drawing: &DrawingItem) -> Option<EditSession> {
-        if let DrawingItem::Text { start, text, color, width, rotation, .. } = drawing {
+        if let DrawingItem::Text { start, text, color, width, rotation, outline, .. } = drawing {
             Some(EditSession { caret: text.len(), anchor: 0, dragging: false,
                 target: Some(index), rotation: *rotation,
                 start: Point { x: start.x - TEXT_PADDING, y: start.y - TEXT_PADDING },
-                text: text.clone(), color: *color, width: *width })
+                text: text.clone(), color: *color, width: *width, outline: *outline })
         } else { None }
     }
 
@@ -5133,6 +5163,7 @@ mod platform {
             text: String::new(),
             color: state.color,
             width: state.width.max(1),
+            outline: state.text_outline,
         });
         if let Some(hwnd) = state
             .input_hwnd
@@ -5154,7 +5185,10 @@ mod platform {
             if let Some(drawing) = state.drawings.get_mut(index) {
                 // Keep the original object and its group/transform until commit.
                 if text.is_empty() { state.drawings.remove(index); }
-                else { replace_text_content(drawing, text, edit.width, edit.color); }
+                else {
+                    replace_text_content(drawing, text, edit.width, edit.color);
+                    if let DrawingItem::Text { outline, .. } = drawing { *outline = edit.outline; }
+                }
                 record_change(state, before);
             }
             state.gesture_before = None;
@@ -5173,6 +5207,7 @@ mod platform {
                 width: edit.width,
                 rotation: 0.0,
                 group: None,
+                outline: edit.outline,
             });
             record_change(state, before);
         }
@@ -5797,7 +5832,7 @@ mod platform {
         #[test]
         fn text_caret_selection_replacement_and_color_commit() {
             let original = DrawingItem::Text { start: Point { x: 0, y: 0 },
-                text: "甲乙丙".into(), width: 8, color: COLORREF(1), rotation: 0.0, group: None };
+                text: "甲乙丙".into(), width: 8, color: COLORREF(1), rotation: 0.0, group: None, outline: None };
             let mut edit = existing_text_session(0, &original).unwrap();
             edit_key(&mut edit, 0x27, false, false); // collapse initial select-all to end
             edit_key(&mut edit, 0x25, false, false);
@@ -5822,7 +5857,7 @@ mod platform {
         #[test]
         fn text_mouse_selection_uses_measured_character_positions() {
             let original = DrawingItem::Text { start: Point { x: 100, y: 100 },
-                text: "ABCDE".into(), width: 8, color: COLORREF(1), rotation: 0.0, group: None };
+                text: "ABCDE".into(), width: 8, color: COLORREF(1), rotation: 0.0, group: None, outline: None };
             let mut edit = existing_text_session(0, &original).unwrap();
             unsafe {
                 let positions = edit_positions(&edit);
@@ -5855,7 +5890,7 @@ mod platform {
         #[test]
         fn existing_text_edit_preserves_transform_group_and_undo() {
             let original = DrawingItem::Text { start: Point { x: 80, y: 90 },
-                text: "old".into(), color: COLORREF(123), width: 8, rotation: 0.4, group: Some(7) };
+                text: "old".into(), color: COLORREF(123), width: 8, rotation: 0.4, group: Some(7), outline: None };
             let edit = existing_text_session(0, &original).unwrap();
             assert_eq!(edit.target, Some(0));
             assert_eq!(edit.start.x + TEXT_PADDING, 80);
@@ -6143,7 +6178,7 @@ mod platform {
         fn preferences_default_on_and_are_independent() {
             let mut preferences = std::collections::HashMap::new();
             let marker = DrawingItem::Number { center: Point { x: 10, y: 20 }, value: 1, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false };
-            let text = DrawingItem::Text { start: Point { x: 10, y: 20 }, text: "test".into(), color: COLORREF(0), width: 5, rotation: 0.0, group: None };
+            let text = DrawingItem::Text { start: Point { x: 10, y: 20 }, text: "test".into(), color: COLORREF(0), width: 5, rotation: 0.0, group: None, outline: None };
             assert!(hover_edit_enabled(&preferences, &marker));
             preferences.insert("number".into(), false);
             assert!(!hover_edit_enabled(&preferences, &marker));
@@ -6274,6 +6309,7 @@ mod platform_stub {
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}
         pub fn set_number_rounded(&self, _rounded: bool) {}
+        pub fn set_text_outline(&self, _color: Option<String>) {}
         pub fn clear(&self) {}
         pub fn undo(&self) {}
         pub fn history_shortcut(&self, _redo: bool) {}
