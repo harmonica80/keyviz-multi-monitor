@@ -179,3 +179,6 @@
 
 ## v1.0.45（測試版）：文字外框外觀修正
 - 見 `release-notes-v1.0.45.md`。分支 `claude-fix-1.0.45`。
+
+## v1.0.45 正式版
+- v1.0.43～v1.0.45 經使用者實機確認後，`claude-fix-1.0.45` 快轉合併進 `main`，以 workflow_dispatch（release_tag=v1.0.45）發行（本環境推送 tag 常連線中斷）；README 更新為 v1.0.45。
