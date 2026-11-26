@@ -191,3 +191,6 @@
 
 ## v1.0.47（測試版）：圖示預設大小改 2/3
 - 見 `release-notes-v1.0.47.md`。分支 `claude-fix-1.0.47`；README 維持 v1.0.46（正式版）。
+
+## v1.0.47 正式版
+- `claude-fix-1.0.47` 快轉合併進 `main`，以 workflow_dispatch（release_tag=v1.0.47）發行；README 更新為 v1.0.47。
