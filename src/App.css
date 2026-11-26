@@ -415,7 +415,7 @@ html.drawing-toolbar-page #root {
 
 .drawing-colors {
   display: grid;
-  grid-template-columns: repeat(2, 22px);
+  grid-template-columns: repeat(2, calc(22px * var(--tb-scale, 1)));
   justify-content: center;
   gap: 1px;
 }
@@ -424,9 +424,9 @@ html.drawing-toolbar-page #root {
   position: relative;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
-  min-height: 22px;
+  width: calc(22px * var(--tb-scale, 1));
+  height: calc(22px * var(--tb-scale, 1));
+  min-height: calc(22px * var(--tb-scale, 1));
   border: 1px solid #777;
   background: var(--drawing-color);
 }
@@ -439,8 +439,8 @@ html.drawing-toolbar-page #root {
 .drawing-toolbar .drawing-color-check {
   position: relative;
   z-index: 1;
-  width: 19px;
-  height: 19px;
+  width: calc(19px * var(--tb-scale, 1));
+  height: calc(19px * var(--tb-scale, 1));
   color: #e15c2d;
   stroke-width: 5;
   filter:
@@ -639,9 +639,9 @@ html.drawing-toolbar-page body {
 
 .drawing-toolbar.horizontal .drawing-colors {
   grid-template-columns: none;
-  grid-template-rows: repeat(2, 22px);
+  grid-template-rows: repeat(2, calc(22px * var(--tb-scale, 1)));
   grid-auto-flow: column;
-  grid-auto-columns: 22px;
+  grid-auto-columns: calc(22px * var(--tb-scale, 1));
 }
 
 .drawing-toolbar.horizontal .drawing-width-slider { width: 96px; }
