@@ -40,9 +40,9 @@ export type NumberStyle = "circle" | "rounded";
 export const normalizeNumberStyle = (value: unknown): NumberStyle =>
   value === "rounded" ? "rounded" : "circle";
 /** Marker text: digits (1, 2, 3) or letters (A, B, C). */
-export type NumberLabel = "digits" | "letters";
+export type NumberLabel = "digits" | "letters" | "roman";
 export const normalizeNumberLabel = (value: unknown): NumberLabel =>
-  value === "letters" ? "letters" : "digits";
+  value === "letters" || value === "roman" ? value : "digits";
 // Keep the persisted field and native command name compatible with older builds.
 export type RadialStyle = DrawingThemeId;
 export const normalizeRadialStyle = normalizeDrawingTheme;
@@ -203,8 +203,8 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     persist(config, {
       name: DRAWING_TOOLBAR_STORE,
       storage: createJSONStorage(() => tauriStorage),
-      version: 13,
-      migrate: (persistedState) => {
+      version: 14,
+      migrate: (persistedState, version) => {
         const state = persistedState as Partial<DrawingToolbarState>;
         return {
           radialShortcut: normalizeRadialShortcut(state.radialShortcut),
@@ -219,7 +219,10 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           side: normalizeDrawingToolbarSide(state.side),
           numberStyle: normalizeNumberStyle(state.numberStyle),
           numberLabel: normalizeNumberLabel(state.numberLabel),
-          textOutline: normalizeTextOutline(state.textOutline),
+          // Before v14 the outline colour defaulted to white; the default is black now.
+          textOutline: version < 14
+            ? { ...normalizeTextOutline(state.textOutline), color: DEFAULT_TEXT_OUTLINE.color }
+            : normalizeTextOutline(state.textOutline),
           hoverEdit: state.hoverEdit ?? {},
         };
       },

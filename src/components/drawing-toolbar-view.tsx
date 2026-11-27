@@ -268,27 +268,18 @@ export function DrawingToolbarView({
     units.push({
       key: "number-label",
       node: (
-        <div className="drawing-number-style drawing-number-label" role="group" aria-label={t("Number label")}>
+        <div className="drawing-number-style drawing-number-label">
           <button
-            className={numberLabel === "digits" ? "active" : ""}
-            aria-pressed={numberLabel === "digits"}
-            title={t("Digits 123")}
-            aria-label={t("Digits 123")}
-            onClick={() => onNumberLabel?.("digits")}
+            title={t("Number label")}
+            aria-label={t("Number label")}
+            onClick={() =>
+              onNumberLabel?.(numberLabel === "digits" ? "letters" : numberLabel === "letters" ? "roman" : "digits")
+            }
           >
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <text x="10" y="14" textAnchor="middle" fontSize="8" fontWeight="700" className="drawing-number-digit">123</text>
-            </svg>
-          </button>
-          <button
-            className={numberLabel === "letters" ? "active" : ""}
-            aria-pressed={numberLabel === "letters"}
-            title={t("Letters ABC")}
-            aria-label={t("Letters ABC")}
-            onClick={() => onNumberLabel?.("letters")}
-          >
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <text x="10" y="14" textAnchor="middle" fontSize="8" fontWeight="700" className="drawing-number-digit">ABC</text>
+            <svg viewBox="0 0 34 20" aria-hidden="true">
+              <text x="17" y="14" textAnchor="middle" fontSize="11" fontWeight="700" className="drawing-number-digit">
+                {numberLabel === "digits" ? "123" : numberLabel === "letters" ? "ABC" : "I II"}
+              </text>
             </svg>
           </button>
         </div>

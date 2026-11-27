@@ -276,6 +276,7 @@ const zhTW: Record<string, string> = {
   "Mosaic": "馬賽克",
   "Digits 123": "數字 1、2、3",
   "Letters ABC": "字母 A、B、C",
+  "Roman numerals": "羅馬數字",
   "Customize Drawing Tools": "自訂繪圖工具",
   "Drag the rows or use the arrow buttons to change their order.": "拖曳項目或使用方向按鈕調整順序。",
   "Drag to reorder": "拖曳以調整順序",

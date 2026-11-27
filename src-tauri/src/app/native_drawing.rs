@@ -286,7 +286,7 @@ mod platform {
         CancelRadial,
         SetColor(String),
         SetWidth(i32),
-        SetNumberStyle(bool, bool),
+        SetNumberStyle(bool, u8),
         SetTextOutline(Option<String>),
         Clear,
         Undo,
@@ -365,8 +365,8 @@ mod platform {
             group: Option<u64>,
             /// Rounded-rectangle badge instead of a circle.
             rounded: bool,
-            /// Letters (A, B, … Z, AA …) instead of digits.
-            letters: bool,
+            /// 0 = digits, 1 = letters (A, B … Z, AA), 2 = Roman numerals (I, II, III …).
+            label: u8,
         },
     }
 
@@ -502,7 +502,7 @@ mod platform {
         next_group_id: u64,
         next_number: u32,
         number_rounded: bool,
-        number_letters: bool,
+        number_letters: u8,
         text_outline: Option<COLORREF>,
         cursor: HCURSOR,
         cursor_owned: bool,
@@ -876,11 +876,11 @@ mod platform {
             let _ = sender.send(DrawingCommand::SetTextOutline(color));
         }
 
-        pub fn set_number_rounded(&self, rounded: bool, letters: bool) {
+        pub fn set_number_rounded(&self, rounded: bool, label: u8) {
             let Some(sender) = &self.sender else {
                 return;
             };
-            let _ = sender.send(DrawingCommand::SetNumberStyle(rounded, letters));
+            let _ = sender.send(DrawingCommand::SetNumberStyle(rounded, label));
         }
 
         pub fn clear(&self) {
@@ -1139,7 +1139,7 @@ mod platform {
                     next_group_id: 1,
                     next_number: 1,
                     number_rounded: false,
-                    number_letters: false,
+                    number_letters: 0,
                     text_outline: None,
                     cursor,
                     cursor_owned,
@@ -1787,9 +1787,9 @@ mod platform {
                 if let Some(edit) = state.edit.as_mut() { edit.outline = state.text_outline; }
                 refresh_overlay(state);
             }
-            DrawingCommand::SetNumberStyle(rounded, letters) => {
+            DrawingCommand::SetNumberStyle(rounded, label) => {
                 state.number_rounded = rounded;
-                state.number_letters = letters;
+                state.number_letters = label;
                 if matches!(state.tool, NativeTool::Number) {
                     replace_tool_cursor(state, false);
                 }
@@ -2351,7 +2351,7 @@ mod platform {
                     rotation: 0.0,
                     group: None,
                     rounded: state.number_rounded,
-                    letters: state.number_letters,
+                    label: state.number_letters,
                 });
                 replace_tool_cursor(state, false);
                 finish_gesture_history(state);
@@ -4369,9 +4369,9 @@ mod platform {
                 width,
                 rotation,
                 rounded,
-                letters,
+                label,
                 ..
-            } => draw_number_marker(dc, *center, *value, *color, *width, *rotation, *rounded, *letters),
+            } => draw_number_marker(dc, *center, *value, *color, *width, *rotation, *rounded, *label),
         }
     }
 
@@ -5064,9 +5064,28 @@ mod platform {
     }
 
     /// Outline of the rounded-rectangle number badge (same bounds as the circle).
+    fn roman_numeral(value: u32) -> String {
+        const PARTS: [(u32, &str); 13] = [
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"), (100, "C"), (90, "XC"),
+            (50, "L"), (40, "XL"), (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I"),
+        ];
+        let mut n = value.clamp(1, 3999);
+        let mut out = String::new();
+        for (amount, text) in PARTS {
+            while n >= amount {
+                out.push_str(text);
+                n -= amount;
+            }
+        }
+        out
+    }
+
     /// Marker label: 1, 2, 3 … or (letters) A … Z, AA, AB …
-    fn number_label(value: u32, letters: bool) -> String {
-        if !letters {
+    fn number_label(value: u32, label: u8) -> String {
+        if label == 2 {
+            return roman_numeral(value);
+        }
+        if label != 1 {
             return value.to_string();
         }
         let mut n = value.max(1);
@@ -5106,7 +5125,7 @@ mod platform {
         width: i32,
         rotation: f64,
         rounded: bool,
-        letters: bool,
+        label: u8,
     ) {
         let radius = number_radius(width);
         let badge = if rounded { Some(rounded_square_points(center, radius)) } else { None };
@@ -5153,7 +5172,7 @@ mod platform {
             DeleteObject(brush);
         }
 
-        let text = number_label(value, letters);
+        let text = number_label(value, label);
         let digit_count = text.chars().count() as i32;
         let font_size = if digit_count >= 3 {
             radius.max(16)
@@ -5430,12 +5449,12 @@ mod platform {
         next_number: u32,
         color: COLORREF,
         rounded: bool,
-        letters: bool,
+        label: u8,
     ) -> (HCURSOR, bool) {
         let custom = match tool {
             NativeTool::Pen => create_pen_cursor(),
             NativeTool::Eraser => create_eraser_cursor(width),
-            NativeTool::Number => create_number_cursor(next_number, color, width, rounded, letters),
+            NativeTool::Number => create_number_cursor(next_number, color, width, rounded, label),
             NativeTool::CheckMark | NativeTool::CrossMark => {
                 create_stamp_cursor(tool, color, width)
             }
@@ -5602,7 +5621,7 @@ mod platform {
         })
     }
 
-    unsafe fn create_number_cursor(value: u32, color: COLORREF, width: i32, rounded: bool, letters: bool) -> Option<HCURSOR> {
+    unsafe fn create_number_cursor(value: u32, color: COLORREF, width: i32, rounded: bool, label: u8) -> Option<HCURSOR> {
         let radius = number_radius(width).clamp(16, 44);
         let cursor_size = radius * 2 + 8;
         let center = cursor_size / 2;
@@ -5634,7 +5653,7 @@ mod platform {
             SelectObject(dc, old_brush);
             DeleteObject(brush);
 
-            let text = number_label(value, letters);
+            let text = number_label(value, label);
             let digit_count = text.chars().count();
             let font_size = if digit_count >= 3 {
                 radius.max(16)
@@ -6105,7 +6124,7 @@ mod platform {
         }
 
         fn history_marker(value: u32) -> DrawingItem {
-            DrawingItem::Number { center: Point { x: 50, y: 50 }, value, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false, letters: false }
+            DrawingItem::Number { center: Point { x: 50, y: 50 }, value, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false, label: 0 }
         }
 
         #[test]
@@ -6224,7 +6243,7 @@ mod platform {
         #[test]
         fn preferences_default_on_and_are_independent() {
             let mut preferences = std::collections::HashMap::new();
-            let marker = DrawingItem::Number { center: Point { x: 10, y: 20 }, value: 1, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false, letters: false };
+            let marker = DrawingItem::Number { center: Point { x: 10, y: 20 }, value: 1, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false, label: 0 };
             let text = DrawingItem::Text { start: Point { x: 10, y: 20 }, text: "test".into(), color: COLORREF(0), width: 5, rotation: 0.0, group: None, outline: None };
             assert!(hover_edit_enabled(&preferences, &marker));
             preferences.insert("number".into(), false);
@@ -6357,7 +6376,7 @@ mod platform_stub {
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}
-        pub fn set_number_rounded(&self, _rounded: bool, _letters: bool) {}
+        pub fn set_number_rounded(&self, _rounded: bool, _label: u8) {}
         pub fn set_text_outline(&self, _color: Option<String>) {}
         pub fn clear(&self) {}
         pub fn undo(&self) {}
