@@ -212,6 +212,8 @@
 - 前端：`DrawingTool` 加入 "mosaic"、`MosaicIcon`、i18n「馬賽克」。
 - 注意：Windows 專用程式碼無法在 Linux 編譯，需看 CI 結果。
 
-## v1.0.50（測試版）：序號選項列高度與 123/ABC 文字色
+## v1.0.50（正式版）：序號選項列高度與 123/ABC 文字色
 
 - App.css：`.drawing-number-style button` 高度 24px 並設 `min-height:0; min-width:0; padding:0`（先前被全域按鈕最小高度撐高）；`.drawing-number-label` 的文字 `fill: currentColor`（原本用白色 fill，在淺色工具列上看不見），選取狀態僅改底色。
+
+- 已發佈為正式版 v1.0.50（含 v1.0.49 的序號 123/ABC 與馬賽克；main fast-forward，workflow_dispatch release_tag=v1.0.50）。
