@@ -501,7 +501,7 @@ export default function ScreenDrawing() {
   // Keep the native overlay's number marker style in sync with the saved choice.
   useEffect(() => {
     if (!isToolbar) return;
-    void invoke("drawing_set_number_style", { rounded: numberStyle === "rounded", letters: numberLabel === "letters" }).catch(console.error);
+    void invoke("drawing_set_number_style", { rounded: numberStyle === "rounded", label: numberLabel === "letters" ? 1 : numberLabel === "roman" ? 2 : 0 }).catch(console.error);
   }, [isToolbar, numberStyle, numberLabel]);
 
   /** Dragging ends: near the top/bottom edge of a screen the toolbar becomes horizontal. */
