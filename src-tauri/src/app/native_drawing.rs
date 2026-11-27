@@ -1095,7 +1095,7 @@ mod platform {
             }
 
             let default_color = parse_color("#ef2b2d");
-            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color, false, false);
+            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color, false, 0);
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
