@@ -70,6 +70,7 @@ mod platform {
     include!("drawing_export.rs");
     include!("drawing_zoom.rs");
     include!("drawing_snip.rs");
+    include!("drawing_mosaic.rs");
 
     #[repr(C)]
     struct GdiplusStartupInput {
@@ -194,6 +195,7 @@ mod platform {
         Number,
         CheckMark,
         CrossMark,
+        Mosaic,
     }
 
     impl NativeTool {
@@ -211,6 +213,7 @@ mod platform {
                 Self::Number => "number",
                 Self::CheckMark => "check-mark",
                 Self::CrossMark => "cross-mark",
+                Self::Mosaic => "mosaic",
             }
         }
     }
@@ -283,7 +286,7 @@ mod platform {
         CancelRadial,
         SetColor(String),
         SetWidth(i32),
-        SetNumberStyle(bool),
+        SetNumberStyle(bool, bool),
         SetTextOutline(Option<String>),
         Clear,
         Undo,
@@ -362,6 +365,8 @@ mod platform {
             group: Option<u64>,
             /// Rounded-rectangle badge instead of a circle.
             rounded: bool,
+            /// Letters (A, B, … Z, AA …) instead of digits.
+            letters: bool,
         },
     }
 
@@ -497,6 +502,7 @@ mod platform {
         next_group_id: u64,
         next_number: u32,
         number_rounded: bool,
+        number_letters: bool,
         text_outline: Option<COLORREF>,
         cursor: HCURSOR,
         cursor_owned: bool,
@@ -870,11 +876,11 @@ mod platform {
             let _ = sender.send(DrawingCommand::SetTextOutline(color));
         }
 
-        pub fn set_number_rounded(&self, rounded: bool) {
+        pub fn set_number_rounded(&self, rounded: bool, letters: bool) {
             let Some(sender) = &self.sender else {
                 return;
             };
-            let _ = sender.send(DrawingCommand::SetNumberStyle(rounded));
+            let _ = sender.send(DrawingCommand::SetNumberStyle(rounded, letters));
         }
 
         pub fn clear(&self) {
@@ -1066,6 +1072,7 @@ mod platform {
             "number" => Some(NativeTool::Number),
             "check-mark" => Some(NativeTool::CheckMark),
             "cross-mark" => Some(NativeTool::CrossMark),
+            "mosaic" => Some(NativeTool::Mosaic),
             _ => None,
         }
     }
@@ -1088,12 +1095,12 @@ mod platform {
             }
 
             let default_color = parse_color("#ef2b2d");
-            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color, false);
+            let (cursor, cursor_owned) = create_tool_cursor(NativeTool::Pen, 5, 1, default_color, false, false);
 
             if let Ok(mut state) = overlay_state().lock() {
                 *state = Some(OverlayState {
                     radial: None,
-                    radial_tools: RADIAL_TOOLS.to_vec(),
+                    radial_tools: RADIAL_TOOLS.iter().copied().chain([NativeTool::Mosaic]).collect(),
                     radial_right_click: true,
                     radial_style: "pearl".into(),
                     radial_colors: default_radial_colors(),
@@ -1132,6 +1139,7 @@ mod platform {
                     next_group_id: 1,
                     next_number: 1,
                     number_rounded: false,
+                    number_letters: false,
                     text_outline: None,
                     cursor,
                     cursor_owned,
@@ -1700,6 +1708,7 @@ mod platform {
                 state.last_wheel = None;
                 state.drawings.clear();
                 state.background = None;
+                mosaic_clear();
                 state.opened_json = None;
                 state.active = None;
                 state.selected.clear();
@@ -1778,8 +1787,9 @@ mod platform {
                 if let Some(edit) = state.edit.as_mut() { edit.outline = state.text_outline; }
                 refresh_overlay(state);
             }
-            DrawingCommand::SetNumberStyle(rounded) => {
+            DrawingCommand::SetNumberStyle(rounded, letters) => {
                 state.number_rounded = rounded;
+                state.number_letters = letters;
                 if matches!(state.tool, NativeTool::Number) {
                     replace_tool_cursor(state, false);
                 }
@@ -2341,6 +2351,7 @@ mod platform {
                     rotation: 0.0,
                     group: None,
                     rounded: state.number_rounded,
+                    letters: state.number_letters,
                 });
                 replace_tool_cursor(state, false);
                 finish_gesture_history(state);
@@ -2390,6 +2401,9 @@ mod platform {
                 }
             }
             tool => {
+                if matches!(tool, NativeTool::Mosaic) {
+                    mosaic_prepare(state, point);
+                }
                 state.active = Some(ActiveDrawing::Shape {
                     tool,
                     start: point,
@@ -2664,6 +2678,7 @@ mod platform {
                 | NativeTool::Arrow
                 | NativeTool::Rectangle
                 | NativeTool::Ellipse
+                | NativeTool::Mosaic
         ) {
             let width = (state.width + step).clamp(1, 15);
             state.width = width;
@@ -3433,6 +3448,7 @@ mod platform {
                     tool,
                     NativeTool::Rectangle
                         | NativeTool::Ellipse
+                        | NativeTool::Mosaic
                         | NativeTool::CheckMark
                         | NativeTool::CrossMark
                 ) {
@@ -3457,6 +3473,7 @@ mod platform {
                 tool,
                 NativeTool::Rectangle
                     | NativeTool::Ellipse
+                    | NativeTool::Mosaic
                     | NativeTool::CheckMark
                     | NativeTool::CrossMark
             ) =>
@@ -3780,6 +3797,7 @@ mod platform {
                     tool,
                     NativeTool::Rectangle
                         | NativeTool::Ellipse
+                        | NativeTool::Mosaic
                         | NativeTool::CheckMark
                         | NativeTool::CrossMark
                 ) {
@@ -3878,6 +3896,7 @@ mod platform {
                     tool,
                     NativeTool::Rectangle
                         | NativeTool::Ellipse
+                        | NativeTool::Mosaic
                         | NativeTool::CheckMark
                         | NativeTool::CrossMark
                 ) {
@@ -4060,6 +4079,7 @@ mod platform {
                     tool,
                     NativeTool::Rectangle
                         | NativeTool::Ellipse
+                        | NativeTool::Mosaic
                         | NativeTool::CheckMark
                         | NativeTool::CrossMark
                 ) {
@@ -4349,8 +4369,9 @@ mod platform {
                 width,
                 rotation,
                 rounded,
+                letters,
                 ..
-            } => draw_number_marker(dc, *center, *value, *color, *width, *rotation, *rounded),
+            } => draw_number_marker(dc, *center, *value, *color, *width, *rotation, *rounded, *letters),
         }
     }
 
@@ -4687,6 +4708,10 @@ mod platform {
         width: i32,
         rotation: f64,
     ) {
+        if matches!(tool, NativeTool::Mosaic) {
+            draw_mosaic(dc, start, end, width);
+            return;
+        }
         if matches!(tool, NativeTool::Arrow) {
             draw_tapered_arrow(dc, start, end, color, width.max(1));
             return;
@@ -5039,6 +5064,21 @@ mod platform {
     }
 
     /// Outline of the rounded-rectangle number badge (same bounds as the circle).
+    /// Marker label: 1, 2, 3 … or (letters) A … Z, AA, AB …
+    fn number_label(value: u32, letters: bool) -> String {
+        if !letters {
+            return value.to_string();
+        }
+        let mut n = value.max(1);
+        let mut out = Vec::new();
+        while n > 0 {
+            n -= 1;
+            out.push((b'A' + (n % 26) as u8) as char);
+            n /= 26;
+        }
+        out.iter().rev().collect()
+    }
+
     fn rounded_square_points(center: Point, radius: i32) -> Vec<WinPoint> {
         let corner = (radius as f64 * 0.42).max(3.0);
         let inner = radius as f64 - corner;
@@ -5066,6 +5106,7 @@ mod platform {
         width: i32,
         rotation: f64,
         rounded: bool,
+        letters: bool,
     ) {
         let radius = number_radius(width);
         let badge = if rounded { Some(rounded_square_points(center, radius)) } else { None };
@@ -5112,7 +5153,7 @@ mod platform {
             DeleteObject(brush);
         }
 
-        let text = value.to_string();
+        let text = number_label(value, letters);
         let digit_count = text.chars().count() as i32;
         let font_size = if digit_count >= 3 {
             radius.max(16)
@@ -5389,11 +5430,12 @@ mod platform {
         next_number: u32,
         color: COLORREF,
         rounded: bool,
+        letters: bool,
     ) -> (HCURSOR, bool) {
         let custom = match tool {
             NativeTool::Pen => create_pen_cursor(),
             NativeTool::Eraser => create_eraser_cursor(width),
-            NativeTool::Number => create_number_cursor(next_number, color, width, rounded),
+            NativeTool::Number => create_number_cursor(next_number, color, width, rounded, letters),
             NativeTool::CheckMark | NativeTool::CrossMark => {
                 create_stamp_cursor(tool, color, width)
             }
@@ -5413,7 +5455,7 @@ mod platform {
 
     unsafe fn replace_tool_cursor(state: &mut OverlayState, apply_now: bool) {
         let (cursor, owned) =
-            create_tool_cursor(state.tool, state.width, state.next_number, state.color, state.number_rounded);
+            create_tool_cursor(state.tool, state.width, state.next_number, state.color, state.number_rounded, state.number_letters);
         if cursor.0 == 0 {
             return;
         }
@@ -5560,7 +5602,7 @@ mod platform {
         })
     }
 
-    unsafe fn create_number_cursor(value: u32, color: COLORREF, width: i32, rounded: bool) -> Option<HCURSOR> {
+    unsafe fn create_number_cursor(value: u32, color: COLORREF, width: i32, rounded: bool, letters: bool) -> Option<HCURSOR> {
         let radius = number_radius(width).clamp(16, 44);
         let cursor_size = radius * 2 + 8;
         let center = cursor_size / 2;
@@ -5592,7 +5634,7 @@ mod platform {
             SelectObject(dc, old_brush);
             DeleteObject(brush);
 
-            let text = value.to_string();
+            let text = number_label(value, letters);
             let digit_count = text.chars().count();
             let font_size = if digit_count >= 3 {
                 radius.max(16)
@@ -6063,7 +6105,7 @@ mod platform {
         }
 
         fn history_marker(value: u32) -> DrawingItem {
-            DrawingItem::Number { center: Point { x: 50, y: 50 }, value, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false }
+            DrawingItem::Number { center: Point { x: 50, y: 50 }, value, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false, letters: false }
         }
 
         #[test]
@@ -6182,7 +6224,7 @@ mod platform {
         #[test]
         fn preferences_default_on_and_are_independent() {
             let mut preferences = std::collections::HashMap::new();
-            let marker = DrawingItem::Number { center: Point { x: 10, y: 20 }, value: 1, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false };
+            let marker = DrawingItem::Number { center: Point { x: 10, y: 20 }, value: 1, color: COLORREF(0), width: 5, rotation: 0.0, group: None, rounded: false, letters: false };
             let text = DrawingItem::Text { start: Point { x: 10, y: 20 }, text: "test".into(), color: COLORREF(0), width: 5, rotation: 0.0, group: None, outline: None };
             assert!(hover_edit_enabled(&preferences, &marker));
             preferences.insert("number".into(), false);
@@ -6239,6 +6281,7 @@ mod platform_stub {
         Number,
         CheckMark,
         CrossMark,
+        Mosaic,
     }
 
     impl NativeTool {
@@ -6256,6 +6299,7 @@ mod platform_stub {
                 Self::Number => "number",
                 Self::CheckMark => "check-mark",
                 Self::CrossMark => "cross-mark",
+                Self::Mosaic => "mosaic",
             }
         }
     }
@@ -6313,7 +6357,7 @@ mod platform_stub {
         pub fn set_hover_edit(&self, _preferences: std::collections::HashMap<String, bool>) {}
         pub fn set_color(&self, _color: &str) {}
         pub fn set_width(&self, _width: i32) {}
-        pub fn set_number_rounded(&self, _rounded: bool) {}
+        pub fn set_number_rounded(&self, _rounded: bool, _letters: bool) {}
         pub fn set_text_outline(&self, _color: Option<String>) {}
         pub fn clear(&self) {}
         pub fn undo(&self) {}

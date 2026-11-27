@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40 → v1.0.41 → v1.0.42 → v1.0.43 → v1.0.44 → v1.0.45 → v1.0.46 → v1.0.47 → v1.0.48）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40 → v1.0.41 → v1.0.42 → v1.0.43 → v1.0.44 → v1.0.45 → v1.0.46 → v1.0.47 → v1.0.48 → v1.0.49）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -203,3 +203,11 @@
 - 僅記憶體內保存，不寫入設定檔。
 
 - 已發佈為正式版 v1.0.48（main fast-forward，workflow_dispatch release_tag=v1.0.48）。
+
+## v1.0.49（測試版）：序號 123/ABC、馬賽克工具
+
+- 序號字母：`DrawingItem::Number` 新增 `letters: bool`（JSON 欄位 `letters`，預設 false）；`number_label(value, letters)`（native_drawing.rs）產生 1/2/3 或 A…Z、AA…；`OverlayState.number_letters`；`DrawingCommand::SetNumberStyle(rounded, letters)`；tauri 指令 `drawing_set_number_style(rounded, letters?)`。前端 store 新增 `numberLabel: "digits"|"letters"`，`drawing-toolbar-view.tsx` 新增 `number-label` 單元。
+- 馬賽克：新增 `NativeTool::Mosaic`（"mosaic"），以 `DrawingItem::Shape { tool: Mosaic }` 儲存，沿用矩形的選取／移動／縮放邏輯（各 matches! 清單已加入 Mosaic）。繪製在新檔 `drawing_mosaic.rs`（由 native_drawing.rs `include!`）：第一次開始馬賽克手勢時 `mosaic_prepare` 用 `capture_screen` 凍結該螢幕（全域 `MOSAIC_SOURCES`，座標為相對 `OverlayState.bounds`），`draw_mosaic` 依方塊大小（`width*3` 限制 6–45）取平均色、`FillRect` 填色並以 `IntersectClipRect` 裁切。沒有馬賽克物件時下一次會重新擷取；Hide 時清除。
+- 圓形選單：新增 `RADIAL_MOSAIC_SLOT = 21`，Select 扇區（index 10）分為 120–150°（框選）與 150–180°（馬賽克）；`radial_sector`、`hit`、`radial_slots`、`radial_action`、`draw_radial_icon` 已對應。
+- 前端：`DrawingTool` 加入 "mosaic"、`MosaicIcon`、i18n「馬賽克」。
+- 注意：Windows 專用程式碼無法在 Linux 編譯，需看 CI 結果。

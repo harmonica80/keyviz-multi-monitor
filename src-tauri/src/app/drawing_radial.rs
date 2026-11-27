@@ -22,10 +22,12 @@ const RADIAL_RADIUS: f64 = 78.0;
 const RADIAL_CLEAR_SLOT: usize = 12;
 // The Text sector is split in two: Text (upper half) and screenshot/pin (lower half).
 const RADIAL_SNIP_SLOT: usize = 20;
+// The Select sector is split in two: Select (lower half) and Mosaic (upper half).
+const RADIAL_MOSAIC_SLOT: usize = 21;
 
 /// Every selectable sector: the 12 tool slots, Clear and Snip.
 fn radial_slots() -> impl Iterator<Item = usize> {
-    (0..=RADIAL_CLEAR_SLOT).chain(std::iter::once(RADIAL_SNIP_SLOT))
+    (0..=RADIAL_CLEAR_SLOT).chain([RADIAL_SNIP_SLOT, RADIAL_MOSAIC_SLOT])
 }
 
 fn default_radial_colors() -> [String; 2] {
@@ -53,6 +55,9 @@ enum RadialAction {
 fn radial_action(index: usize, tools: &[NativeTool]) -> Option<RadialAction> {
     if index == RADIAL_CLEAR_SLOT { return Some(RadialAction::Clear); }
     if index == RADIAL_SNIP_SLOT { return Some(RadialAction::Snip); }
+    if index == RADIAL_MOSAIC_SLOT {
+        return Some(RadialAction::Tool(NativeTool::Mosaic)).filter(|_| tools.contains(&NativeTool::Mosaic));
+    }
     RADIAL_TOOLS.get(index).copied().filter(|tool| tools.contains(tool)).map(RadialAction::Tool)
 }
 
@@ -62,6 +67,8 @@ fn radial_sector(index: usize) -> (f64, f64) {
     match index {
         8 => (0.0, pi / 6.0),
         RADIAL_SNIP_SLOT => (pi / 6.0, pi / 6.0),
+        10 => (pi * 2.0 / 3.0, pi / 6.0),
+        RADIAL_MOSAIC_SLOT => (pi * 5.0 / 6.0, pi / 6.0),
         9 => (pi / 3.0, pi / 6.0),
         RADIAL_CLEAR_SLOT => (pi / 2.0, pi / 6.0),
         _ => ((index % 6) as f64 * pi / 3.0 - pi * 2.0 / 3.0, pi / 3.0),
@@ -475,6 +482,12 @@ impl RadialMenu {
                 .rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI * 2.0 / 3.0;
             if within >= std::f64::consts::PI / 6.0 { return Some(RADIAL_SNIP_SLOT); }
         }
+        if r >= 0.61 && sector == 4 {
+            // Upper half of the left-lower sector (150..180 degrees) is the mosaic slot.
+            let within = (y.atan2(x) + std::f64::consts::PI * 2.0 / 3.0)
+                .rem_euclid(std::f64::consts::TAU) - std::f64::consts::PI * 4.0 / 3.0;
+            if within >= std::f64::consts::PI / 6.0 { return Some(RADIAL_MOSAIC_SLOT); }
+        }
         Some(sector.min(5) + if r < 0.61 { 0 } else { 6 })
     }
 }
@@ -832,6 +845,21 @@ unsafe fn draw_radial_icon(dc: HDC, tool: NativeTool, center: Point, scale: f64,
         | NativeTool::CheckMark
         | NativeTool::CrossMark => {
             draw_antialiased_shape(dc, &tool, p(-12.0, -11.0), p(12.0, 11.0), color, width, 0.0);
+        }
+        NativeTool::Mosaic => {
+            // A 3x3 checker of little filled blocks.
+            for row in 0..3 {
+                for col in 0..3 {
+                    if (row + col) % 2 == 0 {
+                        let x = -9.0 + col as f64 * 6.0;
+                        let y = -9.0 + row as f64 * 6.0;
+                        for step in 0..3 {
+                            let yy = y + 1.2 + step as f64 * 1.8;
+                            line(p(x + 0.8, yy), p(x + 5.2, yy));
+                        }
+                    }
+                }
+            }
         }
         NativeTool::Line => line(p(-12.0, 10.0), p(12.0, -10.0)),
         NativeTool::Arrow => {

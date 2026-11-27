@@ -39,6 +39,10 @@ export const normalizeTextOutline = (value: unknown): TextOutline => {
 export type NumberStyle = "circle" | "rounded";
 export const normalizeNumberStyle = (value: unknown): NumberStyle =>
   value === "rounded" ? "rounded" : "circle";
+/** Marker text: digits (1, 2, 3) or letters (A, B, C). */
+export type NumberLabel = "digits" | "letters";
+export const normalizeNumberLabel = (value: unknown): NumberLabel =>
+  value === "letters" ? "letters" : "digits";
 // Keep the persisted field and native command name compatible with older builds.
 export type RadialStyle = DrawingThemeId;
 export const normalizeRadialStyle = normalizeDrawingTheme;
@@ -71,6 +75,8 @@ interface DrawingToolbarState {
   items: DrawingToolbarItem[];
   side: DrawingToolbarSide;
   numberStyle: NumberStyle;
+  numberLabel: NumberLabel;
+  setNumberLabel: (label: NumberLabel) => void;
   textOutline: TextOutline;
 }
 
@@ -165,6 +171,8 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
     items: DEFAULT_DRAWING_TOOLBAR_ITEMS.map((item) => ({ ...item })),
     side: DEFAULT_DRAWING_TOOLBAR_SIDE,
     numberStyle: "circle",
+    numberLabel: "digits",
+    setNumberLabel: (label) => set({ numberLabel: normalizeNumberLabel(label) }),
     textOutline: { ...DEFAULT_TEXT_OUTLINE },
     setTextOutline: (outline) => set({ textOutline: normalizeTextOutline(outline) }),
     setNumberStyle: (style) => set({ numberStyle: normalizeNumberStyle(style) }),
@@ -210,6 +218,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
           numberStyle: normalizeNumberStyle(state.numberStyle),
+          numberLabel: normalizeNumberLabel(state.numberLabel),
           textOutline: normalizeTextOutline(state.textOutline),
           hoverEdit: state.hoverEdit ?? {},
         };
@@ -230,6 +239,7 @@ const createDrawingToolbarStore = createSyncedStore<DrawingToolbarStore>(
           items: normalizeDrawingToolbarItems(state.items),
           side: normalizeDrawingToolbarSide(state.side),
           numberStyle: normalizeNumberStyle(state.numberStyle),
+          numberLabel: normalizeNumberLabel(state.numberLabel),
           textOutline: normalizeTextOutline(state.textOutline),
         };
       },

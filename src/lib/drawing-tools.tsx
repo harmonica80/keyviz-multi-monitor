@@ -24,7 +24,8 @@ export type DrawingTool =
   | "text"
   | "number"
   | "check-mark"
-  | "cross-mark";
+  | "cross-mark"
+  | "mosaic";
 
 export interface DrawingToolDefinition {
   id: DrawingTool;
@@ -65,6 +66,17 @@ const SymbolToolIcon = ({ symbol }: { symbol: string }) => (
   </svg>
 );
 
+/** Mosaic: a checker of filled blocks. */
+export const MosaicIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+    <rect x="3" y="3" width="6" height="6" />
+    <rect x="15" y="3" width="6" height="6" />
+    <rect x="9" y="9" width="6" height="6" />
+    <rect x="3" y="15" width="6" height="6" />
+    <rect x="15" y="15" width="6" height="6" />
+  </svg>
+);
+
 export const CheckMarkIcon = () => <SymbolToolIcon symbol="✓" />;
 export const CrossMarkIcon = () => <SymbolToolIcon symbol="✕" />;
 
@@ -79,6 +91,7 @@ export const DRAWING_TOOLS: DrawingToolDefinition[] = [
   { id: "ellipse", label: "Ellipse", icon: Circle, canHide: true },
   { id: "eraser", label: "Eraser", icon: Eraser, canHide: true },
   { id: "select", label: "Select Objects", icon: SquareDashedMousePointer, canHide: true },
+  { id: "mosaic", label: "Mosaic", icon: MosaicIcon, canHide: true },
   { id: "text", label: "Text", icon: Type, canHide: true },
   { id: "line", label: "Line", icon: Minus, canHide: true },
 ];

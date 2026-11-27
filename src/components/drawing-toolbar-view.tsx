@@ -5,7 +5,7 @@ import type { useOverlayProbe } from "@/lib/overlay-probe";
 import type { DrawingToolbarItem, RadialStyle } from "@/stores/drawing_toolbar";
 import { DEFAULT_TOOLBAR_COLORS } from "@/lib/radial-colors";
 import { visibleUnitCount } from "@/lib/toolbar-layout";
-import type { NumberStyle, TextOutline } from "@/stores/drawing_toolbar";
+import type { NumberLabel, NumberStyle, TextOutline } from "@/stores/drawing_toolbar";
 import { Check, EyeOff, FileJson, FolderOpen, GripHorizontal, Group, ImageDown, Keyboard, KeyboardOff, MoreHorizontal, Redo2, Undo2, RefreshCw, Settings, Trash2, X } from "lucide-react";
 import { useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode, Ref } from "react";
@@ -38,6 +38,9 @@ interface DrawingToolbarViewProps {
   /** Number marker look; the switcher appears while the number tool is active. */
   numberStyle?: NumberStyle;
   onNumberStyle?: (style: NumberStyle) => void;
+  /** Digits (123) or letters (ABC) inside the number marker. */
+  numberLabel?: NumberLabel;
+  onNumberLabel?: (label: NumberLabel) => void;
   /** Text outline option, shown while the text tool is active. */
   textOutline?: TextOutline;
   onTextOutline?: (outline: TextOutline) => void;
@@ -83,7 +86,7 @@ const noop = () => {};
 
 export function DrawingToolbarView({
   toolbarRef, shellRef, orientation = "vertical", iconScale = 1, maxMain = 0,
-  morePanel = { open: false, side: "right" }, onToggleMore, numberStyle = "circle", onNumberStyle,
+  morePanel = { open: false, side: "right" }, onToggleMore, numberStyle = "circle", onNumberStyle, numberLabel = "digits", onNumberLabel,
   textOutline = { enabled: false, color: "#000000" }, onTextOutline, onOverflowChange,
   toolbarItems, radialStyle, colors = DRAWING_TOOLBAR_COLORS, preview = false,
   tool = "pen", color = DRAWING_TOOLBAR_COLORS[0], width = 5,
@@ -257,6 +260,35 @@ export function DrawingToolbarView({
             <svg viewBox="0 0 20 20" aria-hidden="true">
               <rect x="2" y="2" width="16" height="16" rx="5" fill="currentColor" />
               <text x="10" y="14" textAnchor="middle" fontSize="11" fontWeight="600" className="drawing-number-digit">1</text>
+            </svg>
+          </button>
+        </div>
+      ),
+    });
+    units.push({
+      key: "number-label",
+      node: (
+        <div className="drawing-number-style drawing-number-label" role="group" aria-label={t("Number label")}>
+          <button
+            className={numberLabel === "digits" ? "active" : ""}
+            aria-pressed={numberLabel === "digits"}
+            title={t("Digits 123")}
+            aria-label={t("Digits 123")}
+            onClick={() => onNumberLabel?.("digits")}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <text x="10" y="14" textAnchor="middle" fontSize="9" fontWeight="700" className="drawing-number-digit">123</text>
+            </svg>
+          </button>
+          <button
+            className={numberLabel === "letters" ? "active" : ""}
+            aria-pressed={numberLabel === "letters"}
+            title={t("Letters ABC")}
+            aria-label={t("Letters ABC")}
+            onClick={() => onNumberLabel?.("letters")}
+          >
+            <svg viewBox="0 0 20 20" aria-hidden="true">
+              <text x="10" y="14" textAnchor="middle" fontSize="9" fontWeight="700" className="drawing-number-digit">ABC</text>
             </svg>
           </button>
         </div>

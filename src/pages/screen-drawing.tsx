@@ -36,7 +36,7 @@ type TextEditor = { start: Point; value: string; color: string; width: number };
 type Tool = DrawingTool;
 type Drawing =
   | { tool: "pen" | "eraser"; points: Point[]; color: string; width: number }
-  | { tool: "line" | "arrow" | "rectangle" | "ellipse" | "check-mark" | "cross-mark"; start: Point; end: Point; color: string; width: number }
+  | { tool: "line" | "arrow" | "rectangle" | "ellipse" | "check-mark" | "cross-mark" | "mosaic"; start: Point; end: Point; color: string; width: number }
   | { tool: "text"; start: Point; text: string; color: string; width: number }
   | { tool: "number"; center: Point; value: number; color: string; width: number };
 type DrawingCommand =
@@ -267,6 +267,8 @@ export default function ScreenDrawing() {
   const side = useDrawingToolbar((state) => state.side);
   const numberStyle = useDrawingToolbar((state) => state.numberStyle);
   const setNumberStyle = useDrawingToolbar((state) => state.setNumberStyle);
+  const numberLabel = useDrawingToolbar((state) => state.numberLabel);
+  const setNumberLabel = useDrawingToolbar((state) => state.setNumberLabel);
   const textOutline = useDrawingToolbar((state) => state.textOutline);
   const setTextOutline = useDrawingToolbar((state) => state.setTextOutline);
   const hoverEdit = useDrawingToolbar((state) => state.hoverEdit);
@@ -499,8 +501,8 @@ export default function ScreenDrawing() {
   // Keep the native overlay's number marker style in sync with the saved choice.
   useEffect(() => {
     if (!isToolbar) return;
-    void invoke("drawing_set_number_style", { rounded: numberStyle === "rounded" }).catch(console.error);
-  }, [isToolbar, numberStyle]);
+    void invoke("drawing_set_number_style", { rounded: numberStyle === "rounded", letters: numberLabel === "letters" }).catch(console.error);
+  }, [isToolbar, numberStyle, numberLabel]);
 
   /** Dragging ends: near the top/bottom edge of a screen the toolbar becomes horizontal. */
   const handleToolbarDrag = useCallback(async () => {
@@ -1015,6 +1017,8 @@ ${t("1. JSON file opened. Use the Select tool to move, resize or recolor objects
       morePanel={{ open: moreOpen, side: panelSide }}
       numberStyle={numberStyle}
       onNumberStyle={setNumberStyle}
+      numberLabel={numberLabel}
+      onNumberLabel={setNumberLabel}
       textOutline={textOutline}
       onTextOutline={setTextOutline}
       onToggleMore={() => void toggleMore()}
