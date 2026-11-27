@@ -4,11 +4,16 @@
 
 This is a customized Windows build based on [mulaRahul/keyviz](https://github.com/mulaRahul/keyviz). It is designed for tutorials, presentations, screen recording, and live teaching workflows, with multi-monitor support, Traditional Chinese UI, cursor highlighting, and on-screen drawing tools.
 
-## 下載最新正式版（v1.0.50）
+## 下載最新正式版（v1.0.53）
 
 **[下載 Keyviz Windows 免安裝版（keyviz-portable.exe）](https://github.com/harmonica80/keyviz-multi-monitor/releases/latest/download/keyviz-portable.exe)**
 
-目前最新正式版為 **v1.0.50**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+目前最新正式版為 **v1.0.53**（Claude 修正版）。上方連結直接下載 EXE，不必登入 GitHub，也不必從 Actions 下載測試產物。
+
+**v1.0.53** 更新內容（含 v1.0.51、v1.0.52）：
+- 序號文字改為**單一循環按鈕**（橫跨整個工具列寬度）：123 → ABC → 羅馬數字大寫（I、II、III…）→ 回到 123。
+- 文字外框色塊預設黑色、框線加深。
+- 修正循環按鈕切換後，畫面上的序號未跟著改變的問題。
 
 **v1.0.50** 更新內容（含 v1.0.49）：
 - 序號標記可選**數字 123 或字母 ABC**（與圓形／圓角矩形樣式可搭配，設定會保存）。
@@ -64,14 +69,14 @@ This is a customized Windows build based on [mulaRahul/keyviz](https://github.co
 
 **v1.0.27** 重點（穩定性與多螢幕）：低階鍵鼠 Hook 回呼瘦身、移除 40ms 快捷鍵輪詢並統一單一路徑、Esc 關閉繪圖只在繪圖中或 Keyviz 自己為前景時生效、置頂看門狗改為「被降級才重排」、支援螢幕接上／拔除時就地重建覆蓋層、設定以前端為單一真相來源、原生執行緒改事件驅動，並新增 `keyviz.log` 診斷記錄。
 
-- [v1.0.50 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.50)
-- [v1.0.50 更新說明檔](release-notes-v1.0.50.md)、[v1.0.49](release-notes-v1.0.49.md)、[v1.0.48](release-notes-v1.0.48.md)、[v1.0.47](release-notes-v1.0.47.md)、[v1.0.46](release-notes-v1.0.46.md)、[v1.0.45](release-notes-v1.0.45.md)、[v1.0.42](release-notes-v1.0.42.md)、[v1.0.36](release-notes-v1.0.36.md)、[v1.0.35](release-notes-v1.0.35.md)、[v1.0.34](release-notes-v1.0.34.md)、[v1.0.33](release-notes-v1.0.33.md)、[v1.0.32](release-notes-v1.0.32.md)、[v1.0.31](release-notes-v1.0.31.md)、[v1.0.30](release-notes-v1.0.30.md)、[v1.0.29](release-notes-v1.0.29.md)、[v1.0.28](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
+- [v1.0.53 正式版與更新說明](https://github.com/harmonica80/keyviz-multi-monitor/releases/tag/v1.0.53)
+- [v1.0.53 更新說明檔](release-notes-v1.0.53.md)、[v1.0.52](release-notes-v1.0.52.md)、[v1.0.51](release-notes-v1.0.51.md)、[v1.0.50](release-notes-v1.0.50.md)、[v1.0.49](release-notes-v1.0.49.md)、[v1.0.48](release-notes-v1.0.48.md)、[v1.0.47](release-notes-v1.0.47.md)、[v1.0.46](release-notes-v1.0.46.md)、[v1.0.45](release-notes-v1.0.45.md)、[v1.0.42](release-notes-v1.0.42.md)、[v1.0.36](release-notes-v1.0.36.md)、[v1.0.35](release-notes-v1.0.35.md)、[v1.0.34](release-notes-v1.0.34.md)、[v1.0.33](release-notes-v1.0.33.md)、[v1.0.32](release-notes-v1.0.32.md)、[v1.0.31](release-notes-v1.0.31.md)、[v1.0.30](release-notes-v1.0.30.md)、[v1.0.29](release-notes-v1.0.29.md)、[v1.0.28](release-notes-v1.0.28.md)、[v1.0.27 更新說明檔](release-notes-v1.0.27.md)
 - [修正檔案與交接說明（handoff.md）](handoff.md)
-- [v1.0.50 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.50)
-- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.50`。
+- [v1.0.53 對應原始碼](https://github.com/harmonica80/keyviz-multi-monitor/tree/v1.0.53)
+- 更新前請先結束舊版，再執行下載的 `keyviz-portable.exe`，並確認標題列顯示 `v1.0.53`。
 - 發生異常時，診斷記錄位於應用程式日誌資料夾下的 `keyviz.log`，回報問題時請一併附上。
 
-The latest stable release is **v1.0.50**; the direct EXE download above needs no GitHub sign-in. v1.0.49/v1.0.50 add number markers in letters (ABC) or digits (123) and a mosaic tool (also a Mosaic slot in the circular menu). v1.0.48 restores the last used drawing tool when re-entering drawing mode with F8. v1.0.47 makes 2/3 the default toolbar icon size. v1.0.46 also scales the toolbar color swatches with the icon size setting. v1.0.45 let the drawing toolbar open at the top or bottom of the screen (horizontal), adds a rounded-rectangle style for number markers and an optional outline (default black) for text. v1.0.42 added screenshot-and-pin sticky notes (toolbar button and radial menu) and a toolbar that adapts to small screens and large system fonts (horizontal near the top/bottom edge, icon size 2/3 or 1/2, overflow "…" panel at 3/4 of the screen), and fixes the blank strip under the vertical toolbar and the occasional "cannot add objects" state. v1.0.36 made the magnifier live (videos keep playing; draw while zoomed; with the pointer tool the computer stays usable, Ctrl+wheel zooms; the view glides only near the edges), saves the screen(s) that have drawings (asking when several do), never captures the mouse highlight circle, and adds a 12-color preset picker in settings. v1.0.33 added a ZoomIt-style screen magnifier (F6 or the toolbar button; wheel to zoom, move the mouse to pan, F6/Esc/right-click to leave), four configurable toolbar colors, and a toolbar check mark that follows the selected object's color. v1.0.32 fixed Ctrl+Z undo / Ctrl+Shift+Z redo sometimes not responding while drawing. v1.0.29–v1.0.31 added saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit) and right Alt + right-click for the radial menu. Exit the old version before running the new EXE and confirm `v1.0.42` in the title bar. See [release-notes-v1.0.42.md](release-notes-v1.0.42.md) and [handoff.md](handoff.md).
+The latest stable release is **v1.0.53** (number markers cycle 123 → ABC → Roman numerals with one full-width button); the direct EXE download above needs no GitHub sign-in. v1.0.49/v1.0.50 add number markers in letters (ABC) or digits (123) and a mosaic tool (also a Mosaic slot in the circular menu). v1.0.48 restores the last used drawing tool when re-entering drawing mode with F8. v1.0.47 makes 2/3 the default toolbar icon size. v1.0.46 also scales the toolbar color swatches with the icon size setting. v1.0.45 let the drawing toolbar open at the top or bottom of the screen (horizontal), adds a rounded-rectangle style for number markers and an optional outline (default black) for text. v1.0.42 added screenshot-and-pin sticky notes (toolbar button and radial menu) and a toolbar that adapts to small screens and large system fonts (horizontal near the top/bottom edge, icon size 2/3 or 1/2, overflow "…" panel at 3/4 of the screen), and fixes the blank strip under the vertical toolbar and the occasional "cannot add objects" state. v1.0.36 made the magnifier live (videos keep playing; draw while zoomed; with the pointer tool the computer stays usable, Ctrl+wheel zooms; the view glides only near the edges), saves the screen(s) that have drawings (asking when several do), never captures the mouse highlight circle, and adds a 12-color preset picker in settings. v1.0.33 added a ZoomIt-style screen magnifier (F6 or the toolbar button; wheel to zoom, move the mouse to pan, F6/Esc/right-click to leave), four configurable toolbar colors, and a toolbar check mark that follows the selected object's color. v1.0.32 fixed Ctrl+Z undo / Ctrl+Shift+Z redo sometimes not responding while drawing. v1.0.29–v1.0.31 added saving the screen as PNG or JSON (date+sequence file names, reopen JSON to edit) and right Alt + right-click for the radial menu. Exit the old version before running the new EXE and confirm `v1.0.42` in the title bar. See [release-notes-v1.0.42.md](release-notes-v1.0.42.md) and [handoff.md](handoff.md).
 
 ## v1.0.26：一致預覽與自訂圓形選單顏色
 

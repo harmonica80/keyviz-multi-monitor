@@ -218,15 +218,17 @@
 
 - 已發佈為正式版 v1.0.50（含 v1.0.49 的序號 123/ABC 與馬賽克；main fast-forward，workflow_dispatch release_tag=v1.0.50）。
 
-## v1.0.51（測試版）：序號文字循環按鈕（123→ABC→羅馬）、外框色塊
+## v1.0.51（正式版）：序號文字循環按鈕（123→ABC→羅馬）、外框色塊
 
 - `DrawingItem::Number.letters: bool` 改為 `label: u8`（0/1/2），`number_label` 新增 `roman_numeral`；`drawing_set_number_style(rounded, label?: u8)`；JSON `label`（相容舊 `letters`）。前端 `NumberLabel = "digits"|"letters"|"roman"`，`drawing-toolbar-view.tsx` 改為單一循環按鈕。
 - store version 14：舊版外框色（原預設白）migrate 時重設為黑；`.drawing-outline-swatch` 框線 1.5px rgb(0 0 0 / 60%)，disabled 不透明度 0.55。
 
-## v1.0.52（測試版）：序號文字循環按鈕加寬
+## v1.0.52（正式版）：序號文字循環按鈕加寬
 
 - App.css：`.drawing-unit > .drawing-number-label` 寬度 100%，按鈕與 svg 填滿；`drawing-toolbar-view.tsx` 的 svg viewBox 改 42x24、字級 16。
 
-## v1.0.53（測試版）：修正序號文字模式未傳到繪圖端
+## v1.0.53（正式版）：修正序號文字模式未傳到繪圖端
 
 - 前端 `screen-drawing.tsx` 呼叫 `drawing_set_number_style` 仍傳 `letters`（v1.0.51 後端改為 `label: Option<u8>`，Tauri 以 camelCase 對應，未知欄位被忽略而一律為 0）。改傳 `label`（0 數字／1 字母／2 羅馬）。注意：Tauri 指令改參數名時前端必須同步。
+
+- 已發佈為正式版 v1.0.53（含 v1.0.51、v1.0.52；main fast-forward，workflow_dispatch release_tag=v1.0.53）。
