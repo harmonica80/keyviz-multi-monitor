@@ -33,6 +33,7 @@ on:
       - claude-fix-1.0.49
       - claude-fix-1.0.50
       - claude-fix-1.0.51
+      - claude-fix-1.0.52
       - claude-fix-1.0.29
       - claude-fix-1.0.30
       - claude-fix-1.0.31

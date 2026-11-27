@@ -276,8 +276,8 @@ export function DrawingToolbarView({
               onNumberLabel?.(numberLabel === "digits" ? "letters" : numberLabel === "letters" ? "roman" : "digits")
             }
           >
-            <svg viewBox="0 0 34 20" aria-hidden="true">
-              <text x="17" y="14" textAnchor="middle" fontSize="11" fontWeight="700" className="drawing-number-digit">
+            <svg viewBox="0 0 42 24" aria-hidden="true">
+              <text x="21" y="17.5" textAnchor="middle" fontSize="16" fontWeight="700" className="drawing-number-digit">
                 {numberLabel === "digits" ? "123" : numberLabel === "letters" ? "ABC" : "I II"}
               </text>
             </svg>
