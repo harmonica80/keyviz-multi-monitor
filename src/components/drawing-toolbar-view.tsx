@@ -277,7 +277,7 @@ export function DrawingToolbarView({
             onClick={() => onNumberLabel?.("digits")}
           >
             <svg viewBox="0 0 20 20" aria-hidden="true">
-              <text x="10" y="14" textAnchor="middle" fontSize="9" fontWeight="700" className="drawing-number-digit">123</text>
+              <text x="10" y="14" textAnchor="middle" fontSize="8" fontWeight="700" className="drawing-number-digit">123</text>
             </svg>
           </button>
           <button
@@ -288,7 +288,7 @@ export function DrawingToolbarView({
             onClick={() => onNumberLabel?.("letters")}
           >
             <svg viewBox="0 0 20 20" aria-hidden="true">
-              <text x="10" y="14" textAnchor="middle" fontSize="9" fontWeight="700" className="drawing-number-digit">ABC</text>
+              <text x="10" y="14" textAnchor="middle" fontSize="8" fontWeight="700" className="drawing-number-digit">ABC</text>
             </svg>
           </button>
         </div>

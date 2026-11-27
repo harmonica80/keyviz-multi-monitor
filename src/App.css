@@ -686,7 +686,10 @@ html.drawing-toolbar-page body {
 
 .drawing-number-style button {
   display: flex;
-  height: 28px;
+  height: 24px;
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
@@ -732,6 +735,11 @@ body,
 
 .drawing-number-style .drawing-number-digit { fill: var(--tool-fill, #fff); }
 .drawing-number-style button.active .drawing-number-digit { fill: var(--tool-accent); }
+
+/* 123 / ABC: plain text in the ink colour; the selected one only changes its background. */
+.drawing-number-label button svg { width: 20px; height: 20px; opacity: 1; }
+.drawing-number-label .drawing-number-digit,
+.drawing-number-label button.active .drawing-number-digit { fill: currentColor; }
 
 .drawing-unit > .drawing-text-outline {
   display: grid;

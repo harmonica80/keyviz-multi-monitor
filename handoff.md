@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40 → v1.0.41 → v1.0.42 → v1.0.43 → v1.0.44 → v1.0.45 → v1.0.46 → v1.0.47 → v1.0.48 → v1.0.49）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40 → v1.0.41 → v1.0.42 → v1.0.43 → v1.0.44 → v1.0.45 → v1.0.46 → v1.0.47 → v1.0.48 → v1.0.49 → v1.0.50）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -211,3 +211,7 @@
 - 圓形選單：新增 `RADIAL_MOSAIC_SLOT = 21`，Select 扇區（index 10）分為 120–150°（框選）與 150–180°（馬賽克）；`radial_sector`、`hit`、`radial_slots`、`radial_action`、`draw_radial_icon` 已對應。
 - 前端：`DrawingTool` 加入 "mosaic"、`MosaicIcon`、i18n「馬賽克」。
 - 注意：Windows 專用程式碼無法在 Linux 編譯，需看 CI 結果。
+
+## v1.0.50（測試版）：序號選項列高度與 123/ABC 文字色
+
+- App.css：`.drawing-number-style button` 高度 24px 並設 `min-height:0; min-width:0; padding:0`（先前被全域按鈕最小高度撐高）；`.drawing-number-label` 的文字 `fill: currentColor`（原本用白色 fill，在淺色工具列上看不見），選取狀態僅改底色。
