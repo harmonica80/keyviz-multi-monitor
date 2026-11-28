@@ -236,6 +236,30 @@ export const DrawingToolbarSettings = () => {
         </ItemContent>
       </Item>
 
+      <h2 className="text-lg font-semibold">{t("Drawing Theme")}</h2>
+      <Item variant="muted">
+        <ItemContent>
+          <ItemDescription>{t("Use one theme for the toolbar and circular menu. Default: 01 Pearl. Drawing colors are unchanged.")}</ItemDescription>
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3" role="group" aria-label={t("Drawing Theme")}>
+            {DRAWING_THEMES.map(({ id, label }) => (
+              <button
+                key={id}
+                type="button"
+                aria-pressed={radialStyle === id}
+                onClick={() => setRadialStyle(id as RadialStyle)}
+                className={`radial-style-card rounded-lg border p-3 text-sm transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-primary ${radialStyle === id ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-background"}`}
+              >
+                <RadialStylePreview style={id as RadialStyle} />
+                <span className="mt-2 flex items-center justify-center gap-1">
+                  {t(label)}
+                  {radialStyle === id && <Check className="size-3" aria-hidden="true" />}
+                </span>
+              </button>
+            ))}
+          </div>
+        </ItemContent>
+      </Item>
+
       <h2 className="text-lg font-semibold">{t("Circular Menu Settings")}</h2>
       <Item variant="muted">
         <ItemContent>
@@ -267,33 +291,9 @@ export const DrawingToolbarSettings = () => {
         </ItemContent>
       </Item>
 
+      <h2 className="text-lg font-semibold">{t("Customize Drawing Tools")}</h2>
       <Item variant="muted">
         <ItemContent>
-          <ItemTitle>{t("Drawing Theme")}</ItemTitle>
-          <ItemDescription>{t("Use one theme for the toolbar and circular menu. Default: 01 Pearl. Drawing colors are unchanged.")}</ItemDescription>
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3" role="group" aria-label={t("Drawing Theme")}>
-            {DRAWING_THEMES.map(({ id, label }) => (
-              <button
-                key={id}
-                type="button"
-                aria-pressed={radialStyle === id}
-                onClick={() => setRadialStyle(id as RadialStyle)}
-                className={`radial-style-card rounded-lg border p-3 text-sm transition-colors hover:border-primary focus-visible:outline-2 focus-visible:outline-primary ${radialStyle === id ? "border-primary bg-primary/5 ring-1 ring-primary" : "bg-background"}`}
-              >
-                <RadialStylePreview style={id as RadialStyle} />
-                <span className="mt-2 flex items-center justify-center gap-1">
-                  {t(label)}
-                  {radialStyle === id && <Check className="size-3" aria-hidden="true" />}
-                </span>
-              </button>
-            ))}
-          </div>
-        </ItemContent>
-      </Item>
-
-      <Item variant="muted">
-        <ItemContent>
-          <ItemTitle>{t("Customize Drawing Tools")}</ItemTitle>
           <ItemDescription>
             {t("Drag the rows or use the arrow buttons to change their order.")}
           </ItemDescription>

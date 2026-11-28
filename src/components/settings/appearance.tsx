@@ -12,6 +12,7 @@ import { ComputerIcon, KeyframesDoubleIcon, KeyframesDoubleRemoveIcon, Link02Ico
 import { HugeiconsIcon } from "@hugeicons/react";
 import { availableMonitors, Monitor, primaryMonitor } from "@tauri-apps/api/window";
 import { useTranslation } from "@/lib/i18n";
+import { AccordionSection, useAccordion } from "./accordion";
 
 const monitorIdentifier = (monitor: Monitor) =>
     monitor.name ?? `position:${monitor.position.x},${monitor.position.y}`;
@@ -36,10 +37,12 @@ export const AppearanceSettings = () => {
         });
     }, []);
 
+    const accordion = useAccordion("Position");
+
     return <div className="flex flex-col gap-y-4 p-6">
         <h1 className="text-xl font-semibold">{t("Appearance")}</h1>
 
-        <h2 className="text-sm text-muted-foreground font-medium">{t("Position")}</h2>
+        <AccordionSection title={t("Position")} open={accordion.isOpen("Position")} onOpenChange={(open) => accordion.setOpen("Position", open)}>
         {
             monitors.length > 1 &&
             <Item variant="muted">
@@ -145,7 +148,9 @@ export const AppearanceSettings = () => {
             </ItemActions>
         </Item>
 
-        <h2 className="text-sm text-muted-foreground font-medium">{t("Animation")}</h2>
+        </AccordionSection>
+
+        <AccordionSection title={t("Animation")} open={accordion.isOpen("Animation")} onOpenChange={(open) => accordion.setOpen("Animation", open)}>
         <Item variant="muted">
             <ItemContent>
                 <ItemTitle>
@@ -210,5 +215,6 @@ export const AppearanceSettings = () => {
                 />
             </ItemActions>
         </Item>
+        </AccordionSection>
     </div>;
 }

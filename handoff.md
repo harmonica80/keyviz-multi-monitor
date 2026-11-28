@@ -1,4 +1,4 @@
-# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40 → v1.0.41 → v1.0.42 → v1.0.43 → v1.0.44 → v1.0.45 → v1.0.46 → v1.0.47 → v1.0.48 → v1.0.49 → v1.0.50 → v1.0.51 → v1.0.52 → v1.0.53）
+# Handoff：Claude 修正記錄（v1.0.26 → v1.0.27 → v1.0.28 → v1.0.29 → v1.0.30 → v1.0.31 → v1.0.32 → v1.0.33 → v1.0.34 → v1.0.35 → v1.0.36 → v1.0.37 → v1.0.38 → v1.0.39 → v1.0.40 → v1.0.41 → v1.0.42 → v1.0.43 → v1.0.44 → v1.0.45 → v1.0.46 → v1.0.47 → v1.0.48 → v1.0.49 → v1.0.50 → v1.0.51 → v1.0.52 → v1.0.53 → v1.0.54）
 
 給後續接手的 ChatGPT / 其他 AI / 開發者。本文件記錄 Claude 對本專案做了哪些修改、改了哪些檔案、哪些刻意沒改、驗證到什麼程度。
 詳細敘述見 `release-notes-v1.0.27.md`；已知議題見 `KNOWN_ISSUES.md`。
@@ -232,3 +232,9 @@
 - 前端 `screen-drawing.tsx` 呼叫 `drawing_set_number_style` 仍傳 `letters`（v1.0.51 後端改為 `label: Option<u8>`，Tauri 以 camelCase 對應，未知欄位被忽略而一律為 0）。改傳 `label`（0 數字／1 字母／2 羅馬）。注意：Tauri 指令改參數名時前端必須同步。
 
 - 已發佈為正式版 v1.0.53（含 v1.0.51、v1.0.52；main fast-forward，workflow_dispatch release_tag=v1.0.53）。
+
+## v1.0.54（測試版）：托盤選單、設定頁整理、寶藍主題
+
+- 托盤選單（lib.rs / commands.rs / state.rs）：`toggle` 文字為「停止顯示鍵盤按鍵／顯示鍵盤按鍵」（`toggle_listener`、`set_tray_locale`、初始化三處）；原 `drawing` 項目（`TrayMenuItems.drawing`，id 改 `cursor-highlight`）為游標醒目效果切換，文字由 `cursor_highlight_label(is_chinese, active)` 決定，`commands::toggle_cursor_highlight` 翻轉 `cursor_keep_highlight`、呼叫 `set_cursor_settings` 並 emit `cursor-highlight-changed`，`pages/settings.tsx` 監聽後更新 `useKeyStyle.mouse.keepHighlight`；設定項目文字為「開啟設定視窗」。`set_cursor_settings` 結尾會更新托盤文字。
+- 設定頁：新增 `components/settings/accordion.tsx`（`useAccordion` 一次只展開一個、`AccordionSection` 含箭頭）；`keycap.tsx`（預設展開 Preset）與 `appearance.tsx`（預設展開 Position）使用；`PresetColorPicker` 色塊 `h-3.5 w-6`；`drawing-toolbar.tsx` 的「繪圖工具主題」「自訂繪圖工具」各有 h2 標題，主題區塊移到圓形選單設定之前。
+- 主題 `ocean`（id 不變）改為 Royal Blue：fill #1e62d8、accent #e8f0ff、selectedInk #1e62d8、divider #6b98e6（drawing-themes.json 前後端共用）；i18n「03 Royal Blue」→「03 寶藍色」。

@@ -229,9 +229,9 @@ impl AppState {
             if listening {
                 println!("Listening enabled");
                 let _ = toggle.set_text(if is_chinese {
-                    "\u{505c}\u{6b62}\u{986f}\u{793a}"
+                    "\u{505c}\u{6b62}\u{986f}\u{793a}\u{9375}\u{76e4}\u{6309}\u{9375}"
                 } else {
-                    "Stop"
+                    "Stop Key Display"
                 });
                 if let Some(tray) = app_handle.tray_by_id("keyviz-tray") {
                     let _ = tray.set_icon(Some(Image::from(include_image!("icons/tray.png"))));
@@ -239,9 +239,9 @@ impl AppState {
             } else {
                 println!("Listening disabled");
                 let _ = toggle.set_text(if is_chinese {
-                    "\u{958b}\u{59cb}\u{986f}\u{793a}"
+                    "\u{986f}\u{793a}\u{9375}\u{76e4}\u{6309}\u{9375}"
                 } else {
-                    "Start"
+                    "Show Key Display"
                 });
                 if let Some(tray) = app_handle.tray_by_id("keyviz-tray") {
                     let _ =

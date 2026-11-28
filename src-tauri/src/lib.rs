@@ -656,6 +656,15 @@ fn toggle_key_display(app: AppHandle) -> Result<bool, String> {
     Ok(app_state.listening)
 }
 
+pub(crate) fn cursor_highlight_label(is_chinese: bool, active: bool) -> &'static str {
+    match (is_chinese, active) {
+        (true, true) => "\u{505c}\u{6b62}\u{6e38}\u{6a19}\u{9192}\u{76ee}\u{6548}\u{679c}",
+        (true, false) => "\u{986f}\u{793a}\u{6e38}\u{6a19}\u{9192}\u{76ee}\u{6548}\u{679c}",
+        (false, true) => "Stop Cursor Highlight",
+        (false, false) => "Show Cursor Highlight",
+    }
+}
+
 fn show_drawing_toolbar_label(is_chinese: bool) -> &'static str {
     if is_chinese {
         "\u{986f}\u{793a}\u{7e6a}\u{5716}\u{5de5}\u{5177}\u{5217}"
@@ -1191,9 +1200,9 @@ pub fn run() {
                 app,
                 "toggle",
                 if is_chinese {
-                    "\u{505c}\u{6b62}\u{986f}\u{793a}"
+                    "\u{505c}\u{6b62}\u{986f}\u{793a}\u{9375}\u{76e4}\u{6309}\u{9375}"
                 } else {
-                    "Stop"
+                    "Stop Key Display"
                 },
                 true,
                 None::<&str>,
@@ -1202,21 +1211,23 @@ pub fn run() {
                 app,
                 "settings",
                 if is_chinese {
-                    "\u{8a2d}\u{5b9a}"
+                    "\u{958b}\u{555f}\u{8a2d}\u{5b9a}\u{8996}\u{7a97}"
                 } else {
-                    "Settings"
+                    "Open Settings"
                 },
                 true,
                 None::<&str>,
             )?;
             let drawing_item = MenuItem::with_id(
                 app,
-                "drawing",
-                if is_chinese {
-                    "\u{87a2}\u{5e55}\u{7e6a}\u{5716}"
-                } else {
-                    "Screen Drawing"
-                },
+                "cursor-highlight",
+                cursor_highlight_label(
+                    is_chinese,
+                    app.state::<Mutex<AppState>>()
+                        .lock()
+                        .map(|state| state.cursor_keep_highlight)
+                        .unwrap_or(true),
+                ),
                 true,
                 None::<&str>,
             )?;
@@ -1268,9 +1279,9 @@ pub fn run() {
                     "settings" => {
                         show_settings_window(app);
                     }
-                    "drawing" => {
-                        if let Err(error) = show_drawing_window(app) {
-                            record_error(format!("Failed to open screen drawing: {error}"));
+                    "cursor-highlight" => {
+                        if let Err(error) = app::commands::toggle_cursor_highlight(app) {
+                            record_error(format!("Failed to toggle cursor highlight: {error}"));
                         }
                     }
                     "show-drawing-toolbar" => {

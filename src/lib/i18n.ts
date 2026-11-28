@@ -14,7 +14,7 @@ const zhTW: Record<string, string> = {
   "Use one theme for the toolbar and circular menu. Default: 01 Pearl. Drawing colors are unchanged.": "統一套用於工具列與圓形選單，預設為 01 珍珠白。主題不會改變繪圖顏色。",
   "01 Pearl": "01 珍珠白",
   "02 Graphite": "02 石墨黑",
-  "03 Ocean": "03 深海藍",
+  "03 Royal Blue": "03 寶藍色",
   "04 Butter Yellow": "04 鵝黃色",
   "05 Bright Orange": "05 亮橘色",
   "06 Sand": "06 暖沙色",

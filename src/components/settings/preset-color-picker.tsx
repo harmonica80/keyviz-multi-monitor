@@ -31,7 +31,7 @@ export const PresetColorPicker = ({ value, onChange, label }: PresetColorPickerP
             type="button"
             aria-label={label}
             title={label}
-            className="h-7 w-12 cursor-pointer rounded border"
+            className="h-3.5 w-6 cursor-pointer rounded border"
             style={{ backgroundColor: value }}
           />
         </PopoverTrigger>

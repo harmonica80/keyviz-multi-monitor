@@ -10,6 +10,7 @@ import { LocaleToggle } from "@/components/locale-toggle";
 import { useAppVersion } from "@/lib/app-version";
 import { useTranslation } from "@/lib/i18n";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { SidebarItem } from "@/components/ui/sidebar-item";
@@ -101,6 +102,16 @@ const Settings = () => {
         });
         return () => {
             cancelled = true;
+        };
+    }, []);
+
+    // The tray menu can switch the cursor highlight; keep the stored setting (and its switch) in step.
+    useEffect(() => {
+        const unlisten = listen<boolean>("cursor-highlight-changed", (event) => {
+            useKeyStyle.getState().setMouse({ keepHighlight: event.payload });
+        });
+        return () => {
+            void unlisten.then((fn) => fn());
         };
     }, []);
 

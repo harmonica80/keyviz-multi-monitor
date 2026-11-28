@@ -96,29 +96,25 @@ pub fn set_tray_locale(app: tauri::AppHandle, locale: String) -> Result<(), Stri
     tray.toggle
         .set_text(if app_state.listening {
             if is_chinese {
-                "\u{505c}\u{6b62}\u{986f}\u{793a}"
+                "\u{505c}\u{6b62}\u{986f}\u{793a}\u{9375}\u{76e4}\u{6309}\u{9375}"
             } else {
-                "Stop"
+                "Stop Key Display"
             }
         } else if is_chinese {
-            "\u{958b}\u{59cb}\u{986f}\u{793a}"
+            "\u{986f}\u{793a}\u{9375}\u{76e4}\u{6309}\u{9375}"
         } else {
-            "Start"
+            "Show Key Display"
         })
         .map_err(|error| error.to_string())?;
     tray.settings
         .set_text(if is_chinese {
-            "\u{8a2d}\u{5b9a}"
+            "\u{958b}\u{555f}\u{8a2d}\u{5b9a}\u{8996}\u{7a97}"
         } else {
-            "Settings"
+            "Open Settings"
         })
         .map_err(|error| error.to_string())?;
     tray.drawing
-        .set_text(if is_chinese {
-            "\u{87a2}\u{5e55}\u{7e6a}\u{5716}"
-        } else {
-            "Screen Drawing"
-        })
+        .set_text(crate::cursor_highlight_label(is_chinese, app_state.cursor_keep_highlight))
         .map_err(|error| error.to_string())?;
     tray.quit
         .set_text(if is_chinese {
@@ -199,7 +195,30 @@ pub fn set_cursor_settings(
     let mut app_state = state.lock().map_err(|error| error.to_string())?;
     app_state.cursor_window_visible = visible;
     app_state.cursor_update_pending = false;
+    let is_chinese = app_state.locale == "zh-TW";
+    drop(app_state);
+    if let Some(tray) = app.try_state::<TrayMenuItems>() {
+        let _ = tray.drawing.set_text(crate::cursor_highlight_label(is_chinese, keep_highlight));
+    }
 
+    Ok(())
+}
+
+/// Tray action: flips the cursor highlight and tells the settings page so its switch follows.
+pub fn toggle_cursor_highlight(app: &tauri::AppHandle) -> Result<(), String> {
+    let (keep, size, color, opacity, thickness) = {
+        let state = app.state::<Mutex<AppState>>();
+        let app_state = state.lock().map_err(|error| error.to_string())?;
+        (
+            !app_state.cursor_keep_highlight,
+            app_state.cursor_size,
+            app_state.cursor_color.clone(),
+            app_state.cursor_opacity,
+            app_state.cursor_thickness,
+        )
+    };
+    set_cursor_settings(app.clone(), keep, size, color, opacity, thickness)?;
+    let _ = tauri::Emitter::emit(app, "cursor-highlight-changed", keep);
     Ok(())
 }
 

@@ -12,7 +12,7 @@ import { KeyStyleState, useKeyStyle } from "@/stores/key_style";
 import { AlignHorizontalCenterIcon, AlignLeftIcon, AlignRightIcon, Download01Icon, PaintBoardIcon, Refresh01Icon, Upload01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "../ui/dropdown-menu";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible";
+import { AccordionSection, useAccordion } from "./accordion";
 import { useTranslation } from "@/lib/i18n";
 import { ModernKeyPreview, modernKeycapThemes } from "@/components/keycaps/modern";
 import type { KeycapStyle } from "@/stores/key_style";
@@ -116,6 +116,7 @@ const modernStyles = Object.keys(modernKeycapThemes) as KeycapStyle[];
 
 export const KeycapSettings = () => {
     const { t } = useTranslation();
+    const accordion = useAccordion("Preset");
     const appearance = useKeyStyle(state => state.appearance);
     const setAppearance = useKeyStyle(state => state.setAppearance);
 
@@ -177,7 +178,7 @@ export const KeycapSettings = () => {
     return <div className="flex flex-col p-6 gap-y-4">
         <h1 className="text-xl font-semibold">{t("Keycap")}</h1>
 
-        <h2 className="text-sm text-muted-foreground font-medium">{t("Preset")}</h2>
+        <AccordionSection title={t("Preset")} open={accordion.isOpen("Preset")} onOpenChange={(open) => accordion.setOpen("Preset", open)}>
         <div className="flex flex-col overflow-hidden rounded-xl border bg-background">
             {modernStyles.map((style) => {
                 const selected = appearance.style === style;
@@ -246,11 +247,9 @@ export const KeycapSettings = () => {
             </ItemActions>
         </Item>
 
-        <Collapsible defaultOpen={true}>
-            <CollapsibleTrigger>
-                <h2 className="text-sm text-muted-foreground font-medium">{t("Text")}</h2>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="flex flex-col gap-y-4 pt-4">
+        </AccordionSection>
+
+        <AccordionSection title={t("Text")} open={accordion.isOpen("Text")} onOpenChange={(open) => accordion.setOpen("Text", open)}>
                 <ItemGrid className="md:grid-cols-[240px_1fr]">
                     <AlignmentSelector
                         value={text.alignment}
@@ -333,14 +332,9 @@ export const KeycapSettings = () => {
                         </Item>
                     }
                 </ItemGrid>
-            </CollapsibleContent>
-        </Collapsible>
+            </AccordionSection>
 
-        <Collapsible>
-            <CollapsibleTrigger>
-                <h2 className="text-sm text-muted-foreground font-medium">{t("Layout")}</h2>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="flex flex-col gap-y-4 pt-4">
+        <AccordionSection title={t("Layout")} open={accordion.isOpen("Layout")} onOpenChange={(open) => accordion.setOpen("Layout", open)}>
                 <ItemGrid>
                     <Item variant="muted">
                         <ItemContent>
@@ -406,15 +400,10 @@ export const KeycapSettings = () => {
                         </ItemActions>
                     </Item>
                 }
-            </CollapsibleContent>
-        </Collapsible>
+            </AccordionSection>
 
         {
-            <Collapsible>
-                <CollapsibleTrigger>
-                    <h2 className="text-sm text-muted-foreground font-medium">{t("Color")}</h2>
-                </CollapsibleTrigger>
-                <CollapsibleContent className="flex flex-col gap-y-4 pt-4">
+            <AccordionSection title={t("Color")} open={accordion.isOpen("Color")} onOpenChange={(open) => accordion.setOpen("Color", open)}>
                     <Item variant="muted">
                         <ItemContent>
                             <ItemTitle>{t("Highlight Modifier")}</ItemTitle>
@@ -495,15 +484,10 @@ export const KeycapSettings = () => {
                                 }
                             </>
                     }
-                </CollapsibleContent>
-            </Collapsible>
+                </AccordionSection>
         }
 
-        <Collapsible>
-            <CollapsibleTrigger>
-                <h2 className="text-sm text-muted-foreground font-medium">{t("Border")}</h2>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="flex flex-col gap-y-4 pt-4">
+        <AccordionSection title={t("Border")} open={accordion.isOpen("Border")} onOpenChange={(open) => accordion.setOpen("Border", open)}>
                 <ItemGrid>
                     <Item variant="muted">
                         <ItemContent className="min-h-6 h-full justify-center">
@@ -572,14 +556,9 @@ export const KeycapSettings = () => {
                         <Label htmlFor="borderRadius" className="w-[4ch] font-mono text-right">{(border.radius * 100).toFixed(0)}%</Label>
                     </ItemActions>
                 </Item>
-            </CollapsibleContent>
-        </Collapsible>
+            </AccordionSection>
 
-        <Collapsible>
-            <CollapsibleTrigger>
-                <h2 className="text-sm text-muted-foreground font-medium">{t("Background")}</h2>
-            </CollapsibleTrigger>
-            <CollapsibleContent className="flex flex-col gap-y-4 pt-4">
+        <AccordionSection title={t("Background")} open={accordion.isOpen("Background")} onOpenChange={(open) => accordion.setOpen("Background", open)}>
                 <ItemGrid>
                     <Item variant="muted">
                         <ItemContent className="min-h-6 h-full justify-center">
@@ -598,7 +577,6 @@ export const KeycapSettings = () => {
                         </ItemActions>
                     </Item>
                 </ItemGrid>
-            </CollapsibleContent>
-        </Collapsible>
+            </AccordionSection>
     </div>;
 }
